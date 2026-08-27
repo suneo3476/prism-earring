@@ -1,0 +1,12 @@
+{
+  "stage": "units-generation",
+  "upstream_ids": ["US1.1", "US1.2", "US1.3", "US1.4", "US2.1", "US2.2"],
+  "coverage": [
+    { "id": "US1.1", "status": "OK", "target": "U3" },
+    { "id": "US1.2", "status": "OK", "target": "U3" },
+    { "id": "US1.3", "status": "OK", "target": "U3" },
+    { "id": "US1.4", "status": "OK", "target": "U3" },
+    { "id": "US2.1", "status": "OK", "target": "U1" },
+    { "id": "US2.2", "status": "OK", "target": "U2" }
+  ]
+}

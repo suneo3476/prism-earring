@@ -1,9 +1,4 @@
-# Team-Level Rules
-
-> This team's affirmed practices and corrections. Loaded after `org.md` as
-> strict-additive guidance; contradictions with broader policy are rejected.
-> Populated by the practices-discovery affirmation gate. Edit at the gate,
-> not directly.
+# チーム慣行 — prism (Prism Earring)
 
 ## Way of Working
 
@@ -32,14 +27,6 @@
 - リアルタイム経路(オーディオコールバック)の禁止事項を規約として明文化: ヒープ確保/解放・ロック・ファイル I/O・ログ出力・システムコール・例外。パラメータ受け渡しは `std::atomic`。バッファは初期化時確保・固定長。
 - レイヤ分離: DSP コア(純 C++、他依存なし)/ 検証ハーネス / プラットフォーム接着層(WASM ブリッジ・AudioWorklet JS)を厳密に分ける。[Q5]
 
-## Forbidden
+## Assumptions & Open Questions
 
-<!-- Team-specific forbidden patterns -->
-
-## Mandated
-
-<!-- Team-specific mandates -->
-
-## Corrections
-
-<!-- Self-learning loop appends here. -->
+None.
