@@ -1,0 +1,136 @@
+{
+  "stage": "functional-design",
+  "unit": "u3-web-demo",
+  "upstream_ids": [
+    {
+      "id": "AC1.1.1",
+      "source": "US1.1",
+      "text": "ページを開いて開始 → マイク許可 → 音が出るまでに追加のインストール・設定が不要(FR-4.1)"
+    },
+    {
+      "id": "AC1.1.2",
+      "source": "US1.1",
+      "text": "取得ストリームは echoCancellation / noiseSuppression / autoGainControl 無効(FR-4.3)"
+    },
+    {
+      "id": "AC1.1.3",
+      "source": "US1.1",
+      "text": "対応環境で動作: Pixel は Chrome 最新安定版、MacBook Air は Chrome 最新安定版または Safari 17+(FR-4.1, NFR-5)"
+    },
+    {
+      "id": "AC1.2.1",
+      "source": "US1.2",
+      "text": "shiftCentsL/R・dryWet・crossfadeMs を動作中に変更できる(FR-1.2〜FR-1.5, FR-4.2)"
+    },
+    {
+      "id": "AC1.2.2",
+      "source": "US1.2",
+      "text": "パラメータ変更は per-sample 一次指数平滑を経て適用され、ステップ変化直後の出力に不連続がない(FR-1.5)"
+    },
+    {
+      "id": "AC1.2.3",
+      "source": "US1.2",
+      "text": "crossfade_ms → 窓長 window_samples = round(crossfade_ms × fs / 1000)、遅延上限 (1−ratio)×窓長 が NFR-1 予算内(FR-1.4)"
+    },
+    {
+      "id": "AC1.2.4",
+      "source": "US1.2",
+      "text": "左右連動トグルで両チャンネルを同時操作できる(FR-4.2)"
+    },
+    {
+      "id": "AC1.3.1",
+      "source": "US1.3",
+      "text": "拒否時に許可手順の案内と再試行ボタンが表示される(ワイヤーフレームのエラー画面と一致)(FR-4.4)"
+    },
+    {
+      "id": "AC1.3.2",
+      "source": "US1.3",
+      "text": "非対応ブラウザでは対応ブラウザ(Chrome 最新安定版 / Safari 17+)が案内される(FR-4.4)"
+    },
+    {
+      "id": "AC1.4.1",
+      "source": "US1.4",
+      "text": "遅延内訳が 3 定義(出力=baseLatency+outputLatency、ブロック=128×2/fs、DSP 内部=設計値)で表示される(FR-4.2, NFR-1)"
+    },
+    {
+      "id": "AC1.4.2",
+      "source": "US1.4",
+      "text": "3 成分の合算値が表示される(FR-4.2)"
+    }
+  ],
+  "coverage": [
+    {
+      "ac": "AC1.1.1",
+      "workflows": ["WF-1"],
+      "status": "OK",
+      "note": "SINGLE_FILE 内包で静的数枚配布、開始→許可→ready→graph 接続まで追加設定不要(Q3-A)。"
+    },
+    {
+      "ac": "AC1.1.2",
+      "workflows": ["WF-1"],
+      "status": "OK",
+      "note": "getUserMedia を EC/NS/AGC 無効の制約で要求(frontend-components 統合点)。"
+    },
+    {
+      "ac": "AC1.1.3",
+      "workflows": ["WF-1", "WF-4"],
+      "status": "OK",
+      "note": "機能検出で対応環境判定、非対応は WF-4 で案内。"
+    },
+    {
+      "ac": "AC1.2.1",
+      "workflows": ["WF-5"],
+      "status": "OK",
+      "note": "4 スライダー input → {type:param} 送信、動作中に反映。"
+    },
+    {
+      "ac": "AC1.2.2",
+      "workflows": ["WF-5"],
+      "status": "OK",
+      "note": "値はコアの per-sample 平滑(BR1.3)を経る。グリッチ不在は u2 BR2.3 で数値検証。"
+    },
+    {
+      "ac": "AC1.2.3",
+      "workflows": ["WF-5"],
+      "status": "OK",
+      "note": "crossfadeMs スライダーは window 変換式(BR1.4)の入力。遅延予算は BR1.7/BR2.2 で担保。"
+    },
+    {
+      "ac": "AC1.2.4",
+      "workflows": ["WF-5"],
+      "status": "OK",
+      "note": "linkLR トグルで id=0/1 両送信(UIState.linkLR)。"
+    },
+    {
+      "ac": "AC1.3.1",
+      "workflows": ["WF-3"],
+      "status": "OK",
+      "note": "拒否で状態=マイク拒否、案内文 + 再試行ボタン表示(ErrorRegion)。"
+    },
+    {
+      "ac": "AC1.3.2",
+      "workflows": ["WF-4"],
+      "status": "OK",
+      "note": "機能検出 NG で状態=非対応、対応ブラウザ案内。"
+    },
+    {
+      "ac": "AC1.4.1",
+      "workflows": ["WF-6"],
+      "status": "OK",
+      "note": "出力/ブロック/DSP 3 成分を UIState.latencyBreakdown で表示(D-04, BR1.7)。"
+    },
+    {
+      "ac": "AC1.4.2",
+      "workflows": ["WF-6"],
+      "status": "OK",
+      "note": "totalMs = 3 成分合算を併記。"
+    }
+  ],
+  "reverse": [
+    {
+      "workflow": "WF-2",
+      "covered_by_ac": ["AC1.1.1"],
+      "note": "停止フローは開始(US1.1)の対をなす操作で、開始/停止トグルの一部として US1.1 に内包。独立 AC は持たないがトグル UI の完全性のために定義。"
+    }
+  ]
+}

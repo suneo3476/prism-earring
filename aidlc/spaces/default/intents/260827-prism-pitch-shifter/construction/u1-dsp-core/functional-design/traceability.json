@@ -1,0 +1,68 @@
+{
+  "stage": "functional-design",
+  "unit": "u1-dsp-core",
+  "upstream_ids": [
+    {
+      "id": "AC2.1.1",
+      "source": "US2.1",
+      "text": "ディレイライン型実装、音声経路に FFT なし(FR-1.1)"
+    },
+    {
+      "id": "AC2.1.2",
+      "source": "US2.1",
+      "text": "任意 fs 対応・ステレオ・非インタリーブ float ブロック API(FR-2.1〜FR-2.3)"
+    },
+    {
+      "id": "AC2.1.3",
+      "source": "US2.1",
+      "text": "コールバック内にヒープ確保・ロック・I/O・例外なし。バッファは初期化時固定(NFR-2)"
+    },
+    {
+      "id": "AC2.1.4",
+      "source": "US2.1",
+      "text": "clang++ -std=c++17 -Wall -Wextra -Werror と emcc の両方で警告ゼロでコンパイル(NFR-5)"
+    }
+  ],
+  "coverage": [
+    {
+      "ac": "AC2.1.1",
+      "rules": ["BR1.1", "BR1.4", "BR1.6"],
+      "spec": ["WF-2", "WF-4"],
+      "status": "OK",
+      "note": "リングバッファ+2 ヘッド半周ずらし等パワー合成、線形補間。音声経路 FFT 不使用(D-01)。"
+    },
+    {
+      "ac": "AC2.1.2",
+      "rules": ["BR1.8"],
+      "spec": ["WF-1", "WF-2"],
+      "status": "OK",
+      "note": "prepare(fs, maxBlockFrames) で fs 基準に全定数算出、process は [2][numFrames] 非インタリーブ、モノラル複製は呼び出し側(FR-2.x, D-06)。"
+    },
+    {
+      "ac": "AC2.1.3",
+      "rules": ["BR1.2", "BR1.5"],
+      "spec": ["WF-1", "WF-2", "WF-3"],
+      "status": "OK",
+      "note": "確保は prepare のみ。process/reset は noexcept・固定バッファ・atomic のみ(NFR-2, D-03)。"
+    },
+    {
+      "ac": "AC2.1.4",
+      "rules": ["BR1.5"],
+      "spec": [],
+      "status": "OK",
+      "note": "依存ゼロの純 C++17、数式のみで技術非依存に規定。可搬性は clang++/emcc 両対応の設計制約(NFR-5)。実装ステージで警告ゼロを検証。"
+    }
+  ],
+  "reverse": [
+    {
+      "rule": "BR1.3",
+      "covered_by_ac": ["AC2.1.3"],
+      "note": "per-sample 指数平滑は主に US1.2 のズィッパーノイズ AC 由来(FR-1.5)。u1 の直接 AC ではリアルタイム安全(AC2.1.3)に内包。u2 の BR2.3 グリッチ検証で数値検証される。"
+    },
+    {
+      "rule": "BR1.7",
+      "covered_by_ac": [],
+      "note": "getLatencySamples 設計値は US1.4(u3)と BR2.2(u2 レイテンシ検証)が消費する横断要件。u1 の US2.1 AC には直接対応しないが NFR-1/D-04 の実現に必須のため定義。"
+    }
+  ]
+}

@@ -4499,3 +4499,1153 @@
 **Agent**: aidlc-architect-agent
 
 ---
+
+## Error Logged
+**Timestamp**: 2026-08-27T21:02:17Z
+**Event**: ERROR_LOGGED
+**Tool**: aidlc-state
+**Command**: aidlc-state unit start --stage functional-design --unit u1-dsp-core
+**Error**: Refusing to start unit "u1-dsp-core" for "functional-design": the engine currently routes a run-stage directive. Run the exact directive.stage/directive.unit pair returned by aidlc-orchestrate.ts next.
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:03:38Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/functional-design/memory.md
+**Context**: construction > functional-design > memory.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:03:38Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/functional-design/functional-design-questions.md
+**Context**: construction > functional-design > functional-design-questions.md
+
+---
+
+## Decision Recorded
+**Timestamp**: 2026-08-27T21:03:38Z
+**Event**: DECISION_RECORDED
+**Stage**: functional-design
+**Decision**: Does this all look correct before I generate the artifact?
+**Options**: Looks correct,Request changes
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/functional-design/functional-design-questions.md
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:03:38Z
+**Event**: HUMAN_TURN
+
+---
+
+## Summary Confirmation Recorded
+**Timestamp**: 2026-08-27T21:03:38Z
+**Event**: SUMMARY_CONFIRMATION_RECORDED
+**Stage**: functional-design
+**Details**: Looks correct
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/functional-design/functional-design-questions.md
+**Questions SHA-256**: 24c3dedaf306fce59b0aba2caa8d766ed2061200e7deeeb59191c8e6f6595467
+**Hash Scope**: confirmed-content-v1
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+**Context**: construction > u1-dsp-core > functional-design > entities.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+**Context**: construction > u1-dsp-core > functional-design > rules.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+**Context**: construction > u1-dsp-core > functional-design > functional-spec.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+**Context**: construction > u1-dsp-core > functional-design > traceability.json
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+**Context**: construction > u2-verification > functional-design > entities.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+**Context**: construction > u2-verification > functional-design > rules.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+**Context**: construction > u2-verification > functional-design > functional-spec.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+**Context**: construction > u2-verification > functional-design > traceability.json
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+**Context**: construction > u3-web-demo > functional-design > functional-spec.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+**Context**: construction > u3-web-demo > functional-design > traceability.json
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+**Context**: construction > u3-web-demo > functional-design > frontend-components.md
+
+---
+
+## Error Logged
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ERROR_LOGGED
+**Tool**: aidlc-log
+**Command**: aidlc-log review --stage functional-design --reviewer aidlc-architecture-reviewer-agent --unit u1-dsp-core --iteration 1
+**Error**: Cannot start review for "functional-design": its question flow has no functional-design-questions.md file. Create and answer the stage questions, then record the consolidated summary checkpoint before generating artifacts.
+
+---
+
+## Error Logged
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ERROR_LOGGED
+**Tool**: aidlc-log
+**Command**: aidlc-log review --stage functional-design --reviewer aidlc-architecture-reviewer-agent --unit u2-verification --iteration 1
+**Error**: Cannot start review for "functional-design": its question flow has no functional-design-questions.md file. Create and answer the stage questions, then record the consolidated summary checkpoint before generating artifacts.
+
+---
+
+## Error Logged
+**Timestamp**: 2026-08-27T21:11:14Z
+**Event**: ERROR_LOGGED
+**Tool**: aidlc-log
+**Command**: aidlc-log review --stage functional-design --reviewer aidlc-architecture-reviewer-agent --unit u3-web-demo --iteration 1
+**Error**: Cannot start review for "functional-design": its question flow has no functional-design-questions.md file. Create and answer the stage questions, then record the consolidated summary checkpoint before generating artifacts.
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-design-questions.md
+**Context**: construction > u1-dsp-core > functional-design > functional-design-questions.md
+
+---
+
+## Decision Recorded
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: DECISION_RECORDED
+**Stage**: functional-design
+**Decision**: Does this all look correct before I generate the artifact?
+**Options**: Looks correct,Request changes
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-design-questions.md
+**Unit**: u1-dsp-core
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: HUMAN_TURN
+
+---
+
+## Summary Confirmation Recorded
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: SUMMARY_CONFIRMATION_RECORDED
+**Stage**: functional-design
+**Details**: Looks correct
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-design-questions.md
+**Questions SHA-256**: 55e8692e8741fb3249744fe69dc0192de77971620c765cc65646709ce4e40c9a
+**Hash Scope**: confirmed-content-v1
+**Unit**: u1-dsp-core
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+**Context**: construction > u1-dsp-core > functional-design > entities.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:45Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+**Context**: construction > u1-dsp-core > functional-design > rules.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+**Context**: construction > u1-dsp-core > functional-design > functional-spec.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+**Context**: construction > u1-dsp-core > functional-design > traceability.json
+
+---
+
+## Review Requested
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: REVIEW_REQUESTED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u1-dsp-core
+**Iteration**: 1
+**Artifact Fingerprint**: sha256:bac3191887d675d4cc30ee225af1b88facf5c862e07c1bcd2b1c13f81f3d08f7
+**Review Appendix Artifact**: construction/u1-dsp-core/functional-design/functional-spec.md
+**Review Appendix Offset**: 6555
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-design-questions.md
+**Context**: construction > u2-verification > functional-design > functional-design-questions.md
+
+---
+
+## Decision Recorded
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: DECISION_RECORDED
+**Stage**: functional-design
+**Decision**: Does this all look correct before I generate the artifact?
+**Options**: Looks correct,Request changes
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-design-questions.md
+**Unit**: u2-verification
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: HUMAN_TURN
+
+---
+
+## Summary Confirmation Recorded
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: SUMMARY_CONFIRMATION_RECORDED
+**Stage**: functional-design
+**Details**: Looks correct
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-design-questions.md
+**Questions SHA-256**: 3ca8e3ab20786672e90168479e0ed5748db53af22ba62c673de81b6306976861
+**Hash Scope**: confirmed-content-v1
+**Unit**: u2-verification
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:46Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+**Context**: construction > u2-verification > functional-design > entities.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+**Context**: construction > u2-verification > functional-design > rules.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+**Context**: construction > u2-verification > functional-design > functional-spec.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+**Context**: construction > u2-verification > functional-design > traceability.json
+
+---
+
+## Review Requested
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: REVIEW_REQUESTED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u2-verification
+**Iteration**: 1
+**Artifact Fingerprint**: sha256:c572a419b3ccd1e766da00b30becd194999e4771c209e31a40187bd53b0aca40
+**Review Appendix Artifact**: construction/u2-verification/functional-design/functional-spec.md
+**Review Appendix Offset**: 4466
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-design-questions.md
+**Context**: construction > u3-web-demo > functional-design > functional-design-questions.md
+
+---
+
+## Decision Recorded
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: DECISION_RECORDED
+**Stage**: functional-design
+**Decision**: Does this all look correct before I generate the artifact?
+**Options**: Looks correct,Request changes
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-design-questions.md
+**Unit**: u3-web-demo
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: HUMAN_TURN
+
+---
+
+## Summary Confirmation Recorded
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: SUMMARY_CONFIRMATION_RECORDED
+**Stage**: functional-design
+**Details**: Looks correct
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-design-questions.md
+**Questions SHA-256**: 9fec09467bbb84ca6cca691b3be4bb8870cfb5f37e5bc271908adbea035433b5
+**Hash Scope**: confirmed-content-v1
+**Unit**: u3-web-demo
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:47Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+**Context**: construction > u3-web-demo > functional-design > functional-spec.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:48Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+**Context**: construction > u3-web-demo > functional-design > traceability.json
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:11:48Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+**Context**: construction > u3-web-demo > functional-design > frontend-components.md
+
+---
+
+## Review Requested
+**Timestamp**: 2026-08-27T21:11:48Z
+**Event**: REVIEW_REQUESTED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u3-web-demo
+**Iteration**: 1
+**Artifact Fingerprint**: sha256:7dc43071abfd8a7c8406bb1faf171dedfaa7c0106d41ce481f118c7da5a27743
+**Review Appendix Artifact**: construction/u3-web-demo/functional-design/functional-spec.md
+**Review Appendix Offset**: 5120
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Completed
+**Timestamp**: 2026-08-27T21:15:56Z
+**Event**: REVIEW_COMPLETED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u1-dsp-core
+**Iteration**: 1
+**Verdict**: NOT-READY
+**Request Fingerprint**: sha256:bac3191887d675d4cc30ee225af1b88facf5c862e07c1bcd2b1c13f81f3d08f7
+**Artifact Fingerprint**: sha256:ff42119cdd94dfab811c1eeb52b5cb7cfc1bd686126dd602d755c6f778763013
+**Review Appendix Artifact**: construction/u1-dsp-core/functional-design/functional-spec.md
+**Review Appendix Offset**: 6555
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Completed
+**Timestamp**: 2026-08-27T21:15:56Z
+**Event**: REVIEW_COMPLETED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u2-verification
+**Iteration**: 1
+**Verdict**: NOT-READY
+**Request Fingerprint**: sha256:c572a419b3ccd1e766da00b30becd194999e4771c209e31a40187bd53b0aca40
+**Artifact Fingerprint**: sha256:5032a4bfc2f5412f91ca3086becb150bd9151fb7b157f24992ed82a4f3ac8e08
+**Review Appendix Artifact**: construction/u2-verification/functional-design/functional-spec.md
+**Review Appendix Offset**: 4466
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Completed
+**Timestamp**: 2026-08-27T21:15:56Z
+**Event**: REVIEW_COMPLETED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u3-web-demo
+**Iteration**: 1
+**Verdict**: READY
+**Request Fingerprint**: sha256:7dc43071abfd8a7c8406bb1faf171dedfaa7c0106d41ce481f118c7da5a27743
+**Artifact Fingerprint**: sha256:cdbcae92998dab81def6dd1adf0da29fb17538c8bdf36c2d59f4217277567e55
+**Review Appendix Artifact**: construction/u3-web-demo/functional-design/functional-spec.md
+**Review Appendix Offset**: 5120
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+**Context**: construction > u1-dsp-core > functional-design > entities.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+**Context**: construction > u1-dsp-core > functional-design > rules.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+**Context**: construction > u1-dsp-core > functional-design > functional-spec.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+**Context**: construction > u2-verification > functional-design > entities.md
+
+---
+
+## Artifact Created
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_CREATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+**Context**: construction > u2-verification > functional-design > rules.md
+
+---
+
+## Artifact Updated
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: ARTIFACT_UPDATED
+**Tool**: Write
+**File**: <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+**Context**: construction > u2-verification > functional-design > functional-spec.md
+
+---
+
+## Review Requested
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: REVIEW_REQUESTED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u1-dsp-core
+**Iteration**: 2
+**Artifact Fingerprint**: sha256:6008b061aa9a40f61f0d906b5ee0c110ee5bc40e4e94fe4fefdb7840953d00cd
+**Review Appendix Artifact**: construction/u1-dsp-core/functional-design/functional-spec.md
+**Review Appendix Offset**: 8106
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Requested
+**Timestamp**: 2026-08-27T21:22:48Z
+**Event**: REVIEW_REQUESTED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u2-verification
+**Iteration**: 2
+**Artifact Fingerprint**: sha256:c360e00b3a4a33bcf4d4ccaf5c6404b2bad545a38c92c5bf90e753c3cfcdc116
+**Review Appendix Artifact**: construction/u2-verification/functional-design/functional-spec.md
+**Review Appendix Offset**: 4838
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Completed
+**Timestamp**: 2026-08-27T21:26:24Z
+**Event**: REVIEW_COMPLETED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u1-dsp-core
+**Iteration**: 2
+**Verdict**: READY
+**Request Fingerprint**: sha256:6008b061aa9a40f61f0d906b5ee0c110ee5bc40e4e94fe4fefdb7840953d00cd
+**Artifact Fingerprint**: sha256:989a6d2090479c826d73134041f514a025f8be714ecfc8e49b5eb064b86d497d
+**Review Appendix Artifact**: construction/u1-dsp-core/functional-design/functional-spec.md
+**Review Appendix Offset**: 8106
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Review Completed
+**Timestamp**: 2026-08-27T21:26:24Z
+**Event**: REVIEW_COMPLETED
+**Stage**: functional-design
+**Reviewer**: aidlc-architecture-reviewer-agent
+**Unit**: u2-verification
+**Iteration**: 2
+**Verdict**: READY
+**Request Fingerprint**: sha256:c360e00b3a4a33bcf4d4ccaf5c6404b2bad545a38c92c5bf90e753c3cfcdc116
+**Artifact Fingerprint**: sha256:8b5e313c4df3a395678c205f1e9f53d3d4c74425a214fefa31341da6f2027733
+**Review Appendix Artifact**: construction/u2-verification/functional-design/functional-spec.md
+**Review Appendix Offset**: 4838
+**Review Appendix Prior Digest**: none
+**Review Appendix Prior Length**: 0
+
+---
+
+## Decision Recorded
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: DECISION_RECORDED
+**Stage**: functional-design
+**Decision**: Anything to add for next time?
+**Options**: Nothing to add,Add a note
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: HUMAN_TURN
+
+---
+
+## Question Answered
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: QUESTION_ANSWERED
+**Stage**: functional-design
+**Details**: Nothing to add
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 877b68b0
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 877b68b0
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+**Duration ms**: 39
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 4e690f84
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 4e690f84
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+**Duration ms**: 30
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 1591d8f3
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 1591d8f3
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+**Duration ms**: 32
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 9f1c4849
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 9f1c4849
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+**Duration ms**: 31
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: d9fb32c4
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: d9fb32c4
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+**Duration ms**: 31
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 7f0e3ecc
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 7f0e3ecc
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+**Duration ms**: 30
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 2fdeabc5
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 2fdeabc5
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+**Duration ms**: 31
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: a8816ef8
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: a8816ef8
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+**Duration ms**: 32
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_FIRED
+**Fire id**: 988904d9
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:25Z
+**Event**: SENSOR_PASSED
+**Fire id**: 988904d9
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+**Duration ms**: 31
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 5a576dd7
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_PASSED
+**Fire id**: 5a576dd7
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+**Duration ms**: 30
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 28a2747c
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+
+---
+
+## Sensor Passed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_PASSED
+**Fire id**: 28a2747c
+**Sensor ID**: required-sections
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+**Duration ms**: 29
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 51093a16
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 51093a16
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/entities.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-51093a16.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 8b0faa33
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 8b0faa33
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/rules.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-8b0faa33.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 90f4fcb5
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 90f4fcb5
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-90f4fcb5.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 4a78b0bf
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 4a78b0bf
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/traceability.json
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-4a78b0bf.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: f70906bb
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: f70906bb
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-f70906bb.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: e18096ee
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: e18096ee
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/traceability.json
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-e18096ee.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: a6408ab4
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: a6408ab4
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/frontend-components.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-a6408ab4.md
+**Findings count**: 3
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 006b6802
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 006b6802
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/entities.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-006b6802.md
+**Findings count**: 2
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 3946314d
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 3946314d
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/rules.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-3946314d.md
+**Findings count**: 2
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: f3520b7a
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: f3520b7a
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/functional-spec.md
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-f3520b7a.md
+**Findings count**: 2
+
+---
+
+## Sensor Fired
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FIRED
+**Fire id**: 8547ace4
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+
+---
+
+## Sensor Failed
+**Timestamp**: 2026-08-27T21:26:26Z
+**Event**: SENSOR_FAILED
+**Fire id**: 8547ace4
+**Sensor ID**: upstream-coverage
+**Stage slug**: functional-design
+**Output path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u2-verification/functional-design/traceability.json
+**Detail path**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/.aidlc-sensors/functional-design/upstream-coverage-8547ace4.md
+**Findings count**: 2
+
+---
+
+## Stage Awaiting Approval
+**Timestamp**: 2026-08-27T21:26:27Z
+**Event**: STAGE_AWAITING_APPROVAL
+**Stage**: functional-design
+
+---
+
+## Human Turn
+**Timestamp**: 2026-08-27T21:26:27Z
+**Event**: HUMAN_TURN
+
+---
+
+## Gate Approved
+**Timestamp**: 2026-08-27T21:26:27Z
+**Event**: GATE_APPROVED
+**Stage**: functional-design
+**User Input**: Approve
+**Review Finding Dispositions**: {"version":1,"dispositions":[{"artifact":"aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/functional-design/functional-spec.md","id":"R-07","fingerprint":"sha256:ac6c88e890143c8fec33db6766cee68a05c365a2b0760c7d29b9460779c2b388","status":"Accepted risk"},{"artifact":"aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u3-web-demo/functional-design/functional-spec.md","id":"R-01","fingerprint":"sha256:88e4bcf4907bcd4b321550473c0fba1149a046737e3ac8e30f4a9c0366c834f9","status":"Accepted risk"}]}
+
+---
+
+## Stage Completion
+**Timestamp**: 2026-08-27T21:26:27Z
+**Event**: STAGE_COMPLETED
+**Stage**: functional-design
+**Validation Basis**: {"graphContract":"sha256:c0dd0abcf729725dd1610dbd62efc46a49c3d6e3d7efed0cf53a65f7d271fd9e","inputs":[{"artifact":"components","contentHash":"sha256:7d96deb582a5f70eb2b9d2fd4f14b59e42eccb9e7b81175cfde96f29052e1f28","instanceCount":1,"presentCount":1,"producer":"domain-design","required":true,"structureHash":"sha256:0aa58adf759447126a03b0d192db864784e77e661ac1ef38e5d3000c291527a5"},{"artifact":"contract-summary","contentHash":"sha256:057e1071a70b39900d74f16b8b090905973aa3c82bc5a769111fd68fb3e696b2","instanceCount":1,"presentCount":1,"producer":"contract-design","required":false,"structureHash":"sha256:7dd0a5134815a815f44f744a230964669dcdf971ba49960e469dd5b1a2e8bb1a"},{"artifact":"requirements","contentHash":"sha256:98f22ebdcc03d80751cf06e4c0d55672f1b1d1b9930d70da25249299fa35e63b","instanceCount":1,"presentCount":1,"producer":"requirements-analysis","required":true,"structureHash":"sha256:478864fba31be0d4b417b7597fe3666432a49c5c2c081277343a491524795508"},{"artifact":"unit-of-work-story-map","contentHash":"sha256:c7ed02eaf4eb25a56fdf9f9dd4a61bf374653bcab9ea27b65a82e68bdc9d9387","instanceCount":1,"presentCount":1,"producer":"units-generation","required":false,"structureHash":"sha256:49a31a95335bae721cd40b3f9263d43c4b63ba0b6f661c2a8aeafc47e1bdafeb"},{"artifact":"unit-of-work","contentHash":"sha256:5862909b6d3efff66ee45676e468dc32b93c808209484610529b8c009d942915","instanceCount":1,"presentCount":1,"producer":"units-generation","required":true,"structureHash":"sha256:6cf05b1b28059447bbae44bee64a161845e09915a17f7bae57693a6ceced5f27"}],"outputs":[{"artifact":"entities","contentHash":"sha256:10e38e7fcf40ee1384ab4e255de86c76f58ebf90a7f3e9d175e5adbe2043074b","instanceCount":2,"presentCount":2,"producer":"functional-design","required":true,"structureHash":"sha256:9a2a46adf5323ea32673a3cca8e0c4ea71b4e7b2071df255c75cdb378c9cb3ba"},{"artifact":"frontend-components","contentHash":"sha256:a590f57953391d3bccfa27ece9a22247b92a62afe3afeef4179a0e8d01107abc","instanceCount":1,"presentCount":1,"producer":"functional-design","required":false,"structureHash":"sha256:60684b1e25127add0cbcd203ec589617083bde7f9f99ae42078e044d09c3bd2b"},{"artifact":"functional-spec","contentHash":"sha256:ae30875f6bcf14b64f921b7bd1e3a3a53fcd5e0238a12e4c485704524ed31c8f","instanceCount":3,"presentCount":3,"producer":"functional-design","required":true,"structureHash":"sha256:da5a92c29dfee47b3a15046f5765a1777a4e39639fd636bc0021b6dbaf882923"},{"artifact":"rules","contentHash":"sha256:b8681cced82a23ef5791c10d19a0071d43d81fa9381fb75423f4315195f803d1","instanceCount":2,"presentCount":2,"producer":"functional-design","required":true,"structureHash":"sha256:6f984619f8f1337bae843c456970b0bb026c5bde4cbfa690736570ba7203b5bd"},{"artifact":"traceability","contentHash":"sha256:555c24764c6e46db28ba614fa53578faedeb617d661762f0a0a7504bd947ab00","instanceCount":3,"presentCount":3,"producer":"functional-design","required":true,"structureHash":"sha256:7eca1ee4c36ae3c7b2b0d5b998c28db03d4b1f8901598d5e85d6993c3d0d7d31"}],"projectType":"greenfield","schema":3}
+**Details**: Stage Functional Design approved by gate
+
+---
+
+## Stage Start
+**Timestamp**: 2026-08-27T21:26:27Z
+**Event**: STAGE_STARTED
+**Stage**: nfr-requirements
+**Agent**: aidlc-architect-agent
+
+---
