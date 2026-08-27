@@ -62,3 +62,4 @@
 
 <!-- Project-specific corrections from human feedback. -->
 <!-- Format: NEVER/ALWAYS [behavior] (learned [date]) -->
+- 会話言語は日本語。人が読む成果物・質問・レビューはすべて日本語で書き、プロトコル固定トークン(READY/NOT-READY, [Answer]: 等)は英語のまま保持する。 (learned 2026-08-27) <!-- cid:260827-prism-pitch-shifter:intent-capture:be671cb21510a34116e960d0f9f951cfb57c23a41ca5f04c4691bebf58b53b52 -->
