@@ -1,0 +1,16 @@
+{
+  "stage": "nfr-requirements",
+  "unit": "u2-verification",
+  "upstream_ids": ["NFR-1", "NFR-3", "NFR-4", "NFR-5", "NFR-6"],
+  "coverage": [
+    { "id": "NFR-1", "status": "OK", "target": "SR-3.1" },
+    { "id": "NFR-3", "status": "OK", "target": "SR-3.1, SR-2.1" },
+    { "id": "NFR-4", "status": "OK", "target": "SR-3.1, SR-2.1" },
+    { "id": "NFR-5", "status": "OK", "target": "SR-1.2" },
+    { "id": "NFR-6", "status": "OK", "target": "SR-1.1" }
+  ],
+  "reverse": [
+    { "id": "SR-2.2", "status": "N/A", "target": "measurement-environment disclosure rule" },
+    { "id": "SR-3.2", "status": "N/A", "target": "exit-code contract from functional design Q1" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "stage": "nfr-requirements",
+  "unit": "u1-dsp-core",
+  "upstream_ids": ["NFR-1", "NFR-2", "NFR-5", "NFR-6"],
+  "coverage": [
+    { "id": "NFR-1", "status": "OK", "target": "SR-4.1" },
+    { "id": "NFR-2", "status": "OK", "target": "SR-4.1, SR-2.1" },
+    { "id": "NFR-5", "status": "OK", "target": "SR-1.2" },
+    { "id": "NFR-6", "status": "OK", "target": "SR-1.1" }
+  ],
+  "reverse": [
+    { "id": "SR-2.2", "status": "N/A", "target": "defensive boundary rule beyond stated NFRs" },
+    { "id": "SR-3.1", "status": "N/A", "target": "performance-driven numeric policy from stage Q1" },
+    { "id": "SR-3.2", "status": "N/A", "target": "performance-driven numeric policy from stage Q1" },
+    { "id": "SR-3.3", "status": "N/A", "target": "performance-driven numeric policy from stage Q1" }
+  ]
+}
