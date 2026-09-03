@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- SR-2.2: 外部接続を宣言的に遮断する。blob: は AudioWorklet モジュール用。 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline' blob:; connect-src 'none'">
+<title>prism — PrismEarring demo</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main>
+    <h1>prism — PrismEarring demo</h1>
+    <p class="note">※イヤホン推奨(スピーカーはハウリングします)</p>
+
+    <p class="status" id="status" role="status" aria-live="polite">状態: 停止中</p>
+
+    <button id="toggle" type="button">▶ 開始</button>
+
+    <section id="controls" aria-label="パラメータ">
+        <div class="row">
+            <label for="shiftL">シフト量 L</label>
+            <input id="shiftL" type="range" min="-150" max="0" step="1" value="-89">
+            <output id="shiftLOut" for="shiftL">-89 cent</output>
+        </div>
+        <div class="row">
+            <label for="shiftR">シフト量 R</label>
+            <input id="shiftR" type="range" min="-150" max="0" step="1" value="-89">
+            <output id="shiftROut" for="shiftR">-89 cent</output>
+        </div>
+        <div class="row check">
+            <label for="link"><input id="link" type="checkbox" checked> 左右連動</label>
+        </div>
+        <div class="row">
+            <label for="dryWet">Dry/Wet</label>
+            <input id="dryWet" type="range" min="0" max="1" step="0.01" value="1">
+            <output id="dryWetOut" for="dryWet">1.00</output>
+        </div>
+        <div class="row">
+            <label for="xfade">窓長</label>
+            <input id="xfade" type="range" min="10" max="100" step="1" value="50">
+            <output id="xfadeOut" for="xfade">50 ms</output>
+        </div>
+    </section>
+
+    <section id="latency" aria-label="遅延">
+        <p>実測往復遅延: <span id="latTotal">-- ms</span></p>
+        <p class="breakdown">
+            内訳: 出力 <span id="latOut">--</span>
+            / ブロック <span id="latBlock">--</span>
+            / DSP <span id="latDsp">--</span>
+        </p>
+    </section>
+
+    <div id="error" hidden role="alert"></div>
+
+    <footer>
+        <p class="fine">
+            音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
+            マイクは開始を押したときだけ使用します。
+        </p>
+    </footer>
+</main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
