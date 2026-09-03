@@ -1,16 +1,16 @@
 {
   "stage": "nfr-requirements",
   "unit": "u2-verification",
-  "upstream_ids": ["NFR-1", "NFR-3", "NFR-4", "NFR-5", "NFR-6"],
+  "upstream_ids": ["NFR-1", "NFR-2", "NFR-3", "NFR-4", "NFR-5", "NFR-6", "FR-2.1", "FR-3.4"],
   "coverage": [
     { "id": "NFR-1", "status": "OK", "target": "SR-3.1" },
-    { "id": "NFR-3", "status": "OK", "target": "SR-3.1, SR-2.1" },
+    { "id": "NFR-2", "status": "OK", "target": "SR-4.1, SR-4.2, SR-4.3" },
+    { "id": "NFR-3", "status": "OK", "target": "SR-3.1, SR-2.1, SR-2.3" },
     { "id": "NFR-4", "status": "OK", "target": "SR-3.1, SR-2.1" },
-    { "id": "NFR-5", "status": "OK", "target": "SR-1.2" },
-    { "id": "NFR-6", "status": "OK", "target": "SR-1.1" }
+    { "id": "NFR-5", "status": "OK", "target": "SR-1.2, SR-2.3" },
+    { "id": "NFR-6", "status": "OK", "target": "SR-1.1" },
+    { "id": "FR-2.1", "status": "OK", "target": "SR-3.2 — exit-code contract normative in WF-6 / BR2.5 (0/1 only); no code 2" },
+    { "id": "FR-3.4", "status": "OK", "target": "SR-2.2 — CPU ratio is a report-only, environment-dependent value disclosed in output (BR2.4)" }
   ],
-  "reverse": [
-    { "id": "SR-2.2", "status": "N/A", "target": "measurement-environment disclosure rule" },
-    { "id": "SR-3.2", "status": "N/A", "target": "exit-code contract from functional design Q1" }
-  ]
+  "reverse": []
 }
