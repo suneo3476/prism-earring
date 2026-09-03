@@ -1,0 +1,26 @@
+{
+  "stage": "nfr-design",
+  "unit": "u1-dsp-core",
+  "upstream_ids": [
+    "SR-1.1",
+    "SR-1.2",
+    "SR-2.1",
+    "SR-2.2",
+    "SR-2.3",
+    "SR-3.1",
+    "SR-3.2",
+    "SR-3.3",
+    "SR-4.1"
+  ],
+  "coverage": [
+    { "id": "SR-1.1", "status": "OK", "target": "SD-1: include allowlist (no network/file/env/time/random/thread headers), machine-checked by grepping the single header in the u2 build script" },
+    { "id": "SR-1.2", "status": "OK", "target": "SD-1: dependency allowlist fixed to <atomic> <cmath> <cstdint> <vector> (prepare only) <cassert> (debug only); drift is detectable, not review-dependent" },
+    { "id": "SR-2.1", "status": "OK", "target": "SD-2: wrap() helper as the single fold point plus invariants INV-1..INV-4; conditional subtraction over modulo (rate <= 1.0 guarantees one-step correctness). Reinforced by SD-6 (only PitchShifter is public, so no external path can violate the invariants)" },
+    { "id": "SR-2.2", "status": "OK", "target": "SD-3: debug assert fires; release clamps numFrames to maxBlockFrames and zero-fills [maxBlockFrames, numFrames) so uninitialised caller memory is never played back" },
+    { "id": "SR-2.3", "status": "OK", "target": "SD-3: prepared_ flag gate; process zero-fills both channels and returns. Notification is funnelled to prepare's bool -> ps_prepare 0 -> contract 3 {type:\"error\"}; u2's four numeric checks all fail on silence, so it cannot pass unnoticed" },
+    { "id": "SR-3.1", "status": "OK", "target": "SD-4.1: no per-sample NaN/Inf check; defence is centralised at control rate. Residual NaN in the ring buffer (max ~100ms) is cleared by reset(), which is the rationale for exposing reset in the u3 UI" },
+    { "id": "SR-3.2", "status": "OK", "target": "SD-4.1: isfinite() check ordered strictly BEFORE clamp in all four setters (NaN makes every comparison false, so clamping first would store an implementation-defined value)" },
+    { "id": "SR-3.3", "status": "OK", "target": "SD-4.2: denormal sources proven to be limited to ParameterSmoother (all other paths are non-recursive); 1e-20 DC injection (steady-state bias ~9.6e-18, 10 orders below float epsilon) plus snap-to-target closes the source structurally. FTZ registers and -ffast-math rejected as non-portable / verification-breaking" },
+    { "id": "SR-4.1", "status": "OK", "target": "SD-5: four independent lock-free atomic<float> with relaxed store/load and a static_assert on is_always_lock_free (SD-5.1); noexcept + fixed-length state + allocation confined to prepare + no I/O headers (SD-5.2); CPU budget 0.15-0.3% from 4 transcendental calls per sample with a <10% callback-time pass criterion handed to Bolt B2, optimisation deferred until measured (SD-5.3)" }
+  ]
+}
