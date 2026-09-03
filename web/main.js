@@ -31,6 +31,7 @@ const RENDER_QUANTUM = 128;
 const READY_TIMEOUT_MS = 8000;
 
 const WORKLET_URL = './prism-worklet.js';
+const WASM_URL = './prism.wasm';
 const PROCESSOR_NAME = 'prism-processor';
 
 /* ---------------------------- DOM 参照 ---------------------------- */
@@ -52,6 +53,7 @@ const el = {
     latOut: document.getElementById('latOut'),
     latBlock: document.getElementById('latBlock'),
     latDsp: document.getElementById('latDsp'),
+    engine: document.getElementById('engine'),
     error: document.getElementById('error')
 };
 
@@ -60,6 +62,9 @@ const el = {
 const ui = {
     state: State.STOPPED,
     linkLR: el.link.checked,
+    /** 'wasm'(本番)/ 'js'(フォールバック)/ null(停止中)。契約 3 の ready・latency から。 */
+    engine: null,
+    engineNote: '',
     latency: {
         outputMs: null,
         blockMs: null,
@@ -103,6 +108,21 @@ function render() {
         input.disabled = !controlsEnabled;
     }
     renderLatency();
+    renderEngine();
+}
+
+/** 実際に動いている DSP エンジンを表示する(wasm が本番、js はフォールバック)。 */
+function renderEngine() {
+    if (ui.engine === null) {
+        el.engine.textContent = 'engine: --';
+        return;
+    }
+    if (ui.engine === 'wasm') {
+        el.engine.textContent = 'engine: wasm(prism.wasm)';
+        return;
+    }
+    el.engine.textContent =
+        'engine: js(フォールバック' + (ui.engineNote ? ': ' + ui.engineNote : '') + ')';
 }
 
 function formatMs(value) {
@@ -127,7 +147,10 @@ function clearLatency() {
     ui.latency.blockMs = null;
     ui.latency.dspMs = null;
     ui.latency.approximate = false;
+    ui.engine = null;
+    ui.engineNote = '';
     renderLatency();
+    renderEngine();
 }
 
 /**
@@ -159,8 +182,7 @@ function detectSupport() {
     if (typeof AudioWorkletNode === 'undefined' || typeof AudioContext === 'undefined') {
         missing.push('AudioWorklet');
     }
-    // 現行実装は WASM を使わないが、将来の WASM ビルドへの差し替えを
-    // 前提に functional-spec WF-4 どおり検出しておく。
+    // WASM(prism.wasm)が本番経路。functional-spec WF-4 どおり検出する。
     if (typeof WebAssembly === 'undefined') {
         missing.push('WebAssembly');
     }
@@ -202,6 +224,10 @@ function handleWorkletMessage(data) {
     }
     if (data.type === 'latency' && Number.isFinite(data.dspLatencyMs)) {
         ui.latency.dspMs = data.dspLatencyMs;
+        if (data.engine === 'wasm' || data.engine === 'js') {
+            ui.engine = data.engine;
+            renderEngine();
+        }
         refreshContextLatency();
         renderLatency();
         return;
@@ -228,6 +254,34 @@ function refreshContextLatency() {
 }
 
 /* ------------------------- 起動(WF-1) ------------------------- */
+
+/**
+ * prism.wasm を取得する(WF-1 の WASM ロード)。
+ *
+ * AudioWorklet のグローバルスコープには fetch が無いため、バイト列の取得は
+ * メインスレッドの責務。取得したものは processorOptions で Worklet へ渡す。
+ * 失敗しても致命ではない —— Worklet が JS 実装へフォールバックする。
+ * @returns {Promise<{bytes: ArrayBuffer|null, error: string}>}
+ */
+async function loadWasmBytes() {
+    if (typeof fetch !== 'function') {
+        return { bytes: null, error: 'fetch が使えません' };
+    }
+    try {
+        const response = await fetch(WASM_URL, { cache: 'no-cache' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const bytes = await response.arrayBuffer();
+        if (bytes.byteLength === 0) {
+            throw new Error('prism.wasm が空です');
+        }
+        return { bytes, error: '' };
+    } catch (err) {
+        // file:// で開いた場合・配信漏れの場合はここに来る(JS 実装で動き続ける)
+        return { bytes: null, error: String((err && err.message) || err) };
+    }
+}
 
 async function start() {
     clearError();
@@ -257,17 +311,25 @@ async function start() {
         const ctx = new AudioContext({ latencyHint: 'interactive' });
         audio.context = ctx;
 
-        await ctx.audioWorklet.addModule(WORKLET_URL);
+        // WASM の取得と Worklet モジュールのロードは独立なので並行させる
+        const [wasm] = await Promise.all([loadWasmBytes(), ctx.audioWorklet.addModule(WORKLET_URL)]);
 
         const node = new AudioWorkletNode(ctx, PROCESSOR_NAME, {
             numberOfInputs: 1,
             numberOfOutputs: 1,
             outputChannelCount: [2],
-            processorOptions: { maxBlockFrames: RENDER_QUANTUM }
+            processorOptions: {
+                maxBlockFrames: RENDER_QUANTUM,
+                // ArrayBuffer は構造化複製で Worklet へ渡る(転送はしない)
+                wasmBytes: wasm.bytes
+            }
         });
         audio.node = node;
 
-        await waitForReady(node);
+        const ready = await waitForReady(node);
+        ui.engine = ready.engine === 'wasm' ? 'wasm' : 'js';
+        ui.engineNote = ui.engine === 'js' ? ready.fallbackReason || wasm.error : '';
+        renderEngine();
 
         node.port.onmessage = (event) => handleWorkletMessage(event.data);
         node.onprocessorerror = () => {
@@ -308,7 +370,9 @@ async function start() {
 
 /**
  * Worklet の ready / error を待つ(契約 3)。
+ * ready は `{engine, fallbackReason}` を伴う(契約 3 への追加フィールド)。
  * error または時間切れは reject し、呼び出し側で後始末する。
+ * @returns {Promise<{engine: string, fallbackReason: string}>}
  */
 function waitForReady(node) {
     return new Promise((resolve, reject) => {
@@ -325,7 +389,11 @@ function waitForReady(node) {
             if (data.type === 'ready') {
                 clearTimeout(timer);
                 node.port.onmessage = null;
-                resolve();
+                resolve({
+                    engine: typeof data.engine === 'string' ? data.engine : 'js',
+                    fallbackReason:
+                        typeof data.fallbackReason === 'string' ? data.fallbackReason : ''
+                });
             } else if (data.type === 'error') {
                 clearTimeout(timer);
                 node.port.onmessage = null;

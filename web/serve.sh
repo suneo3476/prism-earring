@@ -72,7 +72,18 @@ if [ "$USE_TLS" -eq 0 ]; then
         echo "  同一 LAN の端末から: http://${IP}:${PORT}/  ← マイクは HTTPS でないと使えません"
         echo "  → Pixel から試すときは ./serve.sh --https を使うか、README の chrome://flags 手順へ"
     fi
-    exec python3 -m http.server "$PORT" --bind 0.0.0.0
+    exec python3 - "$PORT" <<'PY'
+import http.server
+import sys
+
+port = int(sys.argv[1])
+# .wasm を application/wasm で返す(Python のバージョン差を吸収するため明示登録する)。
+http.server.SimpleHTTPRequestHandler.extensions_map['.wasm'] = 'application/wasm'
+print("  MIME 確認          : .wasm ->",
+      http.server.SimpleHTTPRequestHandler.extensions_map['.wasm'], flush=True)
+httpd = http.server.ThreadingHTTPServer(('0.0.0.0', port), http.server.SimpleHTTPRequestHandler)
+httpd.serve_forever()
+PY
 fi
 
 # ---- 自己署名 TLS ----
@@ -105,6 +116,8 @@ exec python3 - "$PORT" "$CERT" "$KEY" <<'PY'
 import http.server, ssl, sys
 
 port, cert, key = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+# .wasm を application/wasm で返す(HTTP 経路と同じ扱い)。
+http.server.SimpleHTTPRequestHandler.extensions_map['.wasm'] = 'application/wasm'
 httpd = http.server.ThreadingHTTPServer(('0.0.0.0', port), http.server.SimpleHTTPRequestHandler)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(certfile=cert, keyfile=key)

@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- SR-2.2: 外部接続を宣言的に遮断する。blob: は AudioWorklet モジュール用。 -->
+<!-- SR-2.2: 外部オリジンへの接続を宣言的に遮断する。
+     connect-src は 'self' —— 同一オリジンの prism.wasm を fetch するため('none' だと
+     WASM を取得できず JS フォールバックに落ちる)。外部オリジンは引き続き不許可。
+     script-src の 'wasm-unsafe-eval' は WebAssembly のコンパイルに必要。 -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self' 'unsafe-inline' blob:; connect-src 'none'">
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>prism — PrismEarring demo</title>
 <link rel="stylesheet" href="./styles.css">
 </head>
@@ -51,6 +54,7 @@
             / ブロック <span id="latBlock">--</span>
             / DSP <span id="latDsp">--</span>
         </p>
+        <p class="breakdown" id="engine">engine: --</p>
     </section>
 
     <div id="error" hidden role="alert"></div>

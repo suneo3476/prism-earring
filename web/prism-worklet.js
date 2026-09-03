@@ -2,12 +2,16 @@
  * prism-worklet.js — PrismEarring Web デモの AudioWorklet 層
  *
  * 構成(team.md「レイヤ分離」に従う):
- *   PitchShifterJS  … DSP コア。プラットフォーム非依存。C++ 正本
- *                     dsp/include/prism/PitchShifter.h の直訳(アルゴリズム・
- *                     数式・定数・処理順を 1:1 で対応させてある)。将来 WASM
- *                     ビルド(契約 2 の extern "C" API)へ差し替えられるよう、
- *                     メソッド名を ps_* に 1:1 対応させてある。
- *   PrismProcessor  … 接着層。AudioWorkletProcessor と契約 3 の postMessage。
+ *   PrismWasmShifter … 接着層。C++ 正本を Emscripten でビルドした prism.wasm を
+ *                      直接 instantiate し、契約 2 の extern "C" API を叩く。
+ *                      **これが本番経路。**
+ *   PitchShifterJS   … フォールバック用の DSP コア。C++ 正本
+ *                      dsp/include/prism/PitchShifter.h の直訳(アルゴリズム・
+ *                      数式・定数・処理順を 1:1 で対応させてある)。WASM の
+ *                      ロード・初期化に失敗した環境でのみ使う。
+ *   PrismProcessor   … 接着層。AudioWorkletProcessor と契約 3 の postMessage。
+ *                      2 つの実装は同じ面(create/prepare/ioPtr/process/
+ *                      setParam/latencyMs/reset/destroy)を持つので入れ替えられる。
  *
  * 本ファイルは classic script として書く(import/export を使わない)。
  * AudioWorklet.addModule で読み込め、Node の vm でもそのまま評価できる。
@@ -16,14 +20,15 @@
  * 行わない(CLAUDE.md「リアルタイムオーディオの鉄則」/ BR1.5)。
  * 音声経路に FFT・位相ボコーダは一切使わない(CLAUDE.md 最重要制約)。
  *
- * ---- WASM 差し替え時の対応表(契約 2) ----
- *   ps_create      -> PitchShifterJS.create()
+ * ---- 契約 2(extern "C" WASM API)と JS 側メソッドの対応 ----
+ *   ps_create      -> PrismWasmShifter.instantiate(bytes) / PitchShifterJS.create()
  *   ps_destroy     -> instance.destroy()
  *   ps_prepare     -> instance.prepare(sampleRate, maxBlockFrames)
  *   ps_io_ptr      -> instance.ioPtr(channel)
  *   ps_process     -> instance.process(numFrames)
  *   ps_set_param   -> instance.setParam(id, value)
  *   ps_latency_ms  -> instance.latencyMs()
+ *   ps_reset       -> instance.reset()
  */
 
 'use strict';
@@ -567,6 +572,208 @@ class PitchShifterJS {
 }
 
 /* ------------------------------------------------------------------ *
+ * PrismWasmShifter — 契約 2(extern "C" WASM API)の JS 側ローダー
+ * ------------------------------------------------------------------ *
+ *
+ * web/prism.wasm(web/wasm/build.sh の生成物)を **Emscripten の JS グルーを
+ * 使わずに** そのまま instantiate する。build.sh がスタンドアロン構成で
+ * import 0 本の wasm を出すため、import オブジェクトは空でよい。
+ *
+ * AudioWorklet のグローバルスコープには fetch も importScripts も無いので、
+ * バイト列はメインスレッド(main.js)が fetch して processorOptions で渡す。
+ * コンパイルは同期 API(new WebAssembly.Module)で行う。AudioWorklet の
+ * コンストラクタはレンダ量子の外で 1 回だけ走るため許容される(process() 内では
+ * 一切行わない)。
+ *
+ * メモリ拡張は無効(-sALLOW_MEMORY_GROWTH=0)なので ArrayBuffer が detach せず、
+ * 一度張った Float32Array ビューは以後ずっと有効。process() 経路でのビュー
+ * 再生成・確保はゼロになる。
+ */
+class PrismWasmShifter {
+    /**
+     * wasm バイト列から同期にインスタンスを作る(ps_create まで済ませる)。
+     * 失敗時は例外を投げる。呼び出し側は捕捉して JS 実装へフォールバックする。
+     * @param {ArrayBuffer|Uint8Array} bytes
+     * @returns {PrismWasmShifter}
+     */
+    static instantiate(bytes) {
+        if (!bytes || (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes))) {
+            throw new Error('prism.wasm のバイト列が渡されていません');
+        }
+        if (typeof WebAssembly === 'undefined') {
+            throw new Error('この環境は WebAssembly に対応していません');
+        }
+        const module = new WebAssembly.Module(bytes);
+        // import 0 本を前提にしている。増えていたら黙って動かさず落とす。
+        const imports = WebAssembly.Module.imports(module);
+        if (imports.length > 0) {
+            throw new Error(
+                'prism.wasm が import を要求しています(' +
+                    imports.map((i) => i.module + '.' + i.name).join(', ') +
+                    ')。web/wasm/build.sh で作り直してください。'
+            );
+        }
+        const instance = new WebAssembly.Instance(module, {});
+        return new PrismWasmShifter(instance);
+    }
+
+    /** @param {WebAssembly.Instance} instance */
+    constructor(instance) {
+        const ex = instance.exports;
+        const required = [
+            'ps_create',
+            'ps_destroy',
+            'ps_prepare',
+            'ps_reset',
+            'ps_io_ptr',
+            'ps_process',
+            'ps_set_param',
+            'ps_latency_ms'
+        ];
+        for (const name of required) {
+            if (typeof ex[name] !== 'function') {
+                throw new Error('prism.wasm に ' + name + ' がありません(契約 2 違反)');
+            }
+        }
+        if (!(ex.memory instanceof WebAssembly.Memory)) {
+            throw new Error('prism.wasm が memory をエクスポートしていません');
+        }
+
+        // リアクタ規約: 静的コンストラクタをここで 1 回走らせる。
+        if (typeof ex._initialize === 'function') {
+            ex._initialize();
+        } else if (typeof ex.__wasm_call_ctors === 'function') {
+            ex.__wasm_call_ctors();
+        }
+
+        this._ex = ex;
+        this._buffer = ex.memory.buffer;
+        this._io0 = null;
+        this._io1 = null;
+        this._prepared = false;
+        this._maxBlockFrames = 0;
+
+        this._handle = ex.ps_create();
+        if (!this._handle) {
+            // 契約 2: 0 = 失敗(機能設計レビュー R-01 の error トリガのひとつ)
+            throw new Error('ps_create が 0 を返しました(インスタンスを作れません)');
+        }
+    }
+
+    /** ps_prepare + ps_io_ptr。成功で true(失敗は例外にせず false に畳む)。 */
+    prepare(sampleRate, maxBlockFrames) {
+        this._prepared = false;
+        this._io0 = null;
+        this._io1 = null;
+        if (!Number.isFinite(sampleRate) || !Number.isFinite(maxBlockFrames)) {
+            return false;
+        }
+        const maxBlock = Math.floor(maxBlockFrames);
+        if (maxBlock < 1) {
+            return false;
+        }
+        if (this._ex.ps_prepare(this._handle, sampleRate, maxBlock) !== 1) {
+            return false;
+        }
+        const p0 = this._ex.ps_io_ptr(this._handle, 0);
+        const p1 = this._ex.ps_io_ptr(this._handle, 1);
+        if (!p0 || !p1) {
+            return false;
+        }
+        // HEAPF32 上の共有 I/O 領域へのビュー(以後張り替えない)。
+        this._io0 = new Float32Array(this._buffer, p0, maxBlock);
+        this._io1 = new Float32Array(this._buffer, p1, maxBlock);
+        this._maxBlockFrames = maxBlock;
+        this._prepared = true;
+        return true;
+    }
+
+    /** ps_reset。 */
+    reset() {
+        if (this._prepared) {
+            this._ex.ps_reset(this._handle);
+        }
+    }
+
+    /** ps_io_ptr のビュー(0 = L, 1 = R)。未 prepare なら null。 */
+    ioPtr(channel) {
+        if (!this._prepared) {
+            return null;
+        }
+        if (channel === 0) {
+            return this._io0;
+        }
+        if (channel === 1) {
+            return this._io1;
+        }
+        return null;
+    }
+
+    /** ps_process。共有 I/O 領域を in-place 処理する(確保ゼロ)。 */
+    process(numFrames) {
+        if (!this._prepared) {
+            return;
+        }
+        this._ex.ps_process(this._handle, numFrames);
+    }
+
+    /** ps_set_param。非有限値・未知 id は WASM 側でも無視されるが手前でも弾く。 */
+    setParam(id, value) {
+        if (!Number.isFinite(value) || !Number.isFinite(id)) {
+            return;
+        }
+        this._ex.ps_set_param(this._handle, id | 0, value);
+    }
+
+    /** ps_latency_ms。 */
+    latencyMs() {
+        if (!this._prepared) {
+            return 0;
+        }
+        return this._ex.ps_latency_ms(this._handle);
+    }
+
+    /** ps_latency_samples(検証用。C++ getLatencySamples() と同値)。 */
+    latencySamples() {
+        if (!this._prepared || typeof this._ex.ps_latency_samples !== 'function') {
+            return 0;
+        }
+        return this._ex.ps_latency_samples(this._handle);
+    }
+
+    /** ps_window_samples(検証用)。 */
+    windowSamples() {
+        if (!this._prepared || typeof this._ex.ps_window_samples !== 'function') {
+            return 0;
+        }
+        return this._ex.ps_window_samples(this._handle);
+    }
+
+    /** ps_sweep_samples(検証用)。 */
+    sweepSamples() {
+        if (!this._prepared || typeof this._ex.ps_sweep_samples !== 'function') {
+            return 0;
+        }
+        return this._ex.ps_sweep_samples(this._handle);
+    }
+
+    isPrepared() {
+        return this._prepared;
+    }
+
+    /** ps_destroy。以後このオブジェクトは使わない。 */
+    destroy() {
+        if (this._handle) {
+            this._ex.ps_destroy(this._handle);
+            this._handle = 0;
+        }
+        this._prepared = false;
+        this._io0 = null;
+        this._io1 = null;
+    }
+}
+
+/* ------------------------------------------------------------------ *
  * PrismProcessor — 接着層(契約 3: postMessage プロトコル)
  * ------------------------------------------------------------------ */
 
@@ -583,15 +790,46 @@ if (typeof registerProcessor === 'function' && typeof AudioWorkletProcessor === 
                 Number.isFinite(opts.maxBlockFrames) ? Math.floor(opts.maxBlockFrames) : 0
             );
 
-            this._shifter = PitchShifterJS.create();
-            this._ready = this._shifter.prepare(sampleRate, maxBlock);
+            // ---- エンジン選択: WASM が本番、JS はフォールバック ----
+            this._engine = 'none';
+            this._fallbackReason = '';
+            this._shifter = null;
+
+            let wasm = null;
+            try {
+                wasm = PrismWasmShifter.instantiate(opts.wasmBytes);
+                if (wasm.prepare(sampleRate, maxBlock)) {
+                    this._shifter = wasm;
+                    this._engine = 'wasm';
+                } else {
+                    wasm.destroy();
+                    wasm = null;
+                    // 契約 2: ps_prepare が 0(sampleRate 範囲外など)
+                    this._fallbackReason =
+                        'ps_prepare が 0 を返しました(sampleRate=' + sampleRate + ')';
+                }
+            } catch (err) {
+                this._fallbackReason = String((err && err.message) || err);
+                wasm = null;
+            }
+
+            if (this._shifter === null) {
+                // WASM が使えない環境では JS 実装(アルゴリズム同一)へ落ちる
+                const js = PitchShifterJS.create();
+                if (js.prepare(sampleRate, maxBlock)) {
+                    this._shifter = js;
+                    this._engine = 'js';
+                }
+            }
+
+            this._ready = this._shifter !== null;
             this._io0 = this._ready ? this._shifter.ioPtr(0) : null;
             this._io1 = this._ready ? this._shifter.ioPtr(1) : null;
 
             // 1 秒ごとの遅延報告(D-04)。メッセージ本体は再利用して確保を抑える
             this._reportIntervalFrames = Math.max(1, Math.round(sampleRate));
             this._framesSinceReport = 0;
-            this._latencyMessage = { type: 'latency', dspLatencyMs: 0 };
+            this._latencyMessage = { type: 'latency', dspLatencyMs: 0, engine: this._engine };
             this._overflowReported = false;
 
             this.port.onmessage = (event) => {
@@ -599,16 +837,24 @@ if (typeof registerProcessor === 'function' && typeof AudioWorkletProcessor === 
             };
 
             if (!this._ready) {
-                // 初期化失敗は必ず UI へ上げる(契約 3 の error トリガ)
+                // 初期化失敗は必ず UI へ上げる(契約 3 の error トリガ:
+                // WASM ロード不可 OR ps_create が 0 OR ps_prepare が 0、
+                // かつ JS フォールバックの prepare も失敗した場合)
                 this.port.postMessage({
                     type: 'error',
                     message:
                         'PitchShifter の初期化に失敗しました(sampleRate=' +
                         sampleRate +
-                        ')。対応サンプリングレートは 8000〜192000 Hz です。'
+                        ')。対応サンプリングレートは 8000〜192000 Hz です。' +
+                        (this._fallbackReason ? ' WASM: ' + this._fallbackReason : '')
                 });
             } else {
-                this.port.postMessage({ type: 'ready' });
+                // engine / fallbackReason は契約 3 の ready への追加フィールド
+                this.port.postMessage({
+                    type: 'ready',
+                    engine: this._engine,
+                    fallbackReason: this._engine === 'wasm' ? '' : this._fallbackReason
+                });
                 this._postLatency();
             }
         }
@@ -721,6 +967,7 @@ if (typeof registerProcessor === 'function' && typeof AudioWorkletProcessor === 
 // 公開面。AudioWorklet では未使用。
 if (typeof globalThis !== 'undefined') {
     globalThis.PitchShifterJS = PitchShifterJS;
+    globalThis.PrismWasmShifter = PrismWasmShifter;
     globalThis.PS_PARAM = {
         SHIFT_CENTS_L: PS_PARAM_SHIFT_CENTS_L,
         SHIFT_CENTS_R: PS_PARAM_SHIFT_CENTS_R,
