@@ -84,3 +84,6 @@ aidlc/diagnostics/
 
 # build artifacts
 /build/
+
+# Claude Code agent worktrees
+.claude/worktrees/
