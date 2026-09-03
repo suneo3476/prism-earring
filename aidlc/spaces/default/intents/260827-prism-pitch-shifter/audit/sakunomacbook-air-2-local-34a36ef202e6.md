@@ -6776,3 +6776,69 @@
 **Message**: 移植完了、`node web/test/pitch-shifter-test.mjs` は **71 PASS / 0 FAIL**(所要 約115秒)。コミット `9abad26`(ブランチ `worktree-agent-a250be291f6a29c1c`)。\n\n実測値:\n- ピッチ比 fs=44100: 110Hz 0.949902(−0.18 cents)/ 440Hz 0.949902
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-03T21:22:50Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Summary Confirmation Recorded
+**Timestamp**: 2026-09-03T21:23:28Z
+**Event**: SUMMARY_CONFIRMATION_RECORDED
+**Stage**: nfr-design
+**Details**: Looks correct
+**Checkpoint**: Consolidated Summary Confirmation
+**Questions File**: aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/nfr-design/nfr-design-questions.md
+**Questions SHA-256**: 617a0795a21b2486de1649fe2c74a8a2e46b1f14bba12a7c92f2b24fcfb69e70
+**Hash Scope**: confirmed-content-v1
+**Unit**: u1-dsp-core
+
+---
+
+## Error Logged
+**Timestamp**: 2026-09-03T21:23:37Z
+**Event**: ERROR_LOGGED
+**Tool**: aidlc-log
+**Command**: aidlc-log review --stage nfr-design --reviewer aidlc-architecture-reviewer-agent --iteration 1 --unit u1-dsp-core
+**Error**: Cannot start review for "nfr-design": this stage's output document <project-dir>/aidlc/spaces/default/intents/260827-prism-pitch-shifter/construction/u1-dsp-core/nfr-design/security-design.md was not saved after the confirmed answers. Save the document after confirmation, then continue.
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-03T21:25:18Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-03T21:32:18Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-03T23:01:59Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-03T23:05:16Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-03T23:37:25Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: a0dcfb4e68b240e8c
+**Message**: WASM 化を完了し、ワークツリーに 1 コミット(`e306b2e`)しました。\n\n- テスト実測(`node web/test/wasm-test.mjs` → **86 PASS / 0 FAIL**): 比 0.949849〜0.949902(-0.18〜-0.28 cents、許容 ±0.5%)@110/440/3520Hz × 44.1k/48k、インパルス実測遅延 228 サンプル@
+
+---
