@@ -221,7 +221,8 @@ const SOURCE_HINT = {
     [Source.MIC]: 'マイクで拾った外界の音を処理します。イヤホンを使ってください。',
     [Source.TAB]:
         '共有ダイアログで同じブラウザ内のタブを選び、「タブの音声を共有」にチェックを入れてください。' +
-        '共有元タブをミュートすると、処理音だけが聞こえて聞き比べやすくなります。',
+        '共有中は共有元タブの音を自動で止めるので、処理音だけが聞こえます' +
+        '(止まらないブラウザでは共有元タブをミュートしてください)。',
     [Source.FILE]: '選んだ音声ファイルをループ再生して処理します(ファイルは端末外へ出ません)。'
 };
 
@@ -517,6 +518,11 @@ function acquireMicStream() {
  * 映像は一切使わないので取得直後に停止して MediaStream から外す。
  * 「タブの音声を共有」が未チェック、あるいは画面/ウィンドウを選んだ場合は音声トラックが
  * 付いてこないので、手順を案内して中止する。
+ *
+ * `suppressLocalAudioPlayback: true`(Chromium 109+)で、共有中は共有元タブの音を
+ * ブラウザ側で止めてもらう。これで「原音 + 処理音」の二重聞こえがなくなり、処理音だけが
+ * イヤホンに届く。非対応ブラウザでは無視されるだけなので、その場合は共有元タブを手動で
+ * ミュートすれば同じ状態になる(タブのミュートはキャプチャには影響しない)。
  */
 async function acquireTabStream() {
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
@@ -531,8 +537,11 @@ async function acquireTabStream() {
         audio: {
             echoCancellation: false,
             noiseSuppression: false,
-            autoGainControl: false
-        }
+            autoGainControl: false,
+            suppressLocalAudioPlayback: true
+        },
+        // 自分自身(このデモのタブ)を選ぶとフィードバックループになるので候補から外す
+        selfBrowserSurface: 'exclude'
     });
 
     for (const track of stream.getVideoTracks()) {
