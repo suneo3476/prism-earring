@@ -14,13 +14,16 @@ data class Params(
     val splitChannels: Boolean = false,
     val dryWet: Float = DEFAULT_DRY_WET,
     val crossfadeMs: Int = DEFAULT_CROSSFADE_MS,
-    /** スライダの下限(セント)。UI の粒度切替であって DSP の範囲ではない。 */
-    val sliderFloor: Int = SLIDER_FLOOR_FINE,
+    /**
+     * スライダの対称半幅(セント)。実効範囲は [-sliderHalfRange, +sliderHalfRange]。
+     * UI の粒度切替であって DSP の範囲ではない(web/main.js の rangeCents と同じ役割)。
+     */
+    val sliderHalfRange: Int = SLIDER_HALF_RANGE_FINE,
 ) {
     companion object {
         // --- DSP が実際に受け付ける範囲(PitchShifter の clamp と同じ) ---
-        const val DSP_SHIFT_CENTS_MIN = -150
-        const val DSP_SHIFT_CENTS_MAX = 0
+        const val DSP_SHIFT_CENTS_MIN = -1200
+        const val DSP_SHIFT_CENTS_MAX = 1200
         const val DEFAULT_SHIFT_CENTS = -89
 
         const val DRY_WET_MIN = 0.0f
@@ -31,18 +34,22 @@ data class Params(
         const val CROSSFADE_MS_MAX = 100
         const val DEFAULT_CROSSFADE_MS = 50
 
-        // --- スライダの下限プリセット(範囲切替の 4 分割) ---
-        const val SLIDER_FLOOR_FINE = -150      // 微調整
-        const val SLIDER_FLOOR_SEMITONE = -100  // 半音
-        const val SLIDER_FLOOR_TONE = -200      // 全音
-        const val SLIDER_FLOOR_OCTAVE = -1200   // オクターブ
+        // --- スライダの半幅プリセット(範囲切替の 4 分割。対称範囲 [-N, +N]) ---
+        const val SLIDER_HALF_RANGE_FINE = 150      // 微調整
+        const val SLIDER_HALF_RANGE_SEMITONE = 100  // 半音
+        const val SLIDER_HALF_RANGE_TONE = 200      // 全音
+        const val SLIDER_HALF_RANGE_OCTAVE = 1200   // オクターブ
 
-        val SLIDER_FLOORS = intArrayOf(
-            SLIDER_FLOOR_FINE,
-            SLIDER_FLOOR_SEMITONE,
-            SLIDER_FLOOR_TONE,
-            SLIDER_FLOOR_OCTAVE,
+        val SLIDER_HALF_RANGES = intArrayOf(
+            SLIDER_HALF_RANGE_FINE,
+            SLIDER_HALF_RANGE_SEMITONE,
+            SLIDER_HALF_RANGE_TONE,
+            SLIDER_HALF_RANGE_OCTAVE,
         )
+
+        /** オクターブ範囲のときだけ −/+ ボタンの刻みを 10 セントにする(web/main.js と同じ)。 */
+        const val SHIFT_STEP_COARSE_CENTS = 10
+        const val SHIFT_STEP_FINE_CENTS = 1
 
         // --- 窓長プリセット(3 分割) ---
         val CROSSFADE_PRESETS = intArrayOf(20, 50, 100)
@@ -53,7 +60,10 @@ data class Params(
         private const val KEY_SPLIT = "split_channels"
         private const val KEY_DRY_WET = "dry_wet"
         private const val KEY_CROSSFADE = "crossfade_ms"
-        private const val KEY_SLIDER_FLOOR = "slider_floor"
+        // 新キー。旧バージョンの "slider_floor"(下限そのものを負値で保持)とは
+        // 意味が違う(半幅)ので、キー名も変えて共存させる。旧キーが SharedPreferences
+        // に残っていても読まないので落ちない — 単に無視され、既定値が使われる。
+        private const val KEY_SLIDER_HALF_RANGE = "slider_half_range"
 
         fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -66,7 +76,7 @@ data class Params(
                 splitChannels = p.getBoolean(KEY_SPLIT, false),
                 dryWet = p.getFloat(KEY_DRY_WET, DEFAULT_DRY_WET),
                 crossfadeMs = p.getInt(KEY_CROSSFADE, DEFAULT_CROSSFADE_MS),
-                sliderFloor = p.getInt(KEY_SLIDER_FLOOR, SLIDER_FLOOR_FINE),
+                sliderHalfRange = p.getInt(KEY_SLIDER_HALF_RANGE, SLIDER_HALF_RANGE_FINE),
             ).sanitized()
         }
 
@@ -75,14 +85,16 @@ data class Params(
          * 手で書き換えた値を返しうるので、境界で必ず通す。
          */
         private fun Params.sanitized(): Params {
-            val floor = if (SLIDER_FLOORS.contains(sliderFloor)) sliderFloor else SLIDER_FLOOR_FINE
+            val halfRange =
+                if (SLIDER_HALF_RANGES.contains(sliderHalfRange)) sliderHalfRange
+                else SLIDER_HALF_RANGE_FINE
             return copy(
-                shiftCentsL = shiftCentsL.coerceIn(floor, DSP_SHIFT_CENTS_MAX),
-                shiftCentsR = shiftCentsR.coerceIn(floor, DSP_SHIFT_CENTS_MAX),
+                shiftCentsL = shiftCentsL.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
+                shiftCentsR = shiftCentsR.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
                 dryWet = if (dryWet.isFinite()) dryWet.coerceIn(DRY_WET_MIN, DRY_WET_MAX)
                 else DEFAULT_DRY_WET,
                 crossfadeMs = crossfadeMs.coerceIn(CROSSFADE_MS_MIN, CROSSFADE_MS_MAX),
-                sliderFloor = floor,
+                sliderHalfRange = halfRange,
             )
         }
     }
@@ -94,7 +106,7 @@ data class Params(
             .putBoolean(KEY_SPLIT, splitChannels)
             .putFloat(KEY_DRY_WET, dryWet)
             .putInt(KEY_CROSSFADE, crossfadeMs)
-            .putInt(KEY_SLIDER_FLOOR, sliderFloor)
+            .putInt(KEY_SLIDER_HALF_RANGE, sliderHalfRange)
             .apply()
     }
 
@@ -102,21 +114,22 @@ data class Params(
     val effectiveRight: Int get() = if (splitChannels) shiftCentsR else shiftCentsL
 
     /**
-     * DSP に渡る実効値。PitchShifter は [DSP_SHIFT_CENTS_MIN] で clamp するため、
-     * スライダの下限がそれより低い(全音 / オクターブ)場合はここで頭打ちになる。
-     * UI はこの差を隠さず注記として出す。
+     * スライダの実効下限 / 上限(セント)。プリセット半幅を基準にした対称範囲だが、
+     * 現在値がそれより外にあるときはクランプせず範囲側を現在値まで広げる
+     * (web/main.js の applyShiftRange と同じ規約)。L/R 共通の 1 本の範囲を使う。
      */
-    val clampedLeft: Int get() = shiftCentsL.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX)
-    val clampedRight: Int get() = effectiveRight.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX)
+    val sliderMin: Int get() = minOf(-sliderHalfRange, shiftCentsL, effectiveRight)
+    val sliderMax: Int get() = maxOf(sliderHalfRange, shiftCentsL, effectiveRight)
 
-    /** スライダ値が DSP の下限を下回っている(= 頭打ちになっている)か。 */
-    val isClamped: Boolean
-        get() = shiftCentsL < DSP_SHIFT_CENTS_MIN || effectiveRight < DSP_SHIFT_CENTS_MIN
+    /** −/+ ボタン 1 回ぶんの刻み(セント)。オクターブ範囲のときだけ粗くする。 */
+    val shiftStepCents: Int
+        get() = if (sliderHalfRange >= SLIDER_HALF_RANGE_OCTAVE) SHIFT_STEP_COARSE_CENTS
+        else SHIFT_STEP_FINE_CENTS
 
     /** エンジンへ一括反映する。動作中に呼んでよい(内部は atomic)。 */
     fun applyTo(engine: NativeEngine) {
-        engine.setShiftCents(NativeEngine.CHANNEL_LEFT, clampedLeft.toFloat())
-        engine.setShiftCents(NativeEngine.CHANNEL_RIGHT, clampedRight.toFloat())
+        engine.setShiftCents(NativeEngine.CHANNEL_LEFT, shiftCentsL.toFloat())
+        engine.setShiftCents(NativeEngine.CHANNEL_RIGHT, effectiveRight.toFloat())
         engine.setDryWet(dryWet)
         engine.setCrossfadeMs(crossfadeMs.toFloat())
     }

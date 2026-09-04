@@ -338,17 +338,6 @@
                         android:text="@string/range_octave" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/clampNote"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/clamp_note"
-                    android:textColor="@color/warn_fg"
-                    android:textSize="12sp"
-                    android:visibility="gone"
-                    tools:visibility="visible" />
-
                 <!-- — L/R 独立スイッチ -->
                 <LinearLayout
                     android:layout_width="match_parent"

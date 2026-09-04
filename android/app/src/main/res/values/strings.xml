@@ -38,8 +38,6 @@
 
     <string name="split_label">左右を別々に設定</string>
 
-    <string name="clamp_note">DSP の下限は −150 セントです。これより低い値を選んでも −150 セントで頭打ちになります。</string>
-
     <!-- 詳細設定 -->
     <string name="adv_title">詳細設定</string>
     <string name="adv_open">詳細設定 ▾</string>

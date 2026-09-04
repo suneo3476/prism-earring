@@ -130,12 +130,12 @@ class MainActivity : AppCompatActivity() {
     // ---- 入力ハンドラ ------------------------------------------------------
 
     private fun setUpSliders() {
-        // SeekBar は 0 始まりの整数しか扱えないので、値 = 下限 + progress で写像する。
+        // SeekBar は 0 始まりの整数しか扱えないので、値 = 実効下限 + progress で写像する。
         binding.shiftLSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(shiftCentsL = params.sliderFloor + progress))
+            updateParams(params.copy(shiftCentsL = params.sliderMin + progress))
         })
         binding.shiftRSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(shiftCentsR = params.sliderFloor + progress))
+            updateParams(params.copy(shiftCentsR = params.sliderMin + progress))
         })
         binding.dryWetSlider.max = 100
         binding.dryWetSlider.setOnSeekBarChangeListener(simpleListener { progress ->
@@ -148,6 +148,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpSteppers() {
+        // sign は方向だけ(-1/+1)。実際の刻み幅は現在の範囲プリセットから毎回引く
+        // (オクターブ範囲だけ 10 セント刻み。web の shiftStepButtons と同じ)。
         binding.stepLDown.setOnClickListener { nudgeLeft(-1) }
         binding.stepLUp.setOnClickListener { nudgeLeft(1) }
         binding.stepRDown.setOnClickListener { nudgeRight(-1) }
@@ -159,17 +161,17 @@ class MainActivity : AppCompatActivity() {
         binding.crossfadeUp.setOnClickListener { nudgeCrossfade(1) }
     }
 
-    private fun nudgeLeft(delta: Int) = updateParams(
+    private fun nudgeLeft(sign: Int) = updateParams(
         params.copy(
-            shiftCentsL = (params.shiftCentsL + delta)
-                .coerceIn(params.sliderFloor, Params.DSP_SHIFT_CENTS_MAX)
+            shiftCentsL = (params.shiftCentsL + sign * params.shiftStepCents)
+                .coerceIn(params.sliderMin, params.sliderMax)
         )
     )
 
-    private fun nudgeRight(delta: Int) = updateParams(
+    private fun nudgeRight(sign: Int) = updateParams(
         params.copy(
-            shiftCentsR = (params.effectiveRight + delta)
-                .coerceIn(params.sliderFloor, Params.DSP_SHIFT_CENTS_MAX)
+            shiftCentsR = (params.effectiveRight + sign * params.shiftStepCents)
+                .coerceIn(params.sliderMin, params.sliderMax)
         )
     )
 
@@ -197,15 +199,9 @@ class MainActivity : AppCompatActivity() {
         val ranges = listOf(binding.range0, binding.range1, binding.range2, binding.range3)
         ranges.forEachIndexed { index, view ->
             view.setOnClickListener {
-                val floor = Params.SLIDER_FLOORS[index]
-                // 範囲を狭めたときは、はみ出した現在値を新しい下限へ引き上げる。
-                updateParams(
-                    params.copy(
-                        sliderFloor = floor,
-                        shiftCentsL = params.shiftCentsL.coerceIn(floor, Params.DSP_SHIFT_CENTS_MAX),
-                        shiftCentsR = params.shiftCentsR.coerceIn(floor, Params.DSP_SHIFT_CENTS_MAX),
-                    )
-                )
+                // 現在値はクランプしない —— 範囲外にいるときは sliderMin/sliderMax の
+                // ほうが現在値まで自動的に広がる(Params.sliderMin/sliderMax、web 版と同じ挙動)。
+                updateParams(params.copy(sliderHalfRange = Params.SLIDER_HALF_RANGES[index]))
             }
         }
     }
@@ -292,14 +288,15 @@ class MainActivity : AppCompatActivity() {
 
     /** params -> View。リスナーを止めた状態でのみ呼ぶこと。 */
     private fun bindParamsToViews() {
-        val span = Params.DSP_SHIFT_CENTS_MAX - params.sliderFloor
+        val min = params.sliderMin
+        val span = params.sliderMax - min
 
         binding.shiftLSlider.max = span
-        binding.shiftLSlider.progress = params.shiftCentsL - params.sliderFloor
+        binding.shiftLSlider.progress = params.shiftCentsL - min
         binding.shiftLValue.text = formatCents(params.shiftCentsL)
 
         binding.shiftRSlider.max = span
-        binding.shiftRSlider.progress = params.effectiveRight - params.sliderFloor
+        binding.shiftRSlider.progress = params.effectiveRight - min
         binding.shiftRValue.text = formatCents(params.effectiveRight)
 
         binding.splitSwitch.isChecked = params.splitChannels
@@ -320,19 +317,25 @@ class MainActivity : AppCompatActivity() {
         )
         selectSegment(
             listOf(binding.range0, binding.range1, binding.range2, binding.range3),
-            Params.SLIDER_FLOORS.indexOf(params.sliderFloor),
+            Params.SLIDER_HALF_RANGES.indexOf(params.sliderHalfRange),
         )
-
-        binding.clampNote.visibility = if (params.isClamped) View.VISIBLE else View.GONE
     }
 
     private fun selectSegment(views: List<TextView>, selectedIndex: Int) {
         views.forEachIndexed { index, view -> view.isSelected = index == selectedIndex }
     }
 
-    /** 符号つきで、マイナスは U+2212(意匠上の「−」)にする。 */
-    private fun formatCents(value: Int): String =
-        if (value < 0) "−${-value}" else value.toString()
+    /**
+     * 符号つきで書式化する。プラス側も設定できるようになったため、上げているのか
+     * 下げているのか一目で分かるよう符号を必ず添える。ちょうど 0 は「±0」
+     * (単なる 0 だと符号の欠落と紛らわしい)。マイナスは U+2212(意匠上の「−」)。
+     * web/main.js の formatCents と同じ規約。
+     */
+    private fun formatCents(value: Int): String = when {
+        value > 0 -> "+$value"
+        value < 0 -> "−${-value}"
+        else -> "±0"
+    }
 
     private fun renderState(state: PrismService.State) {
         val running = state.running
