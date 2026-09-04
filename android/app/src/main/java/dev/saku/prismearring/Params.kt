@@ -22,6 +22,13 @@ data class Params(
     val outputGainDb: Float = DEFAULT_OUTPUT_GAIN_DB,
     /** テーマ設定。[THEME_SYSTEM] / [THEME_LIGHT] / [THEME_DARK]。エンジンには渡さない。 */
     val themeMode: Int = THEME_SYSTEM,
+    // --- ユーザープリセット(P1〜P3)。値は [PRESET_UNSET] なら未登録。エンジンには渡さない。 ---
+    val preset1L: Int = PRESET_UNSET,
+    val preset1R: Int = PRESET_UNSET,
+    val preset2L: Int = PRESET_UNSET,
+    val preset2R: Int = PRESET_UNSET,
+    val preset3L: Int = PRESET_UNSET,
+    val preset3R: Int = PRESET_UNSET,
 ) {
     companion object {
         // --- DSP が実際に受け付ける範囲(PitchShifter の clamp と同じ) ---
@@ -74,6 +81,10 @@ data class Params(
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
 
+        // --- ユーザープリセット ---
+        /** プリセットスロット未登録を表す番兵値。DSP の有効範囲(±1200)の外側であること。 */
+        const val PRESET_UNSET = Int.MIN_VALUE
+
         private const val PREFS_NAME = "prism_params"
         private const val KEY_SHIFT_L = "shift_cents_l"
         private const val KEY_SHIFT_R = "shift_cents_r"
@@ -83,6 +94,12 @@ data class Params(
         private const val KEY_STEP_CENTS = "step_cents"
         private const val KEY_OUTPUT_GAIN_DB = "output_gain_db"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_PRESET1_L = "preset1_l"
+        private const val KEY_PRESET1_R = "preset1_r"
+        private const val KEY_PRESET2_L = "preset2_l"
+        private const val KEY_PRESET2_R = "preset2_r"
+        private const val KEY_PRESET3_L = "preset3_l"
+        private const val KEY_PRESET3_R = "preset3_r"
 
         fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -98,7 +115,24 @@ data class Params(
                 stepCents = p.getInt(KEY_STEP_CENTS, DEFAULT_STEP_CENTS),
                 outputGainDb = p.getFloat(KEY_OUTPUT_GAIN_DB, DEFAULT_OUTPUT_GAIN_DB),
                 themeMode = p.getInt(KEY_THEME_MODE, THEME_SYSTEM),
+                preset1L = p.getInt(KEY_PRESET1_L, PRESET_UNSET),
+                preset1R = p.getInt(KEY_PRESET1_R, PRESET_UNSET),
+                preset2L = p.getInt(KEY_PRESET2_L, PRESET_UNSET),
+                preset2R = p.getInt(KEY_PRESET2_R, PRESET_UNSET),
+                preset3L = p.getInt(KEY_PRESET3_L, PRESET_UNSET),
+                preset3R = p.getInt(KEY_PRESET3_R, PRESET_UNSET),
             ).sanitized()
+        }
+
+        /**
+         * プリセットの L/R ペアの丸め。片方だけが有効範囲外(番兵値含む)だと
+         * L だけ登録済み・R は範囲外の値、という壊れた組み合わせになりうるため、
+         * どちらか一方でも無効なら両方まとめて「未登録」に戻す。
+         */
+        private fun sanitizePresetPair(l: Int, r: Int): Pair<Int, Int> {
+            val validL = l in DSP_SHIFT_CENTS_MIN..DSP_SHIFT_CENTS_MAX
+            val validR = r in DSP_SHIFT_CENTS_MIN..DSP_SHIFT_CENTS_MAX
+            return if (validL && validR) l to r else PRESET_UNSET to PRESET_UNSET
         }
 
         /**
@@ -119,7 +153,16 @@ data class Params(
                     outputGainDb.coerceIn(OUTPUT_GAIN_DB_MIN, OUTPUT_GAIN_DB_MAX)
                 else DEFAULT_OUTPUT_GAIN_DB,
                 themeMode = theme,
-            )
+            ).let {
+                val (p1l, p1r) = sanitizePresetPair(preset1L, preset1R)
+                val (p2l, p2r) = sanitizePresetPair(preset2L, preset2R)
+                val (p3l, p3r) = sanitizePresetPair(preset3L, preset3R)
+                it.copy(
+                    preset1L = p1l, preset1R = p1r,
+                    preset2L = p2l, preset2R = p2r,
+                    preset3L = p3l, preset3R = p3r,
+                )
+            }
         }
     }
 
@@ -133,6 +176,12 @@ data class Params(
             .putInt(KEY_STEP_CENTS, stepCents)
             .putFloat(KEY_OUTPUT_GAIN_DB, outputGainDb)
             .putInt(KEY_THEME_MODE, themeMode)
+            .putInt(KEY_PRESET1_L, preset1L)
+            .putInt(KEY_PRESET1_R, preset1R)
+            .putInt(KEY_PRESET2_L, preset2L)
+            .putInt(KEY_PRESET2_R, preset2R)
+            .putInt(KEY_PRESET3_L, preset3L)
+            .putInt(KEY_PRESET3_R, preset3R)
             .apply()
     }
 
@@ -145,6 +194,30 @@ data class Params(
 
     /** −/+ ボタン 1 回ぶんの刻み(セント)。[stepCents] をそのまま使う。 */
     val shiftStepCents: Int get() = stepCents
+
+    /** スロット(1〜3)の L 値。未登録なら [PRESET_UNSET]。 */
+    fun presetL(slot: Int): Int = when (slot) {
+        1 -> preset1L
+        2 -> preset2L
+        else -> preset3L
+    }
+
+    /** スロット(1〜3)の R 値。未登録なら [PRESET_UNSET]。 */
+    fun presetR(slot: Int): Int = when (slot) {
+        1 -> preset1R
+        2 -> preset2R
+        else -> preset3R
+    }
+
+    /** スロットが登録済みかどうか。 */
+    fun isPresetSet(slot: Int): Boolean = presetL(slot) != PRESET_UNSET
+
+    /** 指定スロットに現在の L/R ペアを登録した新しい [Params] を返す。 */
+    fun withPresetSet(slot: Int, shiftL: Int, shiftR: Int): Params = when (slot) {
+        1 -> copy(preset1L = shiftL, preset1R = shiftR)
+        2 -> copy(preset2L = shiftL, preset2R = shiftR)
+        else -> copy(preset3L = shiftL, preset3R = shiftR)
+    }
 
     /** エンジンへ一括反映する。動作中に呼んでよい(内部は atomic)。 */
     fun applyTo(engine: NativeEngine) {

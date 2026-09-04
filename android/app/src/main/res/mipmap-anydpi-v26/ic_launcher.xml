@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  前景は web/assets/icon-foreground.svg をヘッドレス Chrome で密度ごとに PNG 化したもの
+  (mipmap-*/ic_launcher_foreground.png、108dp = 108/162/216/324/432 px)。
+  グラデーション・マスク・ブルームを含む元 SVG を VectorDrawable に手で起こすと
+  忠実度が落ちるため、ラスタで持つ。図柄は元 SVG の時点で安全円(66%)内に収めてある。
+  再生成手順は android/README.md「アイコン」を参照。
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_notification" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>

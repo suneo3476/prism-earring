@@ -43,7 +43,7 @@
                     android:layout_width="36dp"
                     android:layout_height="36dp"
                     android:contentDescription="@string/brand"
-                    android:src="@drawable/ic_launcher_foreground" />
+                    android:src="@mipmap/ic_launcher_foreground" />
 
                 <TextView
                     android:layout_width="0dp"
@@ -204,6 +204,14 @@
                         android:src="@drawable/ic_info" />
                 </LinearLayout>
 
+                <!-- — 数値タップで入力できることの手がかり -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/shift_tap_hint"
+                    style="@style/SubLabel" />
+
                 <!-- — L チャンネル -->
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -231,8 +239,13 @@
                         android:id="@+id/shiftLValue"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:contentDescription="@string/desc_shift_tap_l"
                         android:fontFeatureSettings="tnum"
                         android:includeFontPadding="false"
+                        android:paddingHorizontal="6dp"
                         android:text="-89"
                         android:textColor="@color/fg"
                         android:textSize="56sp"
@@ -302,19 +315,98 @@
                         style="@style/SubLabel" />
                 </LinearLayout>
 
-                <!-- — 既定に戻す -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/resetShiftButton"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
+                <!-- — ジャンプ / ユーザープリセット -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginTop="4dp"
-                    android:contentDescription="@string/desc_reset_shift"
-                    android:text="@string/reset_shift_button"
-                    android:textAllCaps="false"
+                    android:layout_marginTop="14dp"
+                    android:layout_marginBottom="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/jump_preset_title"
+                        android:textColor="@color/muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/jumpPresetInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/jump_preset_title"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/jumpMin"
+                        style="@style/SegmentItemSmall"
+                        android:contentDescription="@string/desc_jump_min"
+                        android:text="@string/jump_min" />
+
+                    <TextView
+                        android:id="@+id/jumpZero"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:contentDescription="@string/desc_jump_zero"
+                        android:text="@string/jump_zero" />
+
+                    <TextView
+                        android:id="@+id/jumpDefault"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:contentDescription="@string/desc_jump_default"
+                        android:text="@string/jump_default" />
+
+                    <TextView
+                        android:id="@+id/jumpMax"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:contentDescription="@string/desc_jump_max"
+                        android:text="@string/jump_max" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/user_preset_subtitle"
+                    android:textColor="@color/muted"
                     android:textSize="13sp"
-                    app:cornerRadius="12dp" />
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/presetSlot1"
+                        style="@style/SegmentItemSmall"
+                        tools:text="P1\n−89" />
+
+                    <TextView
+                        android:id="@+id/presetSlot2"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        tools:text="P2\n—" />
+
+                    <TextView
+                        android:id="@+id/presetSlot3"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        tools:text="P3\n—" />
+                </LinearLayout>
 
                 <!-- — R チャンネル(L/R 独立 ON のときだけ) -->
                 <LinearLayout
@@ -349,8 +441,13 @@
                             android:id="@+id/shiftRValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:contentDescription="@string/desc_shift_tap_r"
                             android:fontFeatureSettings="tnum"
                             android:includeFontPadding="false"
+                            android:paddingHorizontal="6dp"
                             android:text="-89"
                             android:textColor="@color/fg"
                             android:textSize="40sp"
@@ -821,6 +918,10 @@
                 <TextView
                     style="@style/Fine"
                     android:text="@string/note_privacy" />
+
+                <TextView
+                    style="@style/Fine"
+                    android:text="@string/note_codename" />
 
                 <TextView
                     android:id="@+id/diagText"

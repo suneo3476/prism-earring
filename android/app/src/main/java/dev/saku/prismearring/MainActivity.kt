@@ -11,7 +11,11 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.text.InputType
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +27,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import dev.saku.prismearring.databinding.ActivityMainBinding
 import dev.saku.prismearring.databinding.SheetInfoBinding
 import kotlin.math.roundToInt
@@ -109,6 +115,9 @@ class MainActivity : AppCompatActivity() {
         setUpAdvancedToggle()
         setUpDock()
         setUpInfoButtons()
+        setUpShiftValueInputs()
+        setUpJumpRow()
+        setUpPresetButtons()
 
         suppressListeners = true
         bindParamsToViews()
@@ -217,8 +226,6 @@ class MainActivity : AppCompatActivity() {
         binding.crossfadeUp.setOnClickListener { nudgeCrossfade(1) }
         binding.volumeDown.setOnClickListener { nudgeVolume(-1.0f) }
         binding.volumeUp.setOnClickListener { nudgeVolume(1.0f) }
-
-        binding.resetShiftButton.setOnClickListener { resetShift() }
     }
 
     private fun nudgeLeft(sign: Int) = updateParams(
@@ -255,13 +262,117 @@ class MainActivity : AppCompatActivity() {
         )
     )
 
-    /** シフト量だけを既定値(−89)へ戻す。左右独立が ON でも両方戻す。 */
-    private fun resetShift() = updateParams(
-        params.copy(
-            shiftCentsL = Params.DEFAULT_SHIFT_CENTS,
-            shiftCentsR = Params.DEFAULT_SHIFT_CENTS,
-        )
+    /**
+     * シフト量を指定値へジャンプさせる。左右独立が ON でも常に L/R 両方を同じ値にする
+     * (仕様はシンプルさ優先。片方だけ動かしたい場合はスライダ / ステッパを使う)。
+     */
+    private fun jumpShiftTo(value: Int) = updateParams(
+        params.copy(shiftCentsL = value, shiftCentsR = value)
     )
+
+    private fun setUpJumpRow() {
+        binding.jumpMin.setOnClickListener { jumpShiftTo(Params.DSP_SHIFT_CENTS_MIN) }
+        binding.jumpZero.setOnClickListener { jumpShiftTo(0) }
+        binding.jumpDefault.setOnClickListener { jumpShiftTo(Params.DEFAULT_SHIFT_CENTS) }
+        binding.jumpMax.setOnClickListener { jumpShiftTo(Params.DSP_SHIFT_CENTS_MAX) }
+    }
+
+    // ---- ユーザープリセット(P1〜P3)------------------------------------------
+
+    private fun setUpPresetButtons() {
+        val slots = listOf(1 to binding.presetSlot1, 2 to binding.presetSlot2, 3 to binding.presetSlot3)
+        slots.forEach { (slot, view) ->
+            view.setOnClickListener { onPresetTap(slot) }
+            view.setOnLongClickListener { onPresetLongPress(slot); true }
+        }
+    }
+
+    /** タップ: 登録済みならその値へジャンプ、未登録なら登録方法を案内する。 */
+    private fun onPresetTap(slot: Int) {
+        if (!params.isPresetSet(slot)) {
+            Snackbar.make(binding.root, R.string.preset_unset_hint, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        updateParams(
+            params.copy(shiftCentsL = params.presetL(slot), shiftCentsR = params.presetR(slot))
+        )
+    }
+
+    /** 長押し: 現在の L/R ペアをそのスロットへ上書き登録する。 */
+    private fun onPresetLongPress(slot: Int) {
+        val l = params.shiftCentsL
+        val r = params.effectiveRight
+        updateParams(params.withPresetSet(slot, l, r))
+        val message = if (l == r) {
+            getString(R.string.preset_saved_single, slot, formatCents(l))
+        } else {
+            getString(R.string.preset_saved_pair, slot, formatCents(l), formatCents(r))
+        }
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun updatePresetLabel(view: TextView, slot: Int) {
+        val name = getString(R.string.preset_slot_name, slot)
+        val valueText = if (params.isPresetSet(slot)) {
+            val l = params.presetL(slot)
+            val r = params.presetR(slot)
+            if (l == r) formatCents(l) else "${formatCents(l)}/${formatCents(r)}"
+        } else {
+            getString(R.string.preset_slot_unset)
+        }
+        view.text = "$name\n$valueText"
+        view.contentDescription = getString(R.string.desc_preset_slot, slot, valueText)
+    }
+
+    // ---- 数値の直接入力 --------------------------------------------------------
+
+    private fun setUpShiftValueInputs() {
+        binding.shiftLValue.setOnClickListener { showShiftInputDialog(isRight = false) }
+        binding.shiftRValue.setOnClickListener { showShiftInputDialog(isRight = true) }
+    }
+
+    private fun showShiftInputDialog(isRight: Boolean) {
+        val current = if (isRight) params.effectiveRight else params.shiftCentsL
+        val density = resources.displayMetrics.density
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setText(current.toString())
+            setSelection(text.length)
+            hint = getString(R.string.shift_input_hint)
+            imeOptions = EditorInfo.IME_ACTION_DONE
+        }
+        val container = FrameLayout(this).apply {
+            val horizontal = (20 * density).roundToInt()
+            setPadding(horizontal, 0, horizontal, 0)
+            addView(input)
+        }
+        val titleRes = if (isRight) R.string.shift_input_title_r else R.string.shift_input_title_l
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(titleRes)
+            .setView(container)
+            .setPositiveButton(R.string.dialog_ok) { _, _ -> applyShiftInput(input.text.toString(), isRight) }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .create()
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                applyShiftInput(input.text.toString(), isRight)
+                dialog.dismiss()
+                true
+            } else {
+                false
+            }
+        }
+        dialog.show()
+    }
+
+    /** 空・非数は無視する。範囲外は DSP の有効範囲(±1200)へ丸める。 */
+    private fun applyShiftInput(text: String, isRight: Boolean) {
+        val value = text.trim().toIntOrNull() ?: return
+        val coerced = value.coerceIn(Params.DSP_SHIFT_CENTS_MIN, Params.DSP_SHIFT_CENTS_MAX)
+        updateParams(
+            if (isRight) params.copy(shiftCentsR = coerced) else params.copy(shiftCentsL = coerced)
+        )
+    }
 
     private fun setUpSegments() {
         val presets = listOf(binding.preset0, binding.preset1, binding.preset2)
@@ -335,6 +446,9 @@ class MainActivity : AppCompatActivity() {
             binding.crossfadeInfoButton, R.string.info_crossfade_title, R.string.info_crossfade_body
         )
         infoButton(binding.latencyInfoButton, R.string.info_latency_title, R.string.info_latency_body)
+        infoButton(
+            binding.jumpPresetInfoButton, R.string.info_jump_preset_title, R.string.info_jump_preset_body
+        )
     }
 
     private fun infoButton(view: ImageView, titleRes: Int, bodyRes: Int) {
@@ -447,6 +561,10 @@ class MainActivity : AppCompatActivity() {
             listOf(binding.themeSystem, binding.themeLight, binding.themeDark),
             params.themeMode,
         )
+
+        updatePresetLabel(binding.presetSlot1, 1)
+        updatePresetLabel(binding.presetSlot2, 2)
+        updatePresetLabel(binding.presetSlot3, 3)
     }
 
     private fun selectSegment(views: List<TextView>, selectedIndex: Int) {

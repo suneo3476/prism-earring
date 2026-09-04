@@ -1,39 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  通知アイコン。システムが単色でマスクするため、カツオの白いシルエットだけで描く。
-  パスは ic_launcher_monochrome.xml と同じ(web/assets/logo.svg のローカル座標)。
-  通知アイコンは安全円の制約がないので、24dp いっぱいに大きく置く。
+  テーマ別アイコン(monochrome 層)用のカツオのシルエット。
+  パスは web/assets/logo.svg の魚体グループのローカル座標をそのまま使い、
+  group の変換で安全円(中心 54,54 / 半径 33)の内側に収めている。
+  単色でマスクされる層なので、白の塗りだけで描く。目は evenOdd で穴にする。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
+    android:width="108dp"
+    android:height="108dp"
     android:viewportWidth="108"
-    android:viewportHeight="108"
-    android:tint="#FFFFFFFF">
+    android:viewportHeight="108">
+    <!-- 図柄の外接矩形はローカル座標で x 198..388 / y 38..211(中心 293,124.5)。
+         倍率 0.25 で最遠の角が半径 32.1 に収まる(尾びれの先が安全円を出ない)。 -->
     <group
-        android:scaleX="0.5"
-        android:scaleY="0.5"
-        android:translateX="-92.5"
-        android:translateY="-8.2">
+        android:scaleX="0.25"
+        android:scaleY="0.25"
+        android:translateX="-19.25"
+        android:translateY="22.9">
+        <!-- 耳金具: フック・丸カン・吊り線 -->
         <path
             android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="6"
+            android:strokeWidth="7"
             android:strokeLineCap="round"
             android:pathData="M302,99 L302,62 C302,38 276,38 276,62 L276,76" />
         <path
             android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="6"
+            android:strokeWidth="7"
             android:pathData="M308,105 A6,6 0 1,1 296,105 A6,6 0 1,1 308,105 Z" />
         <path
             android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="6"
+            android:strokeWidth="7"
             android:pathData="M302,111 L302,123" />
+        <!-- 背びれ・腹びれ・小離鰭 -->
         <path
             android:fillColor="#FFFFFFFF"
             android:pathData="M250,119 C259,101 271,92 288,90 C284,103 282,113 281,122 Z M283,188 C290,200 296,206 303,208 C296,202 291,195 289,187 Z M244,186 C250,195 254,200 258,203 C252,198 248,192 246,185 Z M312,127 L321,120 L319,131 Z M323,134 L332,128 L330,139 Z M311,178 L320,185 L318,174 Z M322,171 L331,177 L329,166 Z" />
+        <!-- 尾びれ(三日月形) -->
         <path
             android:fillColor="#FFFFFFFF"
             android:pathData="M342,146 C358,134 374,114 388,94 C387,129 376,147 348,152.5 C376,158 387,176 388,211 C374,191 358,171 342,159 Z" />
+        <!-- 体(紡錘形)。目を evenOdd の穴にする -->
         <path
             android:fillColor="#FFFFFFFF"
             android:fillType="evenOdd"

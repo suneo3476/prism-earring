@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PrismEarring</string>
+    <string name="app_name">カツオ</string>
 
     <!-- ヘッダ -->
-    <string name="brand">prism earring</string>
+    <string name="brand">カツオ</string>
     <string name="status_stopped">停止中</string>
     <string name="status_starting">同期中</string>
     <string name="status_running">動作中</string>
@@ -44,9 +44,37 @@
     <string name="info_shift_title">音の高さ(シフト量)</string>
     <string name="info_shift_body">入ってきた音を、どれだけ高く / 低くして聞くかです。100 で半音、200 で全音、1200 で 1 オクターブ変わります。マイナスにすると低く聞こえます。作者本人の既定値は −89(半音よりわずかに狭い)です。</string>
 
-    <!-- 既定に戻す -->
-    <string name="reset_shift_button">既定に戻す(−89)</string>
-    <string name="desc_reset_shift">シフト量を既定値の −89 セントに戻す</string>
+    <!-- 数値の直接入力 -->
+    <string name="shift_tap_hint">数値をタップして直接入力できます</string>
+    <string name="desc_shift_tap_l">タップしてシフト量を入力(L)</string>
+    <string name="desc_shift_tap_r">タップしてシフト量を入力(R)</string>
+    <string name="shift_input_title_l">シフト量を入力(L)</string>
+    <string name="shift_input_title_r">シフト量を入力(R)</string>
+    <string name="shift_input_hint">−1200 〜 1200</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">キャンセル</string>
+
+    <!-- ジャンプ / ユーザープリセット -->
+    <string name="jump_preset_title">ジャンプ / プリセット</string>
+    <string name="info_jump_preset_title">ジャンプ / プリセット</string>
+    <string name="info_jump_preset_body">最小・0・既定・最大をタップすると、その値へ左右まとめて移動します(左右を別々に設定していても両方動きます)。P1〜P3 は自分でよく使う値を登録できるボタンです。タップで呼び出し、長押しで現在の値(L と R のペア)を上書き登録します。</string>
+
+    <string name="jump_min">最小\n−1200</string>
+    <string name="jump_zero">0</string>
+    <string name="jump_default">既定\n−89</string>
+    <string name="jump_max">最大\n+1200</string>
+    <string name="desc_jump_min">シフト量を最小値 −1200 セントにする</string>
+    <string name="desc_jump_zero">シフト量を 0 セントにする</string>
+    <string name="desc_jump_default">シフト量を既定値 −89 セントにする</string>
+    <string name="desc_jump_max">シフト量を最大値 +1200 セントにする</string>
+
+    <string name="user_preset_subtitle">ユーザープリセット</string>
+    <string name="preset_slot_name">P%1$d</string>
+    <string name="preset_slot_unset">—</string>
+    <string name="desc_preset_slot">プリセット %1$d(%2$s)</string>
+    <string name="preset_saved_single">プリセット %1$d に %2$s を登録しました</string>
+    <string name="preset_saved_pair">プリセット %1$d に %2$s / %3$s を登録しました</string>
+    <string name="preset_unset_hint">長押しで現在の値を登録します</string>
 
     <!-- 刻み幅(範囲切替を置き換え) -->
     <string name="step_title">刻み幅</string>
@@ -104,6 +132,7 @@
     <string name="note_wired">有線イヤホンを推奨します。Bluetooth は 100ms 以上遅れるため、この用途では実用になりません。</string>
     <string name="note_privacy">音声はこの端末の外へ出ません(外部送信・録音・保存なし)。マイクは開始を押している間だけ開きます。</string>
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
+    <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
     <string name="diag_placeholder">診断: --</string>
     <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回</string>
     <string name="yes">はい</string>
@@ -126,7 +155,7 @@
     <!-- 通知 -->
     <string name="notif_channel_name">ピッチシフト処理</string>
     <string name="notif_channel_desc">マイク入力をピッチシフトして再生している間に表示されます。</string>
-    <string name="notif_title">PrismEarring 動作中</string>
+    <string name="notif_title">カツオ 動作中</string>
     <string name="notif_text">マイク入力をピッチシフトして再生しています。</string>
     <string name="notif_action_stop">停止</string>
 </resources>
