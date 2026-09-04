@@ -1,95 +1,147 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 320" width="640" height="320" role="img" aria-labelledby="prismLogoTitle prismLogoDesc">
 <title id="prismLogoTitle">prism earring</title>
-<desc id="prismLogoDesc">黒地に、耳飾りとして吊るされた三角プリズム。左から入った白い光がプリズム内で細く収束し、右へ赤・橙・黄・緑・青・紫の六色が扇状に、わずかに下向きへ広がる。</desc>
+<desc id="prismLogoDesc">黒地に、金の耳飾り金具から吊るされた横向きのカツオ。左から入った白い光が口に入り、腹側に縞のある紡錘形の体内を細い六色の筋となって進み、三日月形の尾びれの割れ目を抜けて右へ赤・橙・黄・緑・青・紫が扇状に、わずかに下向きへ広がる。</desc>
 
 <defs>
-  <!-- 金具(フック / 丸カン)。上ほど明るい金色 -->
-  <linearGradient id="metal" x1="0" y1="26" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+  <!-- 耳金具(フック / 丸カン)。上ほど明るい金色 -->
+  <linearGradient id="metal" x1="0" y1="36" x2="0" y2="126" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#fff3d2"/>
     <stop offset="0.45" stop-color="#e8c877"/>
     <stop offset="1" stop-color="#a8822f"/>
   </linearGradient>
 
-  <!-- プリズム(ガラス)の面。ほぼ黒だが完全な黒ではなく、立体を残す -->
-  <linearGradient id="glass" x1="204" y1="88.8" x2="336" y2="203.1" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#ffffff" stop-opacity="0.13"/>
-    <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.04"/>
-    <stop offset="1" stop-color="#ffffff" stop-opacity="0.08"/>
-  </linearGradient>
-  <linearGradient id="edge" x1="270" y1="88.8" x2="270" y2="203.1" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
-    <stop offset="1" stop-color="#ffffff" stop-opacity="0.42"/>
+  <!-- 魚体。背は銀青、腹はわずかに反射光を残す -->
+  <linearGradient id="scale" x1="0" y1="112" x2="0" y2="194" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#4c6784"/>
+    <stop offset="0.34" stop-color="#26374a"/>
+    <stop offset="0.64" stop-color="#121b25"/>
+    <stop offset="0.88" stop-color="#1b2836"/>
+    <stop offset="1" stop-color="#374c62"/>
   </linearGradient>
 
-  <!-- 入射する白色光。左端で太く、入射面へ向かって絞られる -->
-  <linearGradient id="beam" x1="0" y1="119" x2="240.3" y2="140.2" gradientUnits="userSpaceOnUse">
+  <!-- ひれ。体より一段沈める -->
+  <linearGradient id="fin" x1="0" y1="86" x2="0" y2="210" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#33485f"/>
+    <stop offset="1" stop-color="#0b1219"/>
+  </linearGradient>
+
+  <!-- 輪郭線。上辺を明るく -->
+  <linearGradient id="edge" x1="0" y1="100" x2="0" y2="200" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0.46"/>
+  </linearGradient>
+
+  <!-- 入射する白色光。左端で太く、口へ向かって絞られる -->
+  <linearGradient id="beam" x1="0" y1="134" x2="198" y2="152" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#ffffff" stop-opacity="0.70"/>
     <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.92"/>
     <stop offset="1" stop-color="#ffffff" stop-opacity="1"/>
   </linearGradient>
 
-  <!-- プリズム内部の芯。入射側は白、射出側で色が分かれ始める -->
-  <linearGradient id="core" x1="240.3" y1="140.2" x2="310.9" y2="159.7" gradientUnits="userSpaceOnUse">
+  <!-- 体内の芯。口側は白、尾側で色が分かれ始める -->
+  <linearGradient id="core" x1="198" y1="152" x2="342" y2="153.3" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
-    <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.45"/>
-    <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.38"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
   </linearGradient>
 
-  <!-- 射出後のスペクトル。右端へわずかに減衰させ、切り落とし感を和らげる -->
-  <linearGradient id="fade" x1="310.9" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
+  <!-- 扇の右端をわずかに減衰させ、切り落とし感を和らげる -->
+  <linearGradient id="fade" x1="342" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
     <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
     <stop offset="0.7" stop-color="#ffffff" stop-opacity="1"/>
     <stop offset="1" stop-color="#ffffff" stop-opacity="0.82"/>
   </linearGradient>
-  <mask id="fanFade"><rect x="300" y="110" width="340" height="170" fill="url(#fade)"/></mask>
+  <mask id="fanFade"><rect x="340" y="108" width="300" height="164" fill="url(#fade)"/></mask>
 
-  <!-- 入射点のにじみ -->
-  <radialGradient id="bloom" cx="240.3" cy="140.2" r="30" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+  <!-- 口元のにじみ -->
+  <radialGradient id="bloom" cx="198" cy="152" r="26" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
     <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
   </radialGradient>
+
+  <!-- 体内の光を魚体の内側に閉じ込める -->
+  <clipPath id="bodyClip">
+    <path d="M198 152 C216 130 240 118 266 116 C298 115 324 130 342 147 L342 158 C324 176 298 191 266 191 C238 190 212 172 198 152 Z"/>
+  </clipPath>
 </defs>
 
 <rect width="640" height="320" fill="#000000"/>
 
 <!-- 入射光(白) -->
-<polygon points="0,114 241.3,138.5 239.3,142.0 0,124" fill="url(#beam)"/>
+<polygon points="0,128 198,149.8 198,154.2 0,140" fill="url(#beam)"/>
 
-<!-- プリズム本体 -->
-<polygon points="270,88.8 336,203.1 204,203.1" fill="url(#glass)"/>
-
-<!-- 内部:6 色が細く収束したまま射出面へ進む(白の芯を重ねる) -->
-<g>
-  <polygon points="241.3,138.5 241.0,139.1 308.9,156.2 307.9,154.5" fill="#ff3b45"/>
-  <polygon points="241.0,139.1 240.6,139.7 309.9,157.9 308.9,156.2" fill="#ff9124"/>
-  <polygon points="240.6,139.7 240.3,140.2 310.9,159.7 309.9,157.9" fill="#ffdb2e"/>
-  <polygon points="240.3,140.2 240.0,140.8 311.9,161.4 310.9,159.7" fill="#3fd25e"/>
-  <polygon points="240.0,140.8 239.6,141.4 312.9,163.1 311.9,161.4" fill="#3c8dff"/>
-  <polygon points="239.6,141.4 239.3,142.0 313.9,164.9 312.9,163.1" fill="#a663ff"/>
-  <polygon points="241.3,138.5 239.3,142.0 313.9,164.9 307.9,154.5" fill="url(#core)"/>
-</g>
-
-<!-- プリズムの稜線 -->
-<polygon points="270,88.8 336,203.1 204,203.1" fill="none" stroke="url(#edge)" stroke-width="2.4" stroke-linejoin="round"/>
-
-<!-- 射出後のスペクトル。中心線は 159.7 から 193 へ下がる = ピッチが下がる -->
+<!-- 尾から右へ広がるスペクトル。中心線は 153.3 から 190 へ下がる = ピッチが下がる。
+     尾びれの奥に置き、割れ目から抜けてくるように見せる -->
 <g mask="url(#fanFade)">
-  <polygon points="307.9,154.5 308.9,156.2 640,149.7 640,128.0" fill="#ff3b45"/>
-  <polygon points="308.9,156.2 309.9,157.9 640,171.3 640,149.7" fill="#ff9124"/>
-  <polygon points="309.9,157.9 310.9,159.7 640,193.0 640,171.3" fill="#ffdb2e"/>
-  <polygon points="310.9,159.7 311.9,161.4 640,214.7 640,193.0" fill="#3fd25e"/>
-  <polygon points="311.9,161.4 312.9,163.1 640,236.3 640,214.7" fill="#3c8dff"/>
-  <polygon points="312.9,163.1 313.9,164.9 640,258.0 640,236.3" fill="#a663ff"/>
+  <polygon points="342,148.2 342,149.9 640,142 640,118" fill="#ff3b45"/>
+  <polygon points="342,149.9 342,151.6 640,166 640,142" fill="#ff9124"/>
+  <polygon points="342,151.6 342,153.3 640,190 640,166" fill="#ffdb2e"/>
+  <polygon points="342,153.3 342,155.0 640,214 640,190" fill="#3fd25e"/>
+  <polygon points="342,155.0 342,156.7 640,238 640,214" fill="#3c8dff"/>
+  <polygon points="342,156.7 342,158.4 640,262 640,238" fill="#a663ff"/>
 </g>
 
-<circle cx="240.3" cy="140.2" r="30" fill="url(#bloom)"/>
-
-<!-- 耳金具:フックと丸カン。ペンダント(プリズム)を吊る -->
+<!-- 耳金具:フックと丸カン。ペンダント(カツオ)を吊る -->
 <g fill="none" stroke="url(#metal)" stroke-width="3.4" stroke-linecap="round">
-  <path d="M270 84 L270 52 C270 30 246 30 246 52 L246 65"/>
-  <circle cx="270" cy="84" r="6"/>
+  <path d="M302 99 L302 62 C302 38 276 38 276 62 L276 76"/>
+  <circle cx="302" cy="105" r="6"/>
+  <path d="M302 111 L302 123"/>
 </g>
+
+<!-- ひれ・小離鰭(体より奥に置き、付け根を体で隠す) -->
+<g fill="url(#fin)" stroke="#ffffff" stroke-opacity="0.34" stroke-width="1.3" stroke-linejoin="round">
+  <path d="M250 119 C259 101 271 92 288 90 C284 103 282 113 281 122 Z"/>
+  <path d="M283 188 C290 200 296 206 303 208 C296 202 291 195 289 187 Z"/>
+  <path d="M244 186 C250 195 254 200 258 203 C252 198 248 192 246 185 Z"/>
+  <path d="M312 127 L321 120 L319 131 Z"/>
+  <path d="M323 134 L332 128 L330 139 Z"/>
+  <path d="M311 178 L320 185 L318 174 Z"/>
+  <path d="M322 171 L331 177 L329 166 Z"/>
+</g>
+
+<!-- 尾びれ(三日月形)。スペクトルの手前に置く -->
+<path d="M342 146 C358 134 374 114 388 94 C387 129 376 147 348 152.5 C376 158 387 176 388 211 C374 191 358 171 342 159 Z"
+      fill="url(#fin)" stroke="url(#edge)" stroke-width="2.4" stroke-linejoin="round"/>
+
+<!-- 体(紡錘形) -->
+<path d="M198 152 C216 130 240 118 266 116 C298 115 324 130 342 147 L342 158 C324 176 298 191 266 191 C238 190 212 172 198 152 Z"
+      fill="url(#scale)"/>
+
+<g clip-path="url(#bodyClip)">
+  <!-- 鰓蓋 -->
+  <path d="M238 124 C232 142 233 160 241 177" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="1.7"/>
+
+  <!-- カツオの腹側の縞 -->
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2.2" stroke-linecap="round">
+    <path d="M224 168 C256 174 292 173 330 166"/>
+    <path d="M226 175 C258 181 294 180 332 172"/>
+    <path d="M232 182 C262 188 296 186 330 178"/>
+    <path d="M242 188 C268 193 296 191 324 184"/>
+  </g>
+
+  <!-- 体内:六色が細く収束したまま尾へ進む(白の芯を重ねる) -->
+  <polygon points="198,149.8 198,150.5 342,149.9 342,148.2" fill="#ff3b45"/>
+  <polygon points="198,150.5 198,151.3 342,151.6 342,149.9" fill="#ff9124"/>
+  <polygon points="198,151.3 198,152.0 342,153.3 342,151.6" fill="#ffdb2e"/>
+  <polygon points="198,152.0 198,152.7 342,155.0 342,153.3" fill="#3fd25e"/>
+  <polygon points="198,152.7 198,153.5 342,156.7 342,155.0" fill="#3c8dff"/>
+  <polygon points="198,153.5 198,154.2 342,158.4 342,156.7" fill="#a663ff"/>
+  <polygon points="198,149.8 198,154.2 342,158.4 342,148.2" fill="url(#core)"/>
+</g>
+
+<!-- 体の稜線 -->
+<path d="M198 152 C216 130 240 118 266 116 C298 115 324 130 342 147 L342 158 C324 176 298 191 266 191 C238 190 212 172 198 152 Z"
+      fill="none" stroke="url(#edge)" stroke-width="2.6" stroke-linejoin="round"/>
+
+<!-- 胸びれ(手前側)・口・目 -->
+<path d="M240 160 C254 166 268 175 280 187 C264 183 250 176 240 166 Z"
+      fill="#0d151d" fill-opacity="0.95" stroke="#ffffff" stroke-opacity="0.38" stroke-width="1.4" stroke-linejoin="round"/>
+<path d="M200 154 C207 158 213 160 219 161" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="1.8" stroke-linecap="round"/>
+<circle cx="224" cy="142" r="4.8" fill="#070b0f" stroke="#ffffff" stroke-opacity="0.82" stroke-width="1.6"/>
+<circle cx="222.4" cy="140.4" r="1.3" fill="#ffffff" fill-opacity="0.85"/>
+
+<circle cx="198" cy="152" r="26" fill="url(#bloom)"/>
 
 <!-- ワードマーク -->
-<text x="320" y="290" fill="#ffffff" font-family="system-ui, -apple-system, 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif" font-size="27" font-weight="300" letter-spacing="4.4" text-anchor="middle">prism earring</text>
+<text x="320" y="292" fill="#ffffff" font-family="system-ui, -apple-system, 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif" font-size="27" font-weight="300" letter-spacing="4.4" text-anchor="middle">prism earring</text>
 </svg>
