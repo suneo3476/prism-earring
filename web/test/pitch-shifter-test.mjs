@@ -22,23 +22,35 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import vm from 'node:vm';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKLET_PATH = path.join(HERE, '..', 'prism-worklet.js');
 
-/* ---- prism-worklet.js を classic script として評価してコアを取り出す ---- */
+/* ---- prism-worklet.js を classic script として評価してコアを取り出す ----
+ *
+ * vm.runInContext ではなく new Function で評価する。理由:
+ *   1. **測定の妥当性**: vm コンテキスト内のコードは V8 の最適化が効きにくく、
+ *      同一ソースが通常評価の 40 倍以上遅くなる(実測: -89 セントで 55% vs 1.3%)。
+ *      T12 / T12b の処理コスト測定が実機と乖離してしまう。AudioWorklet は
+ *      classic script を通常どおりコンパイルするので、こちらが実機に近い。
+ *   2. 関数本体として評価するため、classic script の top-level const / class を
+ *      そのまま取り出せる(定義域の定数も含む)。
+ * 読み込むのはリポジトリ内の自ソースのみ(外部入力は評価しない)。
+ */
 function loadCore() {
     const source = readFileSync(WORKLET_PATH, 'utf8');
-    const context = vm.createContext({ console });
-    new vm.Script(source, { filename: 'prism-worklet.js' }).runInContext(context);
-    if (typeof context.PitchShifterJS !== 'function') {
+    const factory = new Function(
+        source + '\n;return { PitchShifterJS, PS_PARAM: globalThis.PS_PARAM, ' +
+            'SHIFT_CENTS_MIN, SHIFT_CENTS_MAX };'
+    );
+    const core = factory();
+    if (typeof core.PitchShifterJS !== 'function') {
         throw new Error('PitchShifterJS を prism-worklet.js から取得できませんでした');
     }
-    return { PitchShifterJS: context.PitchShifterJS, PS_PARAM: context.PS_PARAM };
+    return core;
 }
 
-const { PitchShifterJS, PS_PARAM } = loadCore();
+const { PitchShifterJS, PS_PARAM, SHIFT_CENTS_MIN, SHIFT_CENTS_MAX } = loadCore();
 
 /* ---------------------------- 判定閾値 ---------------------------- */
 /* verify.cpp の名前付き定数と 1:1(SR-3.1: 閾値は単一定義)。 */
@@ -55,8 +67,21 @@ const SIGNAL_AMPLITUDE = 0.5;
 const BASE_OFFSET_SAMPLES = 8;         // PitchShifter.h kBaseOffsetSamples
 const SWEEP_MS = 9.5;                  // PitchShifter.h kSweepMs
 const DEFAULT_CROSSFADE_MS = 50;
+const GUARD_DIVISOR = 4;               // PitchShifter.h kGuardDivisor
 const SAMPLE_RATES = [44100, 48000];
 const PITCH_FREQS = [110, 440, 3520];
+/* 拡張したシフト定義域(±1200 セント)の走査点。verify.cpp の kShiftMatrixCents に
+   従来の -150/-50/0 を足したもの。判定は全点 BR2.1 の ±0.5% で行う。 */
+const SHIFT_MATRIX_CENTS = [-1200, -200, -150, -100, -50, 0, 100, 200, 1200];
+const BAND_CENTS = [100, -1200, 1200];  // verify.cpp kBandCents
+const BAND_FREQS = [110, 3520];         // verify.cpp kBandFreqs
+
+/** 走査域の中央 = 設計値遅延(サンプル)。上げ方向はガード帯ぶん持ち上がる。 */
+function expectedLatencySamples(fs, cents) {
+    const sweep = Math.max(4, Math.floor((SWEEP_MS * fs) / 1000 + 0.5));
+    const guard = Math.max(1, Math.trunc(sweep / GUARD_DIVISOR));
+    return (cents > 0 ? BASE_OFFSET_SAMPLES + guard : BASE_OFFSET_SAMPLES) + sweep / 2;
+}
 
 /* ---------------------------- テスト基盤 ---------------------------- */
 
@@ -302,28 +327,64 @@ for (const fs of SAMPLE_RATES) {
     }
 }
 
-/* --- T2: cents → 比の対応(-89 決め打ち禁止の確認) --- */
-section('T2 セント→比の一般性 — 半音決め打ちでないこと(BR1.1)');
+/* --- T2: cents → 比の対応(-89 決め打ち禁止の確認、定義域 ±1200 の全域) --- */
+section('T2 セント→比の一般性 — 定義域 ±1200 セント全域で 2^(cents/1200)(BR1.1)');
 
-for (const cents of [-150, -100, -50, 0]) {
-    const fs = 48000;
-    const expected = Math.pow(2, cents / 1200);
-    const res = runSine({
-        freq: 440,
-        fs,
-        seconds: 2.0,
-        centsL: cents,
-        centsR: cents,
-        dryWet: 1,
-        crossfadeMs: DEFAULT_CROSSFADE_MS
-    });
-    const est = steadyRatio(res.left, fs, 440, { lo: expected - 0.05, hi: expected + 0.05 });
-    const err = (est.ratio - expected) / expected;
-    check(
-        `cents=${cents}`,
-        Math.abs(err) <= PITCH_REL_TOLERANCE,
-        `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), 誤差 ${(err * 100).toFixed(4)}%`
-    );
+for (const fs of SAMPLE_RATES) {
+    for (const cents of SHIFT_MATRIX_CENTS) {
+        const expected = Math.pow(2, cents / 1200);
+        const res = runSine({
+            freq: 440,
+            fs,
+            seconds: 2.0,
+            centsL: cents,
+            centsR: cents,
+            dryWet: 1,
+            crossfadeMs: DEFAULT_CROSSFADE_MS
+        });
+        const est = steadyRatio(res.left, fs, 440, {
+            lo: expected * 0.96,
+            hi: expected * 1.04
+        });
+        const err = (est.ratio - expected) / expected;
+        check(
+            `fs=${fs} f=440Hz cents=${cents}`,
+            Math.abs(err) <= PITCH_REL_TOLERANCE,
+            `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), ` +
+                `誤差 ${(err * 100).toFixed(4)}% = ${(1200 * Math.log2(est.ratio / expected)).toFixed(2)} cents`
+        );
+    }
+}
+
+/* --- T2b: 帯域端(110 / 3520Hz)での大シフト(verify.cpp testShiftRange と同じ点) --- */
+section('T2b 帯域 x 大シフト — 110 / 3520Hz で +100 / ±1200 セント');
+
+for (const fs of SAMPLE_RATES) {
+    for (const freq of BAND_FREQS) {
+        for (const cents of BAND_CENTS) {
+            const expected = Math.pow(2, cents / 1200);
+            const res = runSine({
+                freq,
+                fs,
+                seconds: 2.0,
+                centsL: cents,
+                centsR: cents,
+                dryWet: 1,
+                crossfadeMs: DEFAULT_CROSSFADE_MS
+            });
+            const est = steadyRatio(res.left, fs, freq, {
+                lo: expected * 0.96,
+                hi: expected * 1.04
+            });
+            const err = (est.ratio - expected) / expected;
+            check(
+                `fs=${fs} f=${freq}Hz cents=${cents}`,
+                Math.abs(err) <= PITCH_REL_TOLERANCE,
+                `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), ` +
+                    `誤差 ${(err * 100).toFixed(4)}% = ${(1200 * Math.log2(est.ratio / expected)).toFixed(2)} cents`
+            );
+        }
+    }
 }
 
 /* --- T3: L/R 独立(FR-1.2 / D-E) --- */
@@ -378,6 +439,16 @@ section('T4a 設計値遅延 — latency = (baseOffset + sweep/2) / fs、窓長�
             spread < 1e-12,
             `ばらつき ${spread.toExponential(2)}ms`
         );
+        // 上げ方向はガード帯ぶん走査域が持ち上がる(D-G)。下げ方向は従来どおり。
+        for (const cents of [-1200, -89, 0, 100, 1200]) {
+            const s = makeShifter(fs, cents, DEFAULT_CROSSFADE_MS);
+            const want = expectedLatencySamples(fs, cents);
+            check(
+                `fs=${fs} cents=${cents} — 設計値遅延が方向つきの式と一致`,
+                Math.abs(s.latencySamples() - want) < 1e-9,
+                `実測 ${s.latencySamples()} サンプル / 式 ${want}`
+            );
+        }
     }
 }
 
@@ -386,7 +457,7 @@ section('T4b NFR-1 — 設計値遅延が全パラメータ域で 10ms 以下');
 {
     for (const fs of SAMPLE_RATES) {
         for (const xfade of [10, 50, 100]) {
-            for (const cents of [-150, -89, 0]) {
+            for (const cents of [-1200, -150, -89, 0, 100, 1200]) {
                 const s = makeShifter(fs, cents, xfade);
                 const ms = s.latencyMs();
                 check(
@@ -469,6 +540,45 @@ section('T5 グリッチ — 5 秒の連続正弦波で不連続点 0 件(先頭
     }
 }
 
+/* --- T5b: グリッチ(上げ方向。閾値は出力側の最大スロープ基準) --- */
+section('T5b グリッチ — +100 / +1200 セントでも不連続点 0 件');
+{
+    for (const fs of SAMPLE_RATES) {
+        for (const cents of [100, 1200]) {
+            const ratio = Math.pow(2, cents / 1200);
+            const res = runSine({
+                freq: 440,
+                fs,
+                seconds: GLITCH_DURATION_SEC,
+                centsL: cents,
+                centsR: cents,
+                dryWet: 1,
+                crossfadeMs: DEFAULT_CROSSFADE_MS
+            });
+            const skip = Math.floor(fs * GLITCH_WARMUP_SEC);
+            // 出力は入力の ratio 倍の周波数なので、期待最大スロープも ratio 倍になる。
+            const limit =
+                (GLITCH_SLOPE_FACTOR * 2 * Math.PI * 440 * ratio * SIGNAL_AMPLITUDE) / fs;
+            let count = 0;
+            let worst = 0;
+            for (let i = skip + 1; i < res.left.length; i++) {
+                const d = Math.abs(res.left[i] - res.left[i - 1]);
+                if (d > worst) {
+                    worst = d;
+                }
+                if (d > limit) {
+                    count++;
+                }
+            }
+            check(
+                `fs=${fs} cents=${cents} — 不連続点 0 件`,
+                count === 0,
+                `件数 ${count}, max|Δy|=${worst.toFixed(5)} / 閾値 ${limit.toFixed(5)}`
+            );
+        }
+    }
+}
+
 /* --- T6: エッジケース — prepare の不正引数 --- */
 section('T6 エッジケース — prepare の妥当性検証(WF-1.1)');
 {
@@ -502,26 +612,31 @@ section('T6 エッジケース — prepare の妥当性検証(WF-1.1)');
 section('T7 エッジケース — setParam のクランプ/無効値無視(BR1.2)');
 {
     const fs = 48000;
-    // cents は [-150, 0] にクランプされる: -400 は -150 として振る舞う
-    const clamped = runSine({
-        freq: 440,
-        fs,
-        seconds: 2.0,
-        centsL: -400,
-        centsR: -400,
-        dryWet: 1,
-        crossfadeMs: DEFAULT_CROSSFADE_MS
-    });
-    const expectedClamp = Math.pow(2, -150 / 1200);
-    const estClamp = steadyRatio(clamped.left, fs, 440, {
-        lo: expectedClamp - 0.05,
-        hi: expectedClamp + 0.05
-    });
-    check(
-        'shiftCents=-400 は -150 にクランプされる',
-        Math.abs((estClamp.ratio - expectedClamp) / expectedClamp) <= PITCH_REL_TOLERANCE,
-        `ratio=${estClamp.ratio.toFixed(6)} (期待 ${expectedClamp.toFixed(6)})`
-    );
+    // cents は [-1200, 1200] にクランプされる: 範囲外の ±5000 は端として振る舞う
+    for (const [raw, limit] of [
+        [-5000, SHIFT_CENTS_MIN],
+        [5000, SHIFT_CENTS_MAX]
+    ]) {
+        const clamped = runSine({
+            freq: 440,
+            fs,
+            seconds: 2.0,
+            centsL: raw,
+            centsR: raw,
+            dryWet: 1,
+            crossfadeMs: DEFAULT_CROSSFADE_MS
+        });
+        const expectedClamp = Math.pow(2, limit / 1200);
+        const estClamp = steadyRatio(clamped.left, fs, 440, {
+            lo: expectedClamp * 0.96,
+            hi: expectedClamp * 1.04
+        });
+        check(
+            `shiftCents=${raw} は ${limit} にクランプされる`,
+            Math.abs((estClamp.ratio - expectedClamp) / expectedClamp) <= PITCH_REL_TOLERANCE,
+            `ratio=${estClamp.ratio.toFixed(6)} (期待 ${expectedClamp.toFixed(6)})`
+        );
+    }
 
     // crossfadeMs は [10, 100] にクランプされる(窓長サンプル数で検算)
     const sLow = makeShifter(fs, -89, 1);
@@ -706,6 +821,40 @@ section('T12 処理コスト — 128 フレームの処理時間');
     );
 }
 
+/* --- T12b: 処理コスト — 定義域の端(跳躍頻度が最大になる) --- */
+section('T12b 処理コスト — ±1200 セントでもレンダ量子に収まる');
+{
+    const fs = 48000;
+    for (const cents of [-1200, 1200]) {
+        const s = makeShifter(fs, cents, DEFAULT_CROSSFADE_MS);
+        const io0 = s.ioPtr(0);
+        const io1 = s.ioPtr(1);
+        const omega = (2 * Math.PI * 440) / fs;
+        for (let i = 0; i < BLOCK; i++) {
+            const v = SIGNAL_AMPLITUDE * Math.sin(omega * i);
+            io0[i] = v;
+            io1[i] = v;
+        }
+        for (let k = 0; k < 3000; k++) {
+            s.process(BLOCK);
+        }
+        const iterations = 8000;
+        const t0 = process.hrtime.bigint();
+        for (let k = 0; k < iterations; k++) {
+            s.process(BLOCK);
+        }
+        const t1 = process.hrtime.bigint();
+        const perBlockMs = Number(t1 - t0) / 1e6 / iterations;
+        const quantumMs = (BLOCK / fs) * 1000;
+        const load = (perBlockMs / quantumMs) * 100;
+        check(
+            `cents=${cents} — 平均処理時間がレンダ量子の 50% 未満`,
+            load < 50,
+            `${perBlockMs.toFixed(4)}ms / ${quantumMs.toFixed(3)}ms = ${load.toFixed(2)}%`
+        );
+    }
+}
+
 /* --- T13: process 経路にヒープ確保がない(BR1.5 / SR-4.2 相当) --- */
 section('T13 リアルタイム安全性 — process 経路に確保がない');
 {
@@ -715,6 +864,7 @@ section('T13 リアルタイム安全性 — process 経路に確保がない');
         ['process', PitchShifterJS.prototype.process],
         ['_readAt', PitchShifterJS.prototype._readAt],
         ['_startJump', PitchShifterJS.prototype._startJump],
+        ['_clampLag', PitchShifterJS.prototype._clampLag],
         ['_latchWindowSamples', PitchShifterJS.prototype._latchWindowSamples]
     ];
     const forbidden = [
@@ -740,7 +890,7 @@ section('T13 リアルタイム安全性 — process 経路に確保がない');
         }
     }
     check(
-        'process/_readAt/_startJump のソースに確保構文がない',
+        'process/_readAt/_startJump/_clampLag のソースに確保構文がない',
         sourceOk,
         sourceOk ? '検出なし' : '検出: ' + found.join(', ')
     );

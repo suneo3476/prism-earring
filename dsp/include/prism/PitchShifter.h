@@ -27,8 +27,8 @@ namespace prism {
 class PitchShifter {
 public:
     // ---- 公開定数(SR-3.1: 閾値・定数は名前付きで単一定義) ------------------
-    static constexpr float kShiftCentsMin = -150.0f;
-    static constexpr float kShiftCentsMax = 0.0f;
+    static constexpr float kShiftCentsMin = -1200.0f;
+    static constexpr float kShiftCentsMax = 1200.0f;
     static constexpr float kShiftCentsDefault = -89.0f;
     static constexpr float kDryWetMin = 0.0f;
     static constexpr float kDryWetMax = 1.0f;
@@ -44,13 +44,29 @@ public:
     // 線形補間の近傍 2 サンプル参照ガード + 安全余裕。遅延式の定数項。
     static constexpr int kBaseOffsetSamples = 8;
 
-    // 遅延スイープ幅(ms)。読み出しヘッドは baseOffset から baseOffset+sweep まで
-    // 遅れを蓄積し、そこで「波形同期跳躍」で前方へ戻る。
-    //   * 上限は NFR-1 の 10ms 予算 — 最大遅れ = baseOffset + sweep = 9.68ms @48kHz。
+    // 遅延スイープ幅(ms)。読み出しヘッドはこの幅ぶん遅れを走査し、端で「波形同期
+    // 跳躍」して反対端へ戻る。走査の向きはシフト方向で決まる:
+    //   * 下げ(rate<1): 遅れは単調増加。lag ∈ [baseOffset, baseOffset+sweep]。
+    //   * 上げ(rate>1): 遅れは単調減少。lag ∈ [baseOffset+guard, baseOffset+guard+sweep]。
+    //   * 上限は NFR-1 の 10ms 予算 — 最大遅れ = baseOffset + sweep = 9.68ms @48kHz
+    //     (上げ方向は +guard で 7.3ms。いずれも 10ms 予算内)。
     //   * 下限は「正しくシフトできる最低周波数」— スイープ幅が入力の 1 周期未満だと
     //     跳躍で位相が入力に再同期してしまい、出力スペクトルのピークが f_in に戻る。
     //     sweep = 9.5ms は約 105Hz 以上の成分を正しくシフトできることを意味する。
     static constexpr double kSweepMs = 9.5;
+
+    // 上げ方向専用のガード帯(サンプル)= sweep / kGuardDivisor。
+    // 上げ方向ではクロスフェード中の旧ヘッドが「遅れの小さい側」へ走り抜けるため、
+    // baseOffset の下に走行余地が要る。この帯を確保する代わりに走査域全体を guard ぶん
+    // 持ち上げ、スイープ幅(= 跳躍探索の範囲 = 低域の精度)を削らない。
+    // 下げ方向は旧ヘッドが「遅れの大きい側」へ抜けるだけなので帯は不要 — したがって
+    // 既定 -89 セントの遅延は従来どおり baseOffset + sweep/2 のまま変わらない。
+    static constexpr int kGuardDivisor = 4;
+
+    // 読み出しヘッドが取りうる最小の遅れ(サンプル)。線形補間の近傍 2 サンプル参照を
+    // 常に「書き込み済み」領域に収めるための下限。通常動作では到達しない安全網で、
+    // パラメータ急変(フェード中に rate が跳ね上がる)への保険として毎サンプル効かせる。
+    static constexpr double kMinLagSamples = 2.0;
 
     // 平滑時定数 20ms(BR1.3 / D-03)。
     static constexpr double kSmoothingTimeConstantSec = 0.020;
@@ -87,9 +103,27 @@ public:
         if (sweepSamples_ < 4) {
             sweepSamples_ = 4;
         }
-        // 容量: 最大遅れ + クロスフェード中の追い越し分 + 相関窓 + 最大ブロック長 + 補間余裕
-        capacity_ = kBaseOffsetSamples + sweepSamples_ + windowMaxSamples_ + kCorrelationLength +
-                    maxBlockFrames_ + 2;
+        guardSamples_ = sweepSamples_ / kGuardDivisor;
+        if (guardSamples_ < 1) {
+            guardSamples_ = 1;
+        }
+        // 走査域の端(サンプル)。下げは [baseOffset, downTrigger]、
+        // 上げは [upTrigger, upCeiling](= upTrigger + sweep)。
+        downTriggerLag_ = static_cast<double>(kBaseOffsetSamples + sweepSamples_);
+        upTriggerLag_ = static_cast<double>(kBaseOffsetSamples + guardSamples_);
+        upCeilingLag_ = upTriggerLag_ + static_cast<double>(sweepSamples_);
+
+        // 容量は最悪ケース基準(最大比 2.0 = +1200 セント / 最小比 0.5 = -1200 セント):
+        //   走査域の最大到達 = baseOffset + guard + sweep(上げ)
+        //   + クロスフェード中の旧ヘッドの追い越し(下げ。予算は跳躍量 <= 1 sweep)
+        //   + 方向反転直後の過渡にもう 1 sweep ぶんの余裕
+        //   + パラメータ急変時の保険としての windowMax(旧実装と同じ項)
+        //   + 相関窓 + 最大ブロック長 + 補間余裕
+        capacity_ = kBaseOffsetSamples + 3 * sweepSamples_ + windowMaxSamples_ +
+                    kCorrelationLength + maxBlockFrames_ + 2;
+        // 遅れの上限(安全網)。相関窓は旧ヘッドより更に kCorrelationLength 古い側を
+        // 読むため、その分を差し引いた位置を超えさせない。
+        lagMax_ = static_cast<double>(capacity_ - kCorrelationLength - maxBlockFrames_ - 2);
 
         try {
             storage_.assign(static_cast<std::size_t>(capacity_) * 2u, 0.0f);
@@ -126,9 +160,12 @@ public:
         dryWetSm_.snapTo(dryWet_.load(std::memory_order_relaxed));
         window_ = latchWindowSamples();
 
-        // スイープ中央(= 設計値遅延)から開始する。
-        const double midLag = kBaseOffsetSamples + 0.5 * sweepSamples_;
+        // スイープ中央(= その ch の設計値遅延)から開始する。走査域が方向で違うため、
+        // ch ごとに現在のシフト量の符号を見て中央を決める(BR1.2 / FR-1.2)。
+        const float centsAtReset[2] = {shiftCentsL_.load(std::memory_order_relaxed),
+                                       shiftCentsR_.load(std::memory_order_relaxed)};
         for (int ch = 0; ch < 2; ++ch) {
+            const double midLag = midLagFor(centsAtReset[ch]);
             voice_[ch].lag[0] = midLag;
             voice_[ch].lag[1] = midLag;
             voice_[ch].active = 0;
@@ -163,8 +200,6 @@ public:
         dryWetSm_.target = dryWet_.load(std::memory_order_relaxed);
         window_ = latchWindowSamples();
 
-        const double maxLag = kBaseOffsetSamples + static_cast<double>(sweepSamples_);
-
         for (int i = 0; i < frames; ++i) {
             // 2.1 平滑(BR1.3)
             const float cL = centsL_.tick(smoothCoeff_, kSnapCents);
@@ -180,7 +215,8 @@ public:
 
             for (int ch = 0; ch < 2; ++ch) {
                 Voice& v = voice_[ch];
-                const double drift = 1.0 - rate[ch];  // rate<=1 なので遅れは単調増加
+                // drift>0(下げ)なら遅れは単調増加、drift<0(上げ)なら単調減少。
+                const double drift = 1.0 - rate[ch];
 
                 // 2.4 読み出し(線形補間、D-02)+ 2.5 クロスフェード合成(LC-6)
                 float wet;
@@ -202,13 +238,22 @@ public:
                 // 2.7 dry/wet ミックス(FR-1.3)
                 out[ch][i] = (1.0f - mix) * in[ch][i] + mix * wet;
 
-                // 遅れの前進(両ヘッド)
-                v.lag[0] += drift;
-                v.lag[1] += drift;
+                // 遅れの前進(両ヘッド)。安全網のクランプも毎サンプル通す。
+                v.lag[0] = clampLag(v.lag[0] + drift);
+                v.lag[1] = clampLag(v.lag[1] + drift);
 
                 // 2.6 スイープ端に達したら波形同期跳躍 + クロスフェード開始(WF-4 / BR1.4)
-                if (v.fadePos < 0 && v.lag[v.active] >= maxLag) {
-                    startJump(ch, v);
+                // 走査の向きが逆になるため、跳躍の向き・端・探索範囲も方向で入れ替える。
+                if (v.fadePos < 0) {
+                    if (drift > 0.0) {
+                        if (v.lag[v.active] >= downTriggerLag_) {
+                            startJump(ch, v, 1, v.lag[v.active] - kBaseOffsetSamples, drift);
+                        }
+                    } else if (drift < 0.0) {
+                        if (v.lag[v.active] <= upTriggerLag_) {
+                            startJump(ch, v, -1, upCeilingLag_ - v.lag[v.active], -drift);
+                        }
+                    }
                 }
             }
 
@@ -232,19 +277,27 @@ public:
     }
 
     // ---- 設計値遅延(BR1.7 相当) ------------------------------------------
-    // 遅れはスイープ区間 [baseOffset, baseOffset+sweep] を一様に走査するため、
-    // 設計値(平均遅れ)= baseOffset + sweep/2。クロスフェード窓長には依存しない。
+    // 遅れはスイープ区間を一様に走査するため、設計値(平均遅れ)= 区間の中央。
+    // 下げ(既定 -89 を含む)は baseOffset + sweep/2 で従来どおり。上げは走査域が
+    // ガード帯ぶん持ち上がるので + guard。クロスフェード窓長には依存しない。
+    // L/R でシフト方向が違うときは大きい方(= 上げ側)を返す。
     double getLatencySamples() const noexcept {
         if (!prepared_) {
             return 0.0;
         }
-        return kBaseOffsetSamples + 0.5 * static_cast<double>(sweepSamples_);
+        const float cl = shiftCentsL_.load(std::memory_order_relaxed);
+        const float cr = shiftCentsR_.load(std::memory_order_relaxed);
+        const double base = (cl > 0.0f || cr > 0.0f) ? upTriggerLag_
+                                                     : static_cast<double>(kBaseOffsetSamples);
+        return base + 0.5 * static_cast<double>(sweepSamples_);
     }
 
     // 現在ラッチ済みのクロスフェード窓長(サンプル)。検証ハーネスが許容差算出に用いる(BR2.2)。
     int getWindowSamples() const noexcept { return window_; }
-    // 遅延スイープ幅(サンプル)。最大遅れ = baseOffset + これ。
+    // 遅延スイープ幅(サンプル)。下げ方向の最大遅れ = baseOffset + これ。
     int getSweepSamples() const noexcept { return sweepSamples_; }
+    // 上げ方向のガード帯(サンプル)。上げ方向の走査域は baseOffset + これ から始まる。
+    int getGuardSamples() const noexcept { return guardSamples_; }
     bool isPrepared() const noexcept { return prepared_; }
 
 private:
@@ -296,6 +349,24 @@ private:
         return std::exp2(static_cast<double>(cents) / 1200.0);
     }
 
+    // その ch の走査域の中央(= 設計値遅延)。上げ方向はガード帯ぶん持ち上がる。
+    double midLagFor(float cents) const noexcept {
+        const double base =
+            (cents > 0.0f) ? upTriggerLag_ : static_cast<double>(kBaseOffsetSamples);
+        return base + 0.5 * static_cast<double>(sweepSamples_);
+    }
+
+    // 安全網: 遅れを読み出し可能な範囲へ丸める。通常動作では効かない(SR-2.3)。
+    double clampLag(double lag) const noexcept {
+        if (lag < kMinLagSamples) {
+            return kMinLagSamples;
+        }
+        if (lag > lagMax_) {
+            return lagMax_;
+        }
+        return lag;
+    }
+
     int latchWindowSamples() const noexcept {
         const double ms = static_cast<double>(crossfadeMs_.load(std::memory_order_relaxed));
         int w = roundToInt(ms * fs_ / 1000.0);
@@ -339,14 +410,14 @@ private:
     // 波形同期跳躍(WSOLA 相当): 旧ヘッド直近 kCorrelationLength サンプルと最も相関する
     // 位置へ新ヘッドを置く。跳躍量が入力周期の整数倍に近くなるため、跳躍時の位相再同期に
     // よるスペクトル汚染(ピークが f_in へ戻る現象)が起きない。
-    void startJump(int ch, Voice& v) noexcept {
-        const double oldLag = v.lag[v.active];
-        const double jumpMax = oldLag - static_cast<double>(kBaseOffsetSamples);
-        if (jumpMax <= 1.0) {
+    // dirSign: +1 = 下げ(遅れを減らす方向へ跳ぶ)/ -1 = 上げ(遅れを増やす方向へ跳ぶ)。
+    // jumpRoom: その向きに残っている走行余地(サンプル)。driftAbs: |1-rate|。
+    void startJump(int ch, Voice& v, int dirSign, double jumpRoom, double driftAbs) noexcept {
+        if (jumpRoom <= 1.0) {
             return;
         }
-        int jMax = static_cast<int>(jumpMax);
-        int jMin = static_cast<int>(jumpMax * kJumpMinFraction);
+        int jMax = static_cast<int>(jumpRoom);
+        int jMin = static_cast<int>(jumpRoom * kJumpMinFraction);
         if (jMin < 1) {
             jMin = 1;
         }
@@ -354,16 +425,19 @@ private:
             jMax = jMin;
         }
 
-        const int oldBase = static_cast<int>(std::floor(
-            static_cast<double>(writeIndex_) - oldLag + static_cast<double>(capacity_)));
+        const double oldLag = v.lag[v.active];
+        // [0, capacity) に正規化してから引く(wrapIndex は +/-1 周ぶんしか直さないため)。
+        const int oldBase = wrapIndex(static_cast<int>(std::floor(
+            static_cast<double>(writeIndex_) - oldLag + static_cast<double>(capacity_))));
         double bestScore = -1.0e30;
         int bestJump = jMax;
         for (int j = jMax; j >= jMin; --j) {
+            const int off = dirSign * j;  // 上げ方向は「より古い側」と相関を取る
             double dot = 0.0;
             double energy = 0.0;
             for (int k = 0; k < kCorrelationLength; ++k) {
                 const float a = channel_[ch][wrapIndex(oldBase - k)];
-                const float b = channel_[ch][wrapIndex(oldBase - k + j)];
+                const float b = channel_[ch][wrapIndex(oldBase - k + off)];
                 dot += static_cast<double>(a) * static_cast<double>(b);
                 energy += static_cast<double>(b) * static_cast<double>(b);
             }
@@ -375,13 +449,25 @@ private:
         }
 
         const int next = 1 - v.active;
-        v.lag[next] = oldLag - static_cast<double>(bestJump);
+        v.lag[next] = clampLag(oldLag - static_cast<double>(dirSign * bestJump));
         v.active = next;
         int len = window_;
         // クロスフェードは走行長を超えてはならない(跳躍間隔の 1/2 を上限にする)
         const int runLimit = bestJump * 8;
         if (len > runLimit) {
             len = runLimit;
+        }
+        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。
+        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。|drift| <= 0.125 の域では
+        //         runLimit が先に効くため、既定 -89 セントの挙動は従来と同一。
+        //   上げ: 予算 = ガード帯(旧ヘッドを baseOffset より下へ出さない)。
+        if (driftAbs > 0.0) {
+            const double budget =
+                (dirSign > 0) ? static_cast<double>(bestJump) : static_cast<double>(guardSamples_);
+            const int byExcursion = static_cast<int>(budget / driftAbs);
+            if (len > byExcursion) {
+                len = byExcursion;
+            }
         }
         if (len < 2) {
             len = 2;
@@ -426,6 +512,11 @@ private:
     int maxBlockFrames_ = 0;
     int windowMaxSamples_ = 0;
     int sweepSamples_ = 0;
+    int guardSamples_ = 0;
+    double downTriggerLag_ = 0.0;
+    double upTriggerLag_ = 0.0;
+    double upCeilingLag_ = 0.0;
+    double lagMax_ = 0.0;
     int window_ = 2;
     bool prepared_ = false;
 };

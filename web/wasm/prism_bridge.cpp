@@ -170,6 +170,12 @@ PRISM_EXPORT void ps_process(int handle, int numFrames) {
 // ------------------------------------------------------------- ps_set_param
 // id: 0=shiftCentsL, 1=shiftCentsR, 2=dryWet, 3=crossfadeMs。
 // 未知 id は無視。非有限値はコア側(storeClamped)が無視し、値はコアがクランプする。
+// クランプ域はコアの公開定数が単一の正本(SR-3.1)。ここには複製しない:
+//   shiftCents  [kShiftCentsMin, kShiftCentsMax] = -1200..+1200 セント(上下 1 オクターブ)
+//   dryWet      [kDryWetMin, kDryWetMax]         = 0..1
+//   crossfadeMs [kCrossfadeMsMin, kCrossfadeMsMax] = 10..100 ms
+// 上げ方向(正のセント)ではコアが走査域をガード帯ぶん持ち上げるため、
+// ps_latency_ms / ps_latency_samples の戻り値がシフト方向で変わる(README の D-G)。
 PRISM_EXPORT void ps_set_param(int handle, int id, float value) {
     Slot* slot = resolve(handle);
     if (slot == nullptr) {

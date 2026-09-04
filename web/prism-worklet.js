@@ -44,8 +44,8 @@ const PS_PARAM_DRY_WET = 2;
 const PS_PARAM_CROSSFADE_MS = 3;
 
 /** パラメータ定義域(BR1.2 / 契約 1)。 */
-const SHIFT_CENTS_MIN = -150;
-const SHIFT_CENTS_MAX = 0;
+const SHIFT_CENTS_MIN = -1200;
+const SHIFT_CENTS_MAX = 1200;
 const SHIFT_CENTS_DEFAULT = -89;
 const DRY_WET_MIN = 0;
 const DRY_WET_MAX = 1;
@@ -62,12 +62,26 @@ const SAMPLE_RATE_MAX = 192000;
 const BASE_OFFSET_SAMPLES = 8;
 
 /**
- * 遅延スイープ幅(ms)。読み出しヘッドは baseOffset から baseOffset+sweep まで
- * 遅れを蓄積し、そこで波形同期跳躍で前方へ戻る。クロスフェード窓長とは独立。
- * 上限は NFR-1 の 10ms 予算(最大遅れ = 8 サンプル + 9.5ms = 9.68ms @48kHz)、
- * 下限は「正しくシフトできる最低周波数 ≈ 1/9.5ms ≈ 105Hz」。README の D-A 参照。
+ * 遅延スイープ幅(ms)。読み出しヘッドはこの幅ぶん遅れを走査し、端で波形同期跳躍して
+ * 反対端へ戻る。クロスフェード窓長とは独立。走査の向きはシフト方向で決まる:
+ *   下げ(rate<1): lag ∈ [baseOffset, baseOffset+sweep](遅れは単調増加)
+ *   上げ(rate>1): lag ∈ [baseOffset+guard, baseOffset+guard+sweep](単調減少)
+ * 上限は NFR-1 の 10ms 予算(下げの最大遅れ = 8 サンプル + 9.5ms = 9.68ms @48kHz、
+ * 上げは +guard で 7.3ms)、下限は「正しくシフトできる最低周波数 ≈ 1/9.5ms ≈ 105Hz」。
+ * README の D-A / D-G 参照。
  */
 const SWEEP_MS = 9.5;
+
+/**
+ * 上げ方向専用のガード帯(サンプル)= sweep / GUARD_DIVISOR。C++ kGuardDivisor と同値。
+ * 上げ方向はクロスフェード中の旧ヘッドが「遅れの小さい側」へ走り抜けるため、baseOffset の
+ * 下に走行余地が要る。走査域ごと guard ぶん持ち上げることで、スイープ幅(= 跳躍探索の
+ * 範囲 = 低域の精度)を削らずに済ませる。下げ方向は不要なので既定 -89 の遅延は不変。
+ */
+const GUARD_DIVISOR = 4;
+
+/** 読み出しヘッドが取りうる最小の遅れ(サンプル)。C++ kMinLagSamples と同値の安全網。 */
+const MIN_LAG_SAMPLES = 2;
 
 /** per-sample 平滑の時定数(BR1.3 / D-03: 20ms)。 */
 const SMOOTHING_TIME_CONSTANT_S = 0.020;
@@ -130,8 +144,9 @@ function smoothTick(current, target, a, snapEps) {
  *
  *  - リングバッファに入力を書き込み、読み出しヘッドを rate = 2^(cents/1200)
  *    倍速で走らせる(時間領域のリサンプリング、線形補間)。
- *  - rate <= 1 なので遅れ lag は毎サンプル (1-rate) ずつ単調増加する。
- *    lag が baseOffset + sweep に達したら、前方へ「波形同期跳躍」する。
+ *  - 遅れ lag は毎サンプル (1-rate) ずつ動く。下げ(rate<1)は増加し、走査域の上端で
+ *    前方へ「波形同期跳躍」する。上げ(rate>1)は減少し、下端で後方へ跳躍する。
+ *    上げ方向の走査域はガード帯ぶん持ち上げる(旧ヘッドの走行余地。D-G)。
  *  - 跳躍量は直近 512 サンプルの正規化相互相関が最大になる値を
  *    [0.35×最大, 最大] から選ぶ(WSOLA 相当。README の D-B)。これにより
  *    跳躍量が局所周期の整数倍に近づき、跳躍時の位相再同期が消える。
@@ -154,6 +169,11 @@ class PitchShifterJS {
         this._capacity = 0;
         this._windowMaxSamples = 0;
         this._sweepSamples = 0;
+        this._guardSamples = 0;
+        this._downTriggerLag = 0;
+        this._upTriggerLag = 0;
+        this._upCeilingLag = 0;
+        this._lagMax = 0;
         this._window = 2;
         this._writeIndex = 0;
         this._smoothCoeff = 0;
@@ -230,14 +250,26 @@ class PitchShifterJS {
         if (this._sweepSamples < 4) {
             this._sweepSamples = 4;
         }
-        // 容量: 最大遅れ + クロスフェード中の追い越し分 + 相関窓 + 最大ブロック長 + 補間余裕
+        this._guardSamples = Math.trunc(this._sweepSamples / GUARD_DIVISOR);
+        if (this._guardSamples < 1) {
+            this._guardSamples = 1;
+        }
+        // 走査域の端。下げは [baseOffset, downTrigger]、上げは [upTrigger, upCeiling]。
+        this._downTriggerLag = BASE_OFFSET_SAMPLES + this._sweepSamples;
+        this._upTriggerLag = BASE_OFFSET_SAMPLES + this._guardSamples;
+        this._upCeilingLag = this._upTriggerLag + this._sweepSamples;
+        // 容量は最悪ケース基準(最大比 2.0 = +1200 セント / 最小比 0.5 = -1200 セント):
+        // 走査域の最大到達 + クロスフェード中の追い越し + 方向反転の過渡 + windowMax
+        // + 相関窓 + 最大ブロック長 + 補間余裕。C++ 正本と同じ式。
         this._capacity =
             BASE_OFFSET_SAMPLES +
-            this._sweepSamples +
+            3 * this._sweepSamples +
             this._windowMaxSamples +
             CORRELATION_LENGTH +
             maxBlock +
             2;
+        // 遅れの上限(安全網)。相関窓は旧ヘッドより更に CORRELATION_LENGTH 古い側を読む。
+        this._lagMax = this._capacity - CORRELATION_LENGTH - maxBlock - 2;
 
         try {
             this._data0 = new Float32Array(this._capacity);
@@ -280,9 +312,10 @@ class PitchShifterJS {
         this._dryWetCurrent = this._paramDryWet;
         this._window = this._latchWindowSamples();
 
-        // スイープ中央(= 設計値遅延)から開始する。
-        const midLag = BASE_OFFSET_SAMPLES + 0.5 * this._sweepSamples;
+        // スイープ中央(= その ch の設計値遅延)から開始する。走査域が方向で違うため、
+        // ch ごとに現在のシフト量の符号を見て中央を決める(BR1.2 / FR-1.2)。
         for (let ch = 0; ch < 2; ch++) {
+            const midLag = this._midLagFor(ch === 0 ? this._paramCentsL : this._paramCentsR);
             this._lag[ch * 2] = midLag;
             this._lag[ch * 2 + 1] = midLag;
             this._active[ch] = 0;
@@ -338,14 +371,37 @@ class PitchShifterJS {
 
     /**
      * 設計値遅延(サンプル)。C++ getLatencySamples() と同一式。
-     * 遅れはスイープ区間 [baseOffset, baseOffset+sweep] を一様に走査するため、
-     * 設計値(平均遅れ)= baseOffset + sweep/2。窓長には依存しない(D-D)。
+     * 遅れはスイープ区間を一様に走査するため、設計値(平均遅れ)= 区間の中央。
+     * 下げ(既定 -89 を含む)は baseOffset + sweep/2 で従来どおり、上げは走査域が
+     * ガード帯ぶん持ち上がるので + guard。窓長には依存しない(D-D)。
+     * L/R でシフト方向が違うときは大きい方(= 上げ側)を返す。
      */
     latencySamples() {
         if (!this._prepared) {
             return 0;
         }
-        return BASE_OFFSET_SAMPLES + 0.5 * this._sweepSamples;
+        const base =
+            this._paramCentsL > 0 || this._paramCentsR > 0
+                ? this._upTriggerLag
+                : BASE_OFFSET_SAMPLES;
+        return base + 0.5 * this._sweepSamples;
+    }
+
+    /** その ch の走査域の中央(= 設計値遅延)。C++ midLagFor()。 */
+    _midLagFor(cents) {
+        const base = cents > 0 ? this._upTriggerLag : BASE_OFFSET_SAMPLES;
+        return base + 0.5 * this._sweepSamples;
+    }
+
+    /** 安全網: 遅れを読み出し可能な範囲へ丸める。C++ clampLag()。通常動作では効かない。 */
+    _clampLag(lagSamples) {
+        if (lagSamples < MIN_LAG_SAMPLES) {
+            return MIN_LAG_SAMPLES;
+        }
+        if (lagSamples > this._lagMax) {
+            return this._lagMax;
+        }
+        return lagSamples;
     }
 
     /** ps_latency_ms 相当。設計値遅延をミリ秒で返す。 */
@@ -361,9 +417,14 @@ class PitchShifterJS {
         return this._window;
     }
 
-    /** 遅延スイープ幅(サンプル)。最大遅れ = baseOffset + これ。C++ getSweepSamples()。 */
+    /** 遅延スイープ幅(サンプル)。下げ方向の最大遅れ = baseOffset + これ。C++ getSweepSamples()。 */
     sweepSamples() {
         return this._sweepSamples;
+    }
+
+    /** 上げ方向のガード帯(サンプル)。C++ getGuardSamples()。 */
+    guardSamples() {
+        return this._guardSamples;
     }
 
     /** C++ isPrepared()。 */
@@ -391,7 +452,9 @@ class PitchShifterJS {
         this._dryWetTarget = this._paramDryWet;
         this._window = this._latchWindowSamples();
 
-        const maxLag = BASE_OFFSET_SAMPLES + this._sweepSamples;
+        const downTrigger = this._downTriggerLag;
+        const upTrigger = this._upTriggerLag;
+        const upCeiling = this._upCeilingLag;
         const a = this._smoothCoeff;
         const cap = this._capacity;
         const d0 = this._data0;
@@ -434,7 +497,8 @@ class PitchShifterJS {
                 const rate = ch === 0 ? rateL : rateR;
                 const base = ch * 2;
                 const act = active[ch];
-                const drift = 1 - rate; // rate<=1 なので遅れは単調増加
+                // drift>0(下げ)なら遅れは単調増加、drift<0(上げ)なら単調減少。
+                const drift = 1 - rate;
 
                 // 2.4 読み出し(線形補間、D-02)+ 2.5 クロスフェード合成(LC-6)
                 let wet;
@@ -461,13 +525,23 @@ class PitchShifterJS {
                     io1[i] = y;
                 }
 
-                // 遅れの前進(両ヘッド)
-                lag[base] = lag[base] + drift;
-                lag[base + 1] = lag[base + 1] + drift;
+                // 遅れの前進(両ヘッド)。安全網のクランプも毎サンプル通す。
+                lag[base] = this._clampLag(lag[base] + drift);
+                lag[base + 1] = this._clampLag(lag[base + 1] + drift);
 
                 // 2.6 スイープ端に達したら波形同期跳躍 + クロスフェード開始(WF-4 / BR1.4)
-                if (fadePos[ch] < 0 && lag[base + active[ch]] >= maxLag) {
-                    this._startJump(ch, data, w);
+                // 走査の向きが逆になるため、跳躍の向き・端・探索範囲も方向で入れ替える。
+                if (fadePos[ch] < 0) {
+                    const activeLag = lag[base + active[ch]];
+                    if (drift > 0) {
+                        if (activeLag >= downTrigger) {
+                            this._startJump(ch, data, w, 1, activeLag - BASE_OFFSET_SAMPLES, drift);
+                        }
+                    } else if (drift < 0) {
+                        if (activeLag <= upTrigger) {
+                            this._startJump(ch, data, w, -1, upCeiling - activeLag, -drift);
+                        }
+                    }
                 }
             }
 
@@ -514,20 +588,22 @@ class PitchShifterJS {
     /**
      * 波形同期跳躍(WSOLA 相当。C++ startJump と同一)。旧ヘッド直近
      * CORRELATION_LENGTH サンプルと最も相関する位置へ新ヘッドを置く。
+     * @param {number} dirSign +1 = 下げ(遅れを減らす向き)/ -1 = 上げ(増やす向き)
+     * @param {number} jumpRoom その向きに残っている走行余地(サンプル)
+     * @param {number} driftAbs |1-rate|
      */
-    _startJump(ch, data, writeIndex) {
+    _startJump(ch, data, writeIndex, dirSign, jumpRoom, driftAbs) {
         const lag = this._lag;
         const active = this._active;
         const cap = this._capacity;
         const base = ch * 2;
         const act = active[ch];
         const oldLag = lag[base + act];
-        const jumpMax = oldLag - BASE_OFFSET_SAMPLES;
-        if (jumpMax <= 1) {
+        if (jumpRoom <= 1) {
             return;
         }
-        let jMax = Math.trunc(jumpMax);
-        let jMin = Math.trunc(jumpMax * JUMP_MIN_FRACTION);
+        let jMax = Math.trunc(jumpRoom);
+        let jMin = Math.trunc(jumpRoom * JUMP_MIN_FRACTION);
         if (jMin < 1) {
             jMin = 1;
         }
@@ -535,15 +611,17 @@ class PitchShifterJS {
             jMax = jMin;
         }
 
-        const oldBase = Math.floor(writeIndex - oldLag + cap);
+        // [0, capacity) に正規化してから引く(wrapIndex は 1 周ぶんしか直さないため)。
+        const oldBase = wrapIndex(Math.floor(writeIndex - oldLag + cap), cap);
         let bestScore = -1.0e30;
         let bestJump = jMax;
         for (let j = jMax; j >= jMin; j--) {
+            const off = dirSign * j; // 上げ方向は「より古い側」と相関を取る
             let dot = 0;
             let energy = 0;
             for (let k = 0; k < CORRELATION_LENGTH; k++) {
                 const va = data[wrapIndex(oldBase - k, cap)];
-                const vb = data[wrapIndex(oldBase - k + j, cap)];
+                const vb = data[wrapIndex(oldBase - k + off, cap)];
                 dot += va * vb;
                 energy += vb * vb;
             }
@@ -555,13 +633,24 @@ class PitchShifterJS {
         }
 
         const next = 1 - act;
-        lag[base + next] = oldLag - bestJump;
+        lag[base + next] = this._clampLag(oldLag - dirSign * bestJump);
         active[ch] = next;
         let len = this._window;
         // クロスフェードは走行長を超えてはならない(跳躍間隔の 1/2 を上限にする)
         const runLimit = bestJump * 8;
         if (len > runLimit) {
             len = runLimit;
+        }
+        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。
+        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。|drift| <= 0.125 の域では
+        //         runLimit が先に効くため、既定 -89 セントの挙動は従来と同一。
+        //   上げ: 予算 = ガード帯(旧ヘッドを baseOffset より下へ出さない)。
+        if (driftAbs > 0) {
+            const budget = dirSign > 0 ? bestJump : this._guardSamples;
+            const byExcursion = Math.trunc(budget / driftAbs);
+            if (len > byExcursion) {
+                len = byExcursion;
+            }
         }
         if (len < 2) {
             len = 2;
@@ -973,5 +1062,18 @@ if (typeof globalThis !== 'undefined') {
         SHIFT_CENTS_R: PS_PARAM_SHIFT_CENTS_R,
         DRY_WET: PS_PARAM_DRY_WET,
         CROSSFADE_MS: PS_PARAM_CROSSFADE_MS
+    };
+    // パラメータ定義域(契約 1)。Node のテストが定義域をハードコードせずに
+    // 参照するための面(この代入は worklet / Node のグローバルでのみ効く)。
+    globalThis.PS_RANGE = {
+        SHIFT_CENTS_MIN,
+        SHIFT_CENTS_MAX,
+        SHIFT_CENTS_DEFAULT,
+        DRY_WET_MIN,
+        DRY_WET_MAX,
+        DRY_WET_DEFAULT,
+        CROSSFADE_MS_MIN,
+        CROSSFADE_MS_MAX,
+        CROSSFADE_MS_DEFAULT
     };
 }

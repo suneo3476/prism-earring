@@ -27,27 +27,28 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import vm from 'node:vm';
+import vm from 'node:vm'; // W16 の AudioWorklet 環境スタブ専用(数値・速度計測には使わない)
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKLET_PATH = path.join(HERE, '..', 'prism-worklet.js');
 const WASM_PATH = path.join(HERE, '..', 'prism.wasm');
 
-/* ---- prism-worklet.js を classic script として評価して両実装を取り出す ---- */
+/* ---- prism-worklet.js を classic script として評価して両実装を取り出す ----
+ * vm ではなく new Function を使う理由は pitch-shifter-test.mjs の loadCore を参照
+ * (vm コンテキストは V8 の最適化が効かず、W14 の処理コスト比較が実機と乖離する)。
+ */
 function loadWorklet() {
     const source = readFileSync(WORKLET_PATH, 'utf8');
-    const context = vm.createContext({ console, WebAssembly, ArrayBuffer, Float32Array, Error });
-    new vm.Script(source, { filename: 'prism-worklet.js' }).runInContext(context);
+    const factory = new Function(
+        source + '\n;return { PrismWasmShifter, PitchShifterJS, PS_PARAM: globalThis.PS_PARAM };'
+    );
+    const mod = factory();
     for (const name of ['PrismWasmShifter', 'PitchShifterJS']) {
-        if (typeof context[name] !== 'function') {
+        if (typeof mod[name] !== 'function') {
             throw new Error(`${name} を prism-worklet.js から取得できませんでした`);
         }
     }
-    return {
-        PrismWasmShifter: context.PrismWasmShifter,
-        PitchShifterJS: context.PitchShifterJS,
-        PS_PARAM: context.PS_PARAM
-    };
+    return mod;
 }
 
 const { PrismWasmShifter, PitchShifterJS, PS_PARAM } = loadWorklet();
@@ -68,11 +69,25 @@ const SIGNAL_AMPLITUDE = 0.5;
 const BASE_OFFSET_SAMPLES = 8; // PitchShifter.h kBaseOffsetSamples
 const SWEEP_MS = 9.5; // PitchShifter.h kSweepMs
 const DEFAULT_CROSSFADE_MS = 50;
+const GUARD_DIVISOR = 4; // PitchShifter.h kGuardDivisor
+const SHIFT_CENTS_MIN = -1200; // 契約 1(拡張後)
+const SHIFT_CENTS_MAX = 1200;
 const SAMPLE_RATES = [44100, 48000];
 const PITCH_FREQS = [110, 440, 3520];
+/* 拡張したシフト定義域(±1200 セント)の走査点。verify.cpp / pitch-shifter-test.mjs と同じ点。 */
+const SHIFT_MATRIX_CENTS = [-1200, -200, -150, -100, -50, 0, 100, 200, 1200];
+const BAND_CENTS = [100, -1200, 1200];
+const BAND_FREQS = [110, 3520];
 const BLOCK = 128; // Web Audio のレンダ量子
 /** C++ 正本 verify.cpp の実測遅延(サンプル)。README.md「実測値」。 */
 const CPP_LATENCY_SAMPLES = { 44100: 228, 48000: 248 };
+
+/** 走査域の中央 = 設計値遅延(サンプル)。上げ方向はガード帯ぶん持ち上がる(D-G)。 */
+function expectedLatencySamples(fs, cents) {
+    const sweep = Math.max(4, Math.floor((SWEEP_MS * fs) / 1000 + 0.5));
+    const guard = Math.max(1, Math.trunc(sweep / GUARD_DIVISOR));
+    return (cents > 0 ? BASE_OFFSET_SAMPLES + guard : BASE_OFFSET_SAMPLES) + sweep / 2;
+}
 
 /* ---------------------------- テスト基盤 ---------------------------- */
 
@@ -324,19 +339,43 @@ for (const fs of SAMPLE_RATES) {
     }
 }
 
-/* --- W3: セント → 比の一般性(-89 決め打ち禁止、BR1.1) --- */
-section('W3 セント→比の一般性 — 半音決め打ちでないこと(WASM 経路)');
-for (const cents of [-150, -100, -50, 0]) {
-    const fs = 48000;
-    const expected = Math.pow(2, cents / 1200);
-    const res = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents });
-    const est = steadyRatio(res.left, fs, 440, { lo: expected - 0.05, hi: expected + 0.05 });
-    const err = (est.ratio - expected) / expected;
-    check(
-        `cents=${cents}`,
-        Math.abs(err) <= PITCH_REL_TOLERANCE,
-        `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), 誤差 ${(err * 100).toFixed(4)}%`
-    );
+/* --- W3: セント → 比の一般性(定義域 ±1200 の全域、BR1.1) --- */
+section('W3 セント→比の一般性 — 定義域 ±1200 セント全域で 2^(cents/1200)(WASM 経路)');
+for (const fs of SAMPLE_RATES) {
+    for (const cents of SHIFT_MATRIX_CENTS) {
+        const expected = Math.pow(2, cents / 1200);
+        const res = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents });
+        const est = steadyRatio(res.left, fs, 440, { lo: expected * 0.96, hi: expected * 1.04 });
+        const err = (est.ratio - expected) / expected;
+        check(
+            `fs=${fs} f=440Hz cents=${cents}`,
+            Math.abs(err) <= PITCH_REL_TOLERANCE,
+            `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), ` +
+                `誤差 ${(err * 100).toFixed(4)}% = ${(1200 * Math.log2(est.ratio / expected)).toFixed(2)} cents`
+        );
+    }
+}
+
+/* --- W3b: 帯域端(110 / 3520Hz)での大シフト --- */
+section('W3b 帯域 x 大シフト — 110 / 3520Hz で +100 / ±1200 セント(WASM 経路)');
+for (const fs of SAMPLE_RATES) {
+    for (const freq of BAND_FREQS) {
+        for (const cents of BAND_CENTS) {
+            const expected = Math.pow(2, cents / 1200);
+            const res = runSine('wasm', { freq, fs, seconds: 2.0, cents });
+            const est = steadyRatio(res.left, fs, freq, {
+                lo: expected * 0.96,
+                hi: expected * 1.04
+            });
+            const err = (est.ratio - expected) / expected;
+            check(
+                `fs=${fs} f=${freq}Hz cents=${cents}`,
+                Math.abs(err) <= PITCH_REL_TOLERANCE,
+                `ratio=${est.ratio.toFixed(6)} (期待 ${expected.toFixed(6)}), ` +
+                    `誤差 ${(err * 100).toFixed(4)}% = ${(1200 * Math.log2(est.ratio / expected)).toFixed(2)} cents`
+            );
+        }
+    }
 }
 
 /* --- W4: L/R 独立(FR-1.2) --- */
@@ -384,6 +423,21 @@ section('W5 遅延 — 設計値 = (baseOffset + sweep/2)/fs、実測は 10ms �
         );
     }
 
+    // 方向つき設計値遅延(D-G)。上げ方向はガード帯ぶん増えるが 10ms 予算内に収まる。
+    for (const fsx of SAMPLE_RATES) {
+        for (const cents of [-1200, -89, 0, 100, 1200]) {
+            const s = makeEngine('wasm', fsx, { cents });
+            const want = expectedLatencySamples(fsx, cents);
+            const ms = (s.latencySamples() / fsx) * 1000;
+            check(
+                `fs=${fsx} cents=${cents} — 設計値遅延が方向つきの式と一致し 10ms 以下`,
+                Math.abs(s.latencySamples() - want) < 1e-9 && ms > 0 && ms <= LATENCY_BUDGET_MS,
+                `${s.latencySamples()} サンプル = ${ms.toFixed(3)}ms(期待 ${want})`
+            );
+            s.destroy();
+        }
+    }
+
     // 窓長を変えても設計値遅延は変わらない(D-D)
     const fs = 48000;
     const a = runImpulse('wasm', fs, 0.05, 10);
@@ -423,6 +477,34 @@ for (const fs of SAMPLE_RATES) {
     );
 }
 
+/* --- W6b: グリッチ(上げ方向。閾値は出力側の最大スロープ基準) --- */
+section('W6b グリッチ — +100 / +1200 セントでも不連続点 0 件(WASM 経路)');
+for (const fs of SAMPLE_RATES) {
+    for (const cents of [100, 1200]) {
+        const ratio = Math.pow(2, cents / 1200);
+        const res = runSine('wasm', { freq: 440, fs, seconds: GLITCH_DURATION_SEC, cents });
+        const skip = Math.floor(fs * GLITCH_WARMUP_SEC);
+        // 出力は入力の ratio 倍の周波数なので、期待最大スロープも ratio 倍になる。
+        const limit = (GLITCH_SLOPE_FACTOR * 2 * Math.PI * 440 * ratio * SIGNAL_AMPLITUDE) / fs;
+        let count = 0;
+        let worst = 0;
+        for (let i = skip + 1; i < res.left.length; i++) {
+            const d = Math.abs(res.left[i] - res.left[i - 1]);
+            if (d > worst) {
+                worst = d;
+            }
+            if (d > limit) {
+                count++;
+            }
+        }
+        check(
+            `fs=${fs} cents=${cents} — 不連続点 0 件`,
+            count === 0,
+            `件数 ${count}, max|Δy|=${worst.toFixed(5)} / 閾値 ${limit.toFixed(5)}`
+        );
+    }
+}
+
 /* --- W7: WASM と JS フォールバックの一致 --- */
 section('W7 WASM ↔ JS 一致 — 同じ入力で同じ結論になる');
 {
@@ -438,6 +520,26 @@ section('W7 WASM ↔ JS 一致 — 同じ入力で同じ結論になる');
             `wasm=${rw.toFixed(6)} / js=${rj.toFixed(6)} (差 ${(((rw - rj) / rj) * 100).toFixed(4)}%)`
         );
     }
+    // 拡張した定義域の端でも 2 実装が一致すること(移植ミスの検出)
+    for (const cents of [-1200, 1200]) {
+        const expected = Math.pow(2, cents / 1200);
+        const w2 = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents });
+        const j2 = runSine('js', { freq: 440, fs, seconds: 2.0, cents });
+        const bounds = { lo: expected * 0.96, hi: expected * 1.04 };
+        const rw2 = steadyRatio(w2.left, fs, 440, bounds).ratio;
+        const rj2 = steadyRatio(j2.left, fs, 440, bounds).ratio;
+        check(
+            `cents=${cents} — 推定比の差が 0.1% 未満`,
+            Math.abs(rw2 - rj2) / rj2 < 0.001,
+            `wasm=${rw2.toFixed(6)} / js=${rj2.toFixed(6)}`
+        );
+        check(
+            `cents=${cents} — 設計値遅延が一致`,
+            w2.latencySamples === j2.latencySamples,
+            `${w2.latencySamples} サンプル`
+        );
+    }
+
     const w = runImpulse('wasm', fs, 0.05);
     const j = runImpulse('js', fs, 0.05);
     check('設計値遅延が一致', w.designSamples === j.designSamples, `${w.designSamples} サンプル`);
@@ -475,12 +577,24 @@ section('W8 エッジケース — ps_prepare が不正引数で 0 を返す');
 section('W9 エッジケース — ps_set_param のクランプ・無効値無視');
 {
     const fs = 48000;
-    // 範囲外の -1000 cents は -150 にクランプされる(= -150 と同じ比になる)
-    const clamped = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents: -1000 });
-    const atLimit = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents: -150 });
-    const rc = steadyRatio(clamped.left, fs, 440, { lo: 0.86, hi: 0.96 }).ratio;
-    const rl = steadyRatio(atLimit.left, fs, 440, { lo: 0.86, hi: 0.96 }).ratio;
-    check('cents=-1000 は -150 にクランプされる', Math.abs(rc - rl) / rl < 0.001, `ratio -1000: ${rc.toFixed(6)} / -150: ${rl.toFixed(6)}`);
+    // 範囲外の ±5000 cents は定義域の端(±1200)にクランプされる
+    for (const [raw, limit] of [
+        [-5000, SHIFT_CENTS_MIN],
+        [5000, SHIFT_CENTS_MAX]
+    ]) {
+        const expected = Math.pow(2, limit / 1200);
+        const bounds = { lo: expected * 0.96, hi: expected * 1.04 };
+        const clamped = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents: raw });
+        const atLimit = runSine('wasm', { freq: 440, fs, seconds: 2.0, cents: limit });
+        const rc = steadyRatio(clamped.left, fs, 440, bounds).ratio;
+        const rl = steadyRatio(atLimit.left, fs, 440, bounds).ratio;
+        check(
+            `cents=${raw} は ${limit} にクランプされる`,
+            Math.abs(rc - rl) / rl < 0.001 &&
+                Math.abs(rl - expected) / expected <= PITCH_REL_TOLERANCE,
+            `ratio ${raw}: ${rc.toFixed(6)} / ${limit}: ${rl.toFixed(6)}(期待 ${expected.toFixed(6)})`
+        );
+    }
 
     // 非有限値は無視され、直前の値が保たれる
     const s = makeEngine('wasm', fs, { cents: -89 });
@@ -670,9 +784,10 @@ section('W14 処理コスト — 128 フレームの処理時間(WASM / JS 比�
 {
     const fs = 48000;
     const quantumMs = (BLOCK / fs) * 1000;
-    const results = {};
-    for (const kind of ['wasm', 'js']) {
-        const s = makeEngine(kind, fs);
+
+    /** 1 ブロックあたりの平均処理時間(ms)。 */
+    function measure(kind, cents, blocks) {
+        const s = makeEngine(kind, fs, { cents });
         const io0 = s.ioPtr(0);
         const io1 = s.ioPtr(1);
         const omega = (2 * Math.PI * 440) / fs;
@@ -684,22 +799,38 @@ section('W14 処理コスト — 128 フレームの処理時間(WASM / JS 比�
         for (let k = 0; k < 2000; k++) {
             s.process(BLOCK); // ウォームアップ
         }
-        const blocks = 20000;
         const t0 = process.hrtime.bigint();
         for (let k = 0; k < blocks; k++) {
             s.process(BLOCK);
         }
         const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6;
-        results[kind] = elapsedMs / blocks;
         s.destroy();
+        return elapsedMs / blocks;
     }
-    const load = (results.wasm / quantumMs) * 100;
+
+    const wasmDefault = measure('wasm', -89, 20000);
+    const jsDefault = measure('js', -89, 20000);
+    const load = (wasmDefault / quantumMs) * 100;
     check(
         `WASM の 1 ブロック処理がレンダ量子時間の 50% 以内(PR-1)`,
         load < 50,
-        `${results.wasm.toFixed(4)}ms / ${quantumMs.toFixed(3)}ms = ${load.toFixed(2)}% ` +
-            `(JS フォールバックは ${results.js.toFixed(4)}ms = ${((results.js / quantumMs) * 100).toFixed(2)}%)`
+        `${wasmDefault.toFixed(4)}ms / ${quantumMs.toFixed(3)}ms = ${load.toFixed(2)}% ` +
+            `(JS フォールバックは ${jsDefault.toFixed(4)}ms = ${((jsDefault / quantumMs) * 100).toFixed(2)}%)`
     );
+
+    // 定義域の端は跳躍頻度が最大になり、相関探索(D-B)の負荷もそこで最大になる。
+    // 本番経路(WASM)がその条件でもレンダ量子に収まることを確かめる。
+    for (const cents of [-1200, 1200]) {
+        const w = measure('wasm', cents, 8000);
+        const j = measure('js', cents, 8000);
+        const l = (w / quantumMs) * 100;
+        check(
+            `cents=${cents} — WASM がレンダ量子時間の 50% 以内`,
+            l < 50,
+            `${w.toFixed(4)}ms / ${quantumMs.toFixed(3)}ms = ${l.toFixed(2)}% ` +
+                `(JS フォールバックは ${j.toFixed(4)}ms = ${((j / quantumMs) * 100).toFixed(2)}%)`
+        );
+    }
 }
 
 /* --- W15: process 経路の確保ゼロ(BR1.5) --- */

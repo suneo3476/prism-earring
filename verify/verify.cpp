@@ -53,6 +53,8 @@ namespace {
 // SR-3.1 判定閾値は名前付き定数として単一定義する(リテラルの散在を禁止)
 // ============================================================================
 constexpr double kExpectedRatio = 0.95;          // BR2.1: 418/440
+// BR2.1 の ±0.5% は拡張した定義域(±1200 セント)の全点に同じ厳しさで適用する。
+// ±1200 でも実測誤差は 2 cents 未満(= 0.1%)で、緩和する必要がなかった。
 constexpr double kPitchRelTolerance = 0.005;     // BR2.1: ±0.5%
 constexpr double kLatencyBudgetMs = 10.0;        // BR2.2 / NFR-1
 constexpr double kLatencyThreshold = 0.05;       // BR2.2: -26 dBFS
@@ -69,6 +71,12 @@ constexpr double kPi = 3.14159265358979323846;
 
 const double kPitchFreqs[3] = {110.0, 440.0, 3520.0};
 const double kSampleRates[2] = {44100.0, 48000.0};
+
+// 拡張したシフト定義域(±1200 セント)の走査点。440Hz で全点、110/3520Hz で
+// kBandCents の 3 点を測る(BR2.1 の判定式・許容差はそのまま適用する)。
+const double kShiftMatrixCents[6] = {-1200.0, -200.0, -100.0, 100.0, 200.0, 1200.0};
+const double kBandCents[3] = {100.0, -1200.0, 1200.0};
+const double kBandFreqs[2] = {110.0, 3520.0};
 
 // ============================================================================
 // 自前 radix-2 FFT(オフライン限定、FR-3.1)
@@ -261,6 +269,117 @@ void testPitch(double fs) {
 }
 
 // ---------------------------------------------------------------------------
+// BR2.1 拡張: 任意のシフト量でのピッチ精度(上げ方向を含む)
+// 期待比は常に 2^(cents/1200)。半音 = 100 セントの決め打ちはしない(BR1.1)。
+// ---------------------------------------------------------------------------
+void testPitchAt(double fs, double f, double cents, Scratch& s, std::size_t warmup,
+                 std::size_t frames) {
+    char name[64];
+    std::snprintf(name, sizeof(name), "pitch@%.0f/%.0fHz/%+.0fc", fs, f, cents);
+    Report r;
+    r.caseName = name;
+    r.metric = "ratio";
+    r.expected = std::exp2(cents / 1200.0);
+    r.tolerance = r.expected * kPitchRelTolerance;
+
+    prism::PitchShifter ps;
+    if (!ps.prepare(fs, kBlockFrames) || !preparedOrReport(ps, fs, r.caseName)) {
+        r.passed = false;
+        r.note = "prepare failed";
+        g_reports.push_back(r);
+        return;
+    }
+    ps.setShiftCentsL(static_cast<float>(cents));
+    ps.setShiftCentsR(static_cast<float>(cents));
+    ps.reset();  // 平滑器を整定させ、走査域の中央から始める
+
+    fillSine(s.inL, f, fs, kSignalAmplitude);
+    s.inR = s.inL;  // BR1.8: モノラル信号の L=R 複製は呼び出し側の責務
+    r.allocDelta = runBlocks(ps, s, frames, r.caseName.c_str(), nullptr);
+
+    const double fOut = dominantFrequency(s.outL, warmup, fs);
+    r.measured = fOut / f;
+    r.passed = std::fabs(r.measured - r.expected) <= r.tolerance;
+    char note[96];
+    std::snprintf(note, sizeof(note), "f_out=%.3fHz err=%+.2f cents", fOut,
+                  1200.0 * std::log2(r.measured / r.expected));
+    r.note = note;
+    g_reports.push_back(r);
+}
+
+void testShiftRange(double fs) {
+    const std::size_t warmup = static_cast<std::size_t>(fs * 0.6);
+    const std::size_t frames = warmup + static_cast<std::size_t>(kFftSize);
+    Scratch s;
+    s.allocate(frames);
+
+    for (int i = 0; i < 6; ++i) {
+        testPitchAt(fs, kPitchFreqs[1], kShiftMatrixCents[i], s, warmup, frames);  // 440Hz
+    }
+    for (int fi = 0; fi < 2; ++fi) {
+        for (int ci = 0; ci < 3; ++ci) {
+            testPitchAt(fs, kBandFreqs[fi], kBandCents[ci], s, warmup, frames);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BR2.3 拡張: 上げ方向のグリッチ
+// 閾値は出力側の最大スロープ基準(= 3.0 x 2pi x f x ratio x A / fs)。既定 -89 の
+// 既存ケース(testGlitch)は入力側基準の式のまま据え置き、判定を緩めも締めもしない。
+// ---------------------------------------------------------------------------
+void testGlitchAt(double fs, double cents) {
+    const std::size_t frames = static_cast<std::size_t>(fs * kGlitchDurationSec);
+    Scratch s;
+    s.allocate(frames);
+
+    char name[64];
+    std::snprintf(name, sizeof(name), "glitch@%.0f/%+.0fc", fs, cents);
+    Report r;
+    r.caseName = name;
+    r.metric = "discontinuities";
+    r.expected = 0.0;
+    r.tolerance = 0.0;
+
+    prism::PitchShifter ps;
+    if (!ps.prepare(fs, kBlockFrames) || !preparedOrReport(ps, fs, r.caseName)) {
+        r.passed = false;
+        r.note = "prepare failed";
+        g_reports.push_back(r);
+        return;
+    }
+    ps.setShiftCentsL(static_cast<float>(cents));
+    ps.setShiftCentsR(static_cast<float>(cents));
+    ps.reset();
+    fillSine(s.inL, kGlitchFreqHz, fs, kSignalAmplitude);
+    s.inR = s.inL;
+    r.allocDelta = runBlocks(ps, s, frames, r.caseName.c_str(), nullptr);
+
+    const double ratio = std::exp2(cents / 1200.0);
+    const double maxSlope = 2.0 * kPi * kGlitchFreqHz * ratio * kSignalAmplitude / fs;
+    const double limit = kGlitchSlopeFactor * maxSlope;
+    const std::size_t skip = static_cast<std::size_t>(fs * kGlitchWarmupSec);
+    long count = 0;
+    double worst = 0.0;
+    for (std::size_t i = skip + 1; i < frames; ++i) {
+        const double d = std::fabs(static_cast<double>(s.outL[i]) -
+                                   static_cast<double>(s.outL[i - 1]));
+        if (d > worst) {
+            worst = d;
+        }
+        if (d > limit) {
+            ++count;
+        }
+    }
+    r.measured = static_cast<double>(count);
+    r.passed = (count == 0);
+    char note[96];
+    std::snprintf(note, sizeof(note), "max|dy|=%.5f limit=%.5f", worst, limit);
+    r.note = note;
+    g_reports.push_back(r);
+}
+
+// ---------------------------------------------------------------------------
 // BR2.2 レイテンシ
 // ---------------------------------------------------------------------------
 void testLatency(double fs) {
@@ -373,13 +492,17 @@ void testGlitch(double fs) {
 // ---------------------------------------------------------------------------
 // BR2.4 CPU 比(報告のみ、終了コードに影響しない)
 // ---------------------------------------------------------------------------
-void testCpu(double fs) {
+void testCpu(double fs, double cents, bool named) {
     const std::size_t frames = static_cast<std::size_t>(fs * kCpuDurationSec);
     Scratch s;
     s.allocate(frames);
 
     char name[64];
-    std::snprintf(name, sizeof(name), "cpu@%.0f", fs);
+    if (named) {
+        std::snprintf(name, sizeof(name), "cpu@%.0f/%+.0fc", fs, cents);
+    } else {
+        std::snprintf(name, sizeof(name), "cpu@%.0f", fs);
+    }
     Report r;
     r.caseName = name;
     r.metric = "cpuRatio";
@@ -393,6 +516,9 @@ void testCpu(double fs) {
         g_reports.push_back(r);
         return;
     }
+    ps.setShiftCentsL(static_cast<float>(cents));
+    ps.setShiftCentsR(static_cast<float>(cents));
+    ps.reset();
     fillSine(s.inL, kGlitchFreqHz, fs, kSignalAmplitude);
     s.inR = s.inL;
     double elapsed = 0.0;
@@ -453,7 +579,7 @@ void testContract(double fs) {
         g_reports.push_back(r);
     }
 
-    // C2: 定義域外のシフト量が -150 セントへクランプされること(BR1.2)
+    // C2: 定義域外のシフト量が下限 -1200 セントへクランプされること(BR1.2)
     {
         char name[64];
         std::snprintf(name, sizeof(name), "contract@%.0f/clamp-shift", fs);
@@ -468,14 +594,70 @@ void testContract(double fs) {
             r.note = "prepare failed";
             g_reports.push_back(r);
         } else {
-            ps.setShiftCentsL(-1000.0f);  // 範囲外 -> -150 にクランプ
-            ps.setShiftCentsR(-1000.0f);
+            ps.setShiftCentsL(-5000.0f);  // 範囲外 -> kShiftCentsMin にクランプ
+            ps.setShiftCentsR(-5000.0f);
             ps.reset();
             r.measured = measureRatio(ps, s, f, fs, warmup, frames, r.caseName.c_str());
             r.passed = std::fabs(r.measured - r.expected) <= r.tolerance;
             char note[96];
-            std::snprintf(note, sizeof(note), "setShiftCents(-1000) -> %.0f cents",
+            std::snprintf(note, sizeof(note), "setShiftCents(-5000) -> %.0f cents",
                           static_cast<double>(prism::PitchShifter::kShiftCentsMin));
+            r.note = note;
+            g_reports.push_back(r);
+        }
+    }
+
+    // C2b: 定義域外のシフト量が上限 +1200 セントへクランプされること(BR1.2、上げ方向)
+    {
+        char name[64];
+        std::snprintf(name, sizeof(name), "contract@%.0f/clamp-shift-up", fs);
+        Report r;
+        r.caseName = name;
+        r.metric = "ratio";
+        r.expected = std::exp2(static_cast<double>(prism::PitchShifter::kShiftCentsMax) / 1200.0);
+        r.tolerance = r.expected * kPitchRelTolerance;
+        prism::PitchShifter ps;
+        if (!ps.prepare(fs, kBlockFrames) || !preparedOrReport(ps, fs, r.caseName)) {
+            r.passed = false;
+            r.note = "prepare failed";
+            g_reports.push_back(r);
+        } else {
+            ps.setShiftCentsL(5000.0f);  // 範囲外 -> kShiftCentsMax にクランプ
+            ps.setShiftCentsR(5000.0f);
+            ps.reset();
+            r.measured = measureRatio(ps, s, f, fs, warmup, frames, r.caseName.c_str());
+            r.passed = std::fabs(r.measured - r.expected) <= r.tolerance;
+            char note[96];
+            std::snprintf(note, sizeof(note), "setShiftCents(+5000) -> %.0f cents",
+                          static_cast<double>(prism::PitchShifter::kShiftCentsMax));
+            r.note = note;
+            g_reports.push_back(r);
+        }
+    }
+
+    // C6: 上げ方向でも設計値遅延が NFR-1 の 10ms 予算に収まること(ガード帯を含む)
+    {
+        char name[64];
+        std::snprintf(name, sizeof(name), "contract@%.0f/latency-budget-up", fs);
+        Report r;
+        r.caseName = name;
+        r.metric = "ms";
+        r.expected = 0.0;
+        r.hasTolerance = false;
+        prism::PitchShifter ps;
+        if (!ps.prepare(fs, kBlockFrames) || !preparedOrReport(ps, fs, r.caseName)) {
+            r.passed = false;
+            r.note = "prepare failed";
+            g_reports.push_back(r);
+        } else {
+            ps.setShiftCentsL(prism::PitchShifter::kShiftCentsMax);
+            ps.setShiftCentsR(prism::PitchShifter::kShiftCentsMax);
+            const double ms = ps.getLatencySamples() / fs * 1000.0;
+            r.measured = ms;
+            r.passed = (ms > 0.0) && (ms <= kLatencyBudgetMs);
+            char note[96];
+            std::snprintf(note, sizeof(note), "+1200c design latency %.1f samples (budget %.1fms)",
+                          ps.getLatencySamples(), kLatencyBudgetMs);
             r.note = note;
             g_reports.push_back(r);
         }
@@ -572,6 +754,9 @@ void printMatrix() {
 int main() {
     std::printf("prism verification harness (u2-verification)\n");
     std::printf("fs matrix: 44100 / 48000 Hz, tests: pitch / latency / glitch / cpu (+ contract edge cases)\n");
+    std::printf("shift matrix: %.0f..%.0f cents (ratio = 2^(cents/1200)), tolerance +/-0.5%% everywhere\n",
+                static_cast<double>(prism::PitchShifter::kShiftCentsMin),
+                static_cast<double>(prism::PitchShifter::kShiftCentsMax));
     std::printf("defaults: shift=%.0f cents, dryWet=%.1f, crossfade=%.0f ms, block=%d frames\n",
                 static_cast<double>(prism::PitchShifter::kShiftCentsDefault),
                 static_cast<double>(prism::PitchShifter::kDryWetDefault),
@@ -580,9 +765,15 @@ int main() {
     for (int i = 0; i < 2; ++i) {
         const double fs = kSampleRates[i];
         testPitch(fs);
+        testShiftRange(fs);
         testLatency(fs);
         testGlitch(fs);
-        testCpu(fs);
+        testGlitchAt(fs, 100.0);
+        testGlitchAt(fs, 1200.0);
+        testCpu(fs, static_cast<double>(prism::PitchShifter::kShiftCentsDefault), false);
+        // 跳躍頻度は |1-ratio| に比例するため、相関探索の負荷は定義域の端が最悪になる。
+        testCpu(fs, static_cast<double>(prism::PitchShifter::kShiftCentsMin), true);
+        testCpu(fs, static_cast<double>(prism::PitchShifter::kShiftCentsMax), true);
         testContract(fs);
     }
 
