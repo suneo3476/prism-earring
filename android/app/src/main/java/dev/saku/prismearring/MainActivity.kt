@@ -1,19 +1,25 @@
 package dev.saku.prismearring
 
 import android.Manifest
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -54,6 +60,32 @@ class MainActivity : AppCompatActivity() {
     /** 権限許可の直後に開始したい、というユーザーの意図を覚えておく。 */
     private var startAfterPermission = false
 
+    // ---- 音源(v0.4.0): デバイス一覧 / MediaProjection --------------------------
+
+    private data class DeviceEntry(val id: Int, val label: String)
+
+    private var outputDevices: List<DeviceEntry> = emptyList()
+    private var inputDevices: List<DeviceEntry> = emptyList()
+
+    private val audioManager: AudioManager by lazy {
+        getSystemService(AudioManager::class.java)
+    }
+
+    private val projectionManager: MediaProjectionManager by lazy {
+        getSystemService(MediaProjectionManager::class.java)
+    }
+
+    /** 抜き差しのたびにデバイス一覧(出力先 / 入力元スピナー)を作り直す。 */
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            refreshDeviceLists()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            refreshDeviceLists()
+        }
+    }
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binderIn: IBinder?) {
             val binder = binderIn as? PrismService.LocalBinder ?: return
@@ -89,6 +121,47 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 任意 */ }
 
+    /**
+     * 「他アプリの音を拾う」の同意画面(画面キャプチャの許可ダイアログ)。
+     * OK なら resultCode / data を Service へ渡して捕獲を開始する。
+     * キャンセル・拒否なら「捕獲 ON」の意図を下ろし、マイクのみで動かし続ける。
+     */
+    private val projectionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val data = result.data
+            val s = service
+            if (result.resultCode == Activity.RESULT_OK && data != null && s != null) {
+                if (s.startCapture(result.resultCode, data)) {
+                    params = s.currentParams()
+                    suppressListeners = true
+                    bindParamsToViews()
+                    suppressListeners = false
+                } else {
+                    Snackbar.make(binding.root, R.string.capture_denied_hint, Snackbar.LENGTH_LONG)
+                        .show()
+                    revertCaptureSwitch()
+                }
+            } else {
+                Snackbar.make(binding.root, R.string.capture_denied_hint, Snackbar.LENGTH_LONG).show()
+                revertCaptureSwitch()
+            }
+        }
+
+    /** 同意が得られなかった場合に、スイッチとパラメータを OFF へ戻す。 */
+    private fun revertCaptureSwitch() {
+        val s = service
+        s?.stopCapture()
+        params = (s?.currentParams() ?: params).copy(captureEnabled = false)
+        service?.updateParams(params) ?: params.save(this)
+        suppressListeners = true
+        bindParamsToViews()
+        suppressListeners = false
+    }
+
+    private fun launchProjectionConsent() {
+        projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // テーマは setContentView より前に確定させる必要がある。SharedPreferences は
         // Context さえあれば super.onCreate() 前でも読める(attachBaseContext は
@@ -104,9 +177,6 @@ class MainActivity : AppCompatActivity() {
         applySystemBarInsets()
         applyStatusBarAppearance()
 
-        // 端末の音量キーが出力(音声ストリーム)に効くようにする。
-        setVolumeControlStream(AudioManager.STREAM_MUSIC)
-
         params = Params.load(this)
         setUpSliders()
         setUpSteppers()
@@ -118,6 +188,14 @@ class MainActivity : AppCompatActivity() {
         setUpShiftValueInputs()
         setUpJumpRow()
         setUpPresetButtons()
+        setUpSourceControls()
+        setUpDeviceSpinners()
+        setUpSweepSpinner()
+        setUpOutputUsageSwitch()
+
+        refreshDeviceLists()
+        audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
+        applyVolumeControlStream(params.outputUsage)
 
         suppressListeners = true
         bindParamsToViews()
@@ -140,6 +218,22 @@ class MainActivity : AppCompatActivity() {
         }
         service = null
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+        super.onDestroy()
+    }
+
+    /** 出力用途がユーザー補助のときは端末の音量キーもユーザー補助音量に切り替える。 */
+    private fun applyVolumeControlStream(outputUsage: Int) {
+        setVolumeControlStream(
+            if (outputUsage == NativeEngine.USAGE_ACCESSIBILITY) {
+                AudioManager.STREAM_ACCESSIBILITY
+            } else {
+                AudioManager.STREAM_MUSIC
+            }
+        )
     }
 
     // ---- レイアウト --------------------------------------------------------
@@ -324,6 +418,183 @@ class MainActivity : AppCompatActivity() {
         view.contentDescription = getString(R.string.desc_preset_slot, slot, valueText)
     }
 
+    // ---- 音源(v0.4.0): マイク音量 / 他アプリの音を拾う ---------------------------
+
+    private fun setUpSourceControls() {
+        binding.micGainSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(micGainDb = value))
+            }
+        }
+        binding.micGainDown.setOnClickListener { nudgeMicGain(-1.0f) }
+        binding.micGainUp.setOnClickListener { nudgeMicGain(1.0f) }
+
+        binding.captureGainSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(captureGainDb = value))
+            }
+        }
+        binding.captureGainDown.setOnClickListener { nudgeCaptureGain(-1.0f) }
+        binding.captureGainUp.setOnClickListener { nudgeCaptureGain(1.0f) }
+
+        binding.captureSwitch.setOnCheckedChangeListener { _, checked ->
+            if (suppressListeners) return@setOnCheckedChangeListener
+            if (checked) requestCaptureEnable() else disableCapture()
+        }
+    }
+
+    private fun nudgeMicGain(delta: Float) = updateParams(
+        params.copy(
+            micGainDb = (params.micGainDb + delta).coerceIn(Params.MIC_GAIN_DB_MIN, Params.MIC_GAIN_DB_MAX)
+        )
+    )
+
+    private fun nudgeCaptureGain(delta: Float) = updateParams(
+        params.copy(
+            captureGainDb = (params.captureGainDb + delta)
+                .coerceIn(Params.CAPTURE_GAIN_DB_MIN, Params.CAPTURE_GAIN_DB_MAX)
+        )
+    )
+
+    /**
+     * 捕獲 ON への切り替え。動作中でなければ設定を保存するだけ(次の開始時に同意を求める)。
+     * 動作中なら、その場で MediaProjection の同意画面を出す。
+     */
+    private fun requestCaptureEnable() {
+        if (service?.isRunning() != true) {
+            updateParams(params.copy(captureEnabled = true))
+            return
+        }
+        launchProjectionConsent()
+    }
+
+    private fun disableCapture() {
+        service?.stopCapture()
+        updateParams(params.copy(captureEnabled = false))
+    }
+
+    private fun micGainLabel(db: Float): String =
+        if (db <= Params.MIC_GAIN_DB_MIN) getString(R.string.mic_gain_off) else getString(R.string.volume_format, db)
+
+    /** 「状態の一行」の文言。実際に捕獲が動いているかは [PrismService.State.captureActive] を見る。 */
+    private fun captureStatusText(params: Params, running: Boolean, captureActive: Boolean, fillFrames: Int): String =
+        when {
+            !params.captureEnabled -> getString(R.string.capture_status_stopped)
+            !running -> getString(R.string.capture_status_stopped)
+            !captureActive -> getString(R.string.capture_status_waiting)
+            fillFrames <= 0 -> getString(R.string.capture_status_silence)
+            else -> getString(R.string.capture_status_capturing)
+        }
+
+    // ---- 音源(v0.4.0): 出力先 / 入力元デバイス -------------------------------------
+
+    private fun deviceTypeLabel(type: Int): String = when (type) {
+        AudioDeviceInfo.TYPE_USB_HEADSET -> getString(R.string.device_type_usb_headset)
+        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_ACCESSORY ->
+            getString(R.string.device_type_usb_device)
+        AudioDeviceInfo.TYPE_WIRED_HEADSET -> getString(R.string.device_type_wired_headset)
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> getString(R.string.device_type_wired_headphones)
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO ->
+            getString(R.string.device_type_bluetooth)
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> getString(R.string.device_type_speaker)
+        AudioDeviceInfo.TYPE_BUILTIN_MIC -> getString(R.string.device_type_builtin_mic)
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> getString(R.string.device_type_earpiece)
+        else -> getString(R.string.device_type_other)
+    }
+
+    private fun deviceLabel(info: AudioDeviceInfo): String {
+        val type = deviceTypeLabel(info.type)
+        val name = info.productName?.toString()?.trim().orEmpty()
+        return if (name.isEmpty() || name == "?") type else "$type $name"
+    }
+
+    private fun setUpDeviceSpinners() {
+        binding.outputDeviceSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (suppressListeners) return
+                    val entry = outputDevices.getOrNull(position) ?: return
+                    if (entry.id == params.outputDeviceId) return
+                    updateParams(params.copy(outputDeviceId = entry.id))
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        binding.inputDeviceSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (suppressListeners) return
+                    val entry = inputDevices.getOrNull(position) ?: return
+                    if (entry.id == params.inputDeviceId) return
+                    updateParams(params.copy(inputDeviceId = entry.id))
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+    }
+
+    private fun spinnerAdapter(labels: List<String>): ArrayAdapter<String> =
+        ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
+    /**
+     * 出力先 / 入力元の一覧を作り直す。抜き差しのたびに [audioDeviceCallback] から呼ばれる。
+     * 選んでいたデバイスが無くなっていた場合は「自動」を選択状態にする(設定値そのものは
+     * 変えない。次に同じデバイスが挿さればまた選ばれる)。
+     */
+    private fun refreshDeviceLists() {
+        val outputs = mutableListOf(DeviceEntry(NativeEngine.DEVICE_AUTO, getString(R.string.device_auto)))
+        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).forEach {
+            outputs += DeviceEntry(it.id, deviceLabel(it))
+        }
+        val inputs = mutableListOf(DeviceEntry(NativeEngine.DEVICE_AUTO, getString(R.string.device_auto)))
+        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).forEach {
+            inputs += DeviceEntry(it.id, deviceLabel(it))
+        }
+        outputDevices = outputs
+        inputDevices = inputs
+
+        val wasSuppressed = suppressListeners
+        suppressListeners = true
+        binding.outputDeviceSpinner.adapter = spinnerAdapter(outputs.map { it.label })
+        binding.inputDeviceSpinner.adapter = spinnerAdapter(inputs.map { it.label })
+        binding.outputDeviceSpinner.setSelection(
+            outputs.indexOfFirst { it.id == params.outputDeviceId }.takeIf { it >= 0 } ?: 0
+        )
+        binding.inputDeviceSpinner.setSelection(
+            inputs.indexOfFirst { it.id == params.inputDeviceId }.takeIf { it >= 0 } ?: 0
+        )
+        suppressListeners = wasSuppressed
+    }
+
+    // ---- 音源(v0.4.0): 走査幅 / 出力用途(詳細設定) -----------------------------
+
+    private fun sweepLabel(ms: Float): String =
+        if (ms == ms.toInt().toFloat()) "${ms.toInt()} ms" else "$ms ms"
+
+    private fun setUpSweepSpinner() {
+        binding.sweepSpinner.adapter = spinnerAdapter(Params.SWEEP_PRESETS.map { sweepLabel(it) })
+        binding.sweepSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (suppressListeners) return
+                val value = Params.SWEEP_PRESETS.getOrNull(position) ?: return
+                if (value == params.micSweepMs) return
+                updateParams(params.copy(micSweepMs = value))
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+    }
+
+    private fun setUpOutputUsageSwitch() {
+        binding.outputUsageSwitch.setOnCheckedChangeListener { _, checked ->
+            if (suppressListeners) return@setOnCheckedChangeListener
+            val usage = if (checked) NativeEngine.USAGE_ACCESSIBILITY else NativeEngine.USAGE_MEDIA
+            updateParams(params.copy(outputUsage = usage))
+        }
+    }
+
     // ---- 数値の直接入力 --------------------------------------------------------
 
     private fun setUpShiftValueInputs() {
@@ -375,7 +646,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpSegments() {
-        val presets = listOf(binding.preset0, binding.preset1, binding.preset2)
+        val presets = listOf(binding.preset0, binding.preset1, binding.preset2, binding.preset3)
         presets.forEachIndexed { index, view ->
             view.setOnClickListener {
                 updateParams(params.copy(crossfadeMs = Params.CROSSFADE_PRESETS[index]))
@@ -449,6 +720,18 @@ class MainActivity : AppCompatActivity() {
         infoButton(
             binding.jumpPresetInfoButton, R.string.info_jump_preset_title, R.string.info_jump_preset_body
         )
+        infoButton(binding.micGainInfoButton, R.string.info_mic_gain_title, R.string.info_mic_gain_body)
+        infoButton(binding.captureInfoButton, R.string.info_capture_title, R.string.info_capture_body)
+        infoButton(
+            binding.outputDeviceInfoButton, R.string.info_output_device_title, R.string.info_output_device_body
+        )
+        infoButton(
+            binding.inputDeviceInfoButton, R.string.info_input_device_title, R.string.info_input_device_body
+        )
+        infoButton(binding.sweepInfoButton, R.string.info_sweep_title, R.string.info_sweep_body)
+        infoButton(
+            binding.outputUsageInfoButton, R.string.info_output_usage_title, R.string.info_output_usage_body
+        )
     }
 
     private fun infoButton(view: ImageView, titleRes: Int, bodyRes: Int) {
@@ -492,6 +775,12 @@ class MainActivity : AppCompatActivity() {
         }
         if (!s.startProcessing()) {
             showError(s.state.error.ifEmpty { getString(R.string.perm_mic_required) })
+            return
+        }
+        // 「他アプリの音を拾う」が ON のまま開始したので、ここで同意画面を出す。
+        // 拒否されたらマイクのみで動作を続ける([projectionLauncher] 側で処理)。
+        if (params.captureEnabled) {
+            launchProjectionConsent()
         }
     }
 
@@ -499,6 +788,27 @@ class MainActivity : AppCompatActivity() {
         service?.stopProcessing()
         startService(PrismService.stopIntent(this))
         renderState(service?.state ?: PrismService.State())
+    }
+
+    /**
+     * 再起動が要る設定(出力先 / 入力元 / 出力用途 / 走査幅)を動作中に変えたときに呼ぶ。
+     * Service を stop → start し直し、捕獲 ON なら同意画面が再び出ることを案内する。
+     */
+    private fun restartForSettings() {
+        val s = service ?: return
+        if (params.captureEnabled) {
+            Snackbar.make(binding.root, R.string.restart_capture_consent_hint, Snackbar.LENGTH_LONG).show()
+        }
+        s.stopProcessing()
+        if (!s.startProcessing()) {
+            showError(s.state.error.ifEmpty { getString(R.string.perm_mic_required) })
+            renderState(s.state)
+            return
+        }
+        if (params.captureEnabled) {
+            launchProjectionConsent()
+        }
+        renderState(s.state)
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -513,11 +823,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateParams(next: Params) {
         if (suppressListeners) return
+        val prev = params
         params = next
         service?.updateParams(next) ?: next.save(this)
         suppressListeners = true
         bindParamsToViews()
         suppressListeners = false
+
+        if (prev.outputUsage != next.outputUsage) {
+            applyVolumeControlStream(next.outputUsage)
+        }
+
+        // デバイス指定 / 出力用途 / 走査幅は次の start() からしか効かないため、動作中に
+        // 変えた場合はここで stop → start する(捕獲 ON なら同意画面が再び出る)。
+        if (service?.isRunning() == true && prev.requiresRestart(next)) {
+            restartForSettings()
+        }
     }
 
     /** params -> View。リスナーを止めた状態でのみ呼ぶこと。 */
@@ -550,7 +871,7 @@ class MainActivity : AppCompatActivity() {
         binding.volumeValue.text = getString(R.string.volume_format, params.outputGainDb)
 
         selectSegment(
-            listOf(binding.preset0, binding.preset1, binding.preset2),
+            listOf(binding.preset0, binding.preset1, binding.preset2, binding.preset3),
             Params.CROSSFADE_PRESETS.indexOf(params.crossfadeMs),
         )
         selectSegment(
@@ -565,6 +886,31 @@ class MainActivity : AppCompatActivity() {
         updatePresetLabel(binding.presetSlot1, 1)
         updatePresetLabel(binding.presetSlot2, 2)
         updatePresetLabel(binding.presetSlot3, 3)
+
+        // --- 音源(v0.4.0) ---
+        binding.micGainSlider.value = params.micGainDb.coerceIn(Params.MIC_GAIN_DB_MIN, Params.MIC_GAIN_DB_MAX)
+        binding.micGainValue.text = micGainLabel(params.micGainDb)
+
+        binding.captureSwitch.isChecked = params.captureEnabled
+        binding.captureGainSlider.value =
+            params.captureGainDb.coerceIn(Params.CAPTURE_GAIN_DB_MIN, Params.CAPTURE_GAIN_DB_MAX)
+        val captureActive = service?.state?.captureActive == true
+        val captureFillFrames = service?.state?.info?.captureFillFrames ?: 0
+        binding.captureStatusText.text = getString(
+            R.string.capture_status_with_gain,
+            captureStatusText(params, service?.isRunning() == true, captureActive, captureFillFrames),
+            params.captureGainDb,
+        )
+
+        val outIndex = outputDevices.indexOfFirst { it.id == params.outputDeviceId }.takeIf { it >= 0 } ?: 0
+        binding.outputDeviceSpinner.setSelection(outIndex)
+        val inIndex = inputDevices.indexOfFirst { it.id == params.inputDeviceId }.takeIf { it >= 0 } ?: 0
+        binding.inputDeviceSpinner.setSelection(inIndex)
+
+        val sweepIndex = Params.SWEEP_PRESETS.indexOf(params.micSweepMs).takeIf { it >= 0 } ?: 0
+        binding.sweepSpinner.setSelection(sweepIndex)
+
+        binding.outputUsageSwitch.isChecked = params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY
     }
 
     private fun selectSegment(views: List<TextView>, selectedIndex: Int) {
@@ -646,8 +992,37 @@ class MainActivity : AppCompatActivity() {
                 state.latency.dspMs,
                 state.info.underruns,
                 state.info.inputErrors,
+                state.info.captureFillFrames,
+                state.info.captureUnderruns,
+                state.info.captureOverruns,
+                state.latency.captureSweepMs,
+                state.info.outputDeviceId,
+                getString(
+                    if (state.info.outputDeviceFallback) R.string.device_fallback_yes
+                    else R.string.device_fallback_no
+                ),
+                state.info.inputDeviceId,
+                getString(
+                    if (state.info.inputDeviceFallback) R.string.device_fallback_yes
+                    else R.string.device_fallback_no
+                ),
+                getString(
+                    if (state.info.outputUsage == NativeEngine.USAGE_ACCESSIBILITY) {
+                        R.string.usage_accessibility_short
+                    } else {
+                        R.string.usage_media_short
+                    }
+                ),
+                state.latency.micSweepMs,
             )
         }
+
+        // 状態(動作中か・実際に捕獲できているか)が変わるたびに更新する。
+        binding.captureStatusText.text = getString(
+            R.string.capture_status_with_gain,
+            captureStatusText(params, running, state.captureActive, state.info.captureFillFrames),
+            params.captureGainDb,
+        )
 
         if (state.error.isNotEmpty()) showError(state.error) else hideError()
     }

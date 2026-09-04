@@ -29,6 +29,21 @@ data class Params(
     val preset2R: Int = PRESET_UNSET,
     val preset3L: Int = PRESET_UNSET,
     val preset3R: Int = PRESET_UNSET,
+    // --- 音源(v0.4.0)。マイクと捕獲(他アプリの再生音)の 2 系統。 ---
+    /** マイク音量(dB)。−30〜+12、既定 0。UI 最小位置は「OFF」(倍率 0.0)。 */
+    val micGainDb: Float = DEFAULT_MIC_GAIN_DB,
+    /** 他アプリの音を拾う(AudioPlaybackCapture)か。既定 false。 */
+    val captureEnabled: Boolean = false,
+    /** 捕獲音の音量(dB)。−12〜+12、既定 0。 */
+    val captureGainDb: Float = DEFAULT_CAPTURE_GAIN_DB,
+    /** 出力先デバイス ID。[NativeEngine.DEVICE_AUTO] = 自動。次の start() から有効。 */
+    val outputDeviceId: Int = NativeEngine.DEVICE_AUTO,
+    /** 入力元デバイス ID。[NativeEngine.DEVICE_AUTO] = 自動。次の start() から有効。 */
+    val inputDeviceId: Int = NativeEngine.DEVICE_AUTO,
+    /** 出力用途。[NativeEngine.USAGE_MEDIA] / [NativeEngine.USAGE_ACCESSIBILITY]。次の start() から有効。 */
+    val outputUsage: Int = NativeEngine.USAGE_MEDIA,
+    /** マイク経路の走査幅(ms)。[SWEEP_PRESETS] のいずれか。次の start() から有効。 */
+    val micSweepMs: Float = DEFAULT_MIC_SWEEP_MS,
 ) {
     companion object {
         // --- DSP が実際に受け付ける範囲(PitchShifter の clamp と同じ) ---
@@ -45,7 +60,9 @@ data class Params(
         const val DEFAULT_DRY_WET = 1.0f
 
         const val CROSSFADE_MS_MIN = 10
-        const val CROSSFADE_MS_MAX = 100
+        // v0.4.0: 200ms まで拡張(既定 −89 セントでは跳躍間隔が約 190ms のため、
+        // その付近まで伸ばすと常時クロスフェード状態になる。詳細は README)。
+        const val CROSSFADE_MS_MAX = 200
         const val DEFAULT_CROSSFADE_MS = 50
 
         // --- 刻み幅プリセット(4 分割。−/+ ボタン 1 回ぶんのセント数) ---
@@ -62,8 +79,8 @@ data class Params(
             STEP_EIGHTH_TONE,
         )
 
-        // --- 窓長(なめらかさ)プリセット(3 分割) ---
-        val CROSSFADE_PRESETS = intArrayOf(20, 50, 100)
+        // --- 窓長(なめらかさ)プリセット(v0.4.0 で 4 分割に拡張) ---
+        val CROSSFADE_PRESETS = intArrayOf(20, 50, 100, 200)
 
         // --- 出力ゲイン(dB)。倍率換算で 0.5〜4.0 = −6dB〜+12dB(AudioBridge と一致)。 ---
         const val OUTPUT_GAIN_DB_MIN = -6.0f
@@ -75,6 +92,26 @@ data class Params(
 
         /** 倍率 -> dB。診断表示や逆算に使う。 */
         fun gainToDb(gain: Float): Float = 20.0f * log10(gain.coerceAtLeast(1e-6f))
+
+        // --- マイク音量(dB)。最小位置は「OFF」扱いで倍率 0.0 を渡す([micGainDbToGain])。 ---
+        const val MIC_GAIN_DB_MIN = -30.0f
+        const val MIC_GAIN_DB_MAX = 12.0f
+        const val DEFAULT_MIC_GAIN_DB = 0.0f
+
+        /** dB -> 倍率(マイク)。最小値ちょうどは完全ミュート(0.0)。 */
+        fun micGainDbToGain(db: Float): Float =
+            if (!db.isFinite() || db <= MIC_GAIN_DB_MIN) 0.0f else dbToGain(db)
+
+        // --- 捕獲音量(dB)。 ---
+        const val CAPTURE_GAIN_DB_MIN = -12.0f
+        const val CAPTURE_GAIN_DB_MAX = 12.0f
+        const val DEFAULT_CAPTURE_GAIN_DB = 0.0f
+
+        // --- マイク経路の走査幅(ms)。聴感ヒアリング用のプリセット。 ---
+        // FloatArray は contains/indexOf を持たない(浮動小数の等値比較を意図的に外して
+        // いるため)。List<Float> にしておくと Collection の contains/indexOf がそのまま使える。
+        val SWEEP_PRESETS: List<Float> = listOf(5f, 9.5f, 15f, 20f, 30f, 40f, 60f)
+        val DEFAULT_MIC_SWEEP_MS = NativeEngine.MIC_SWEEP_MS_DEFAULT.toFloat()
 
         // --- テーマ ---
         const val THEME_SYSTEM = 0
@@ -100,6 +137,13 @@ data class Params(
         private const val KEY_PRESET2_R = "preset2_r"
         private const val KEY_PRESET3_L = "preset3_l"
         private const val KEY_PRESET3_R = "preset3_r"
+        private const val KEY_MIC_GAIN_DB = "mic_gain_db"
+        private const val KEY_CAPTURE_ENABLED = "capture_enabled"
+        private const val KEY_CAPTURE_GAIN_DB = "capture_gain_db"
+        private const val KEY_OUTPUT_DEVICE_ID = "output_device_id"
+        private const val KEY_INPUT_DEVICE_ID = "input_device_id"
+        private const val KEY_OUTPUT_USAGE = "output_usage"
+        private const val KEY_MIC_SWEEP_MS = "mic_sweep_ms"
 
         fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -121,6 +165,13 @@ data class Params(
                 preset2R = p.getInt(KEY_PRESET2_R, PRESET_UNSET),
                 preset3L = p.getInt(KEY_PRESET3_L, PRESET_UNSET),
                 preset3R = p.getInt(KEY_PRESET3_R, PRESET_UNSET),
+                micGainDb = p.getFloat(KEY_MIC_GAIN_DB, DEFAULT_MIC_GAIN_DB),
+                captureEnabled = p.getBoolean(KEY_CAPTURE_ENABLED, false),
+                captureGainDb = p.getFloat(KEY_CAPTURE_GAIN_DB, DEFAULT_CAPTURE_GAIN_DB),
+                outputDeviceId = p.getInt(KEY_OUTPUT_DEVICE_ID, NativeEngine.DEVICE_AUTO),
+                inputDeviceId = p.getInt(KEY_INPUT_DEVICE_ID, NativeEngine.DEVICE_AUTO),
+                outputUsage = p.getInt(KEY_OUTPUT_USAGE, NativeEngine.USAGE_MEDIA),
+                micSweepMs = p.getFloat(KEY_MIC_SWEEP_MS, DEFAULT_MIC_SWEEP_MS),
             ).sanitized()
         }
 
@@ -142,6 +193,10 @@ data class Params(
         private fun Params.sanitized(): Params {
             val step = if (STEP_PRESETS.contains(stepCents)) stepCents else DEFAULT_STEP_CENTS
             val theme = if (themeMode in THEME_SYSTEM..THEME_DARK) themeMode else THEME_SYSTEM
+            val sweep = if (SWEEP_PRESETS.contains(micSweepMs)) micSweepMs else DEFAULT_MIC_SWEEP_MS
+            val usage = if (outputUsage == NativeEngine.USAGE_MEDIA ||
+                outputUsage == NativeEngine.USAGE_ACCESSIBILITY
+            ) outputUsage else NativeEngine.USAGE_MEDIA
             return copy(
                 shiftCentsL = shiftCentsL.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
                 shiftCentsR = shiftCentsR.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
@@ -153,6 +208,16 @@ data class Params(
                     outputGainDb.coerceIn(OUTPUT_GAIN_DB_MIN, OUTPUT_GAIN_DB_MAX)
                 else DEFAULT_OUTPUT_GAIN_DB,
                 themeMode = theme,
+                micGainDb = if (micGainDb.isFinite())
+                    micGainDb.coerceIn(MIC_GAIN_DB_MIN, MIC_GAIN_DB_MAX)
+                else DEFAULT_MIC_GAIN_DB,
+                captureGainDb = if (captureGainDb.isFinite())
+                    captureGainDb.coerceIn(CAPTURE_GAIN_DB_MIN, CAPTURE_GAIN_DB_MAX)
+                else DEFAULT_CAPTURE_GAIN_DB,
+                outputDeviceId = if (outputDeviceId >= 0) outputDeviceId else NativeEngine.DEVICE_AUTO,
+                inputDeviceId = if (inputDeviceId >= 0) inputDeviceId else NativeEngine.DEVICE_AUTO,
+                outputUsage = usage,
+                micSweepMs = sweep,
             ).let {
                 val (p1l, p1r) = sanitizePresetPair(preset1L, preset1R)
                 val (p2l, p2r) = sanitizePresetPair(preset2L, preset2R)
@@ -182,6 +247,13 @@ data class Params(
             .putInt(KEY_PRESET2_R, preset2R)
             .putInt(KEY_PRESET3_L, preset3L)
             .putInt(KEY_PRESET3_R, preset3R)
+            .putFloat(KEY_MIC_GAIN_DB, micGainDb)
+            .putBoolean(KEY_CAPTURE_ENABLED, captureEnabled)
+            .putFloat(KEY_CAPTURE_GAIN_DB, captureGainDb)
+            .putInt(KEY_OUTPUT_DEVICE_ID, outputDeviceId)
+            .putInt(KEY_INPUT_DEVICE_ID, inputDeviceId)
+            .putInt(KEY_OUTPUT_USAGE, outputUsage)
+            .putFloat(KEY_MIC_SWEEP_MS, micSweepMs)
             .apply()
     }
 
@@ -219,12 +291,33 @@ data class Params(
         else -> copy(preset3L = shiftL, preset3R = shiftR)
     }
 
-    /** エンジンへ一括反映する。動作中に呼んでよい(内部は atomic)。 */
+    /**
+     * エンジンへ一括反映する。動作中に呼んでよい(内部は atomic)。
+     * ただし [outputDeviceId] / [inputDeviceId] / [outputUsage] / [micSweepMs] は
+     * 呼んでも即時には効かず、**次の `start()` から**反映される([requiresRestart] 参照)。
+     */
     fun applyTo(engine: NativeEngine) {
         engine.setShiftCents(NativeEngine.CHANNEL_LEFT, shiftCentsL.toFloat())
         engine.setShiftCents(NativeEngine.CHANNEL_RIGHT, effectiveRight.toFloat())
         engine.setDryWet(dryWet)
         engine.setCrossfadeMs(crossfadeMs.toFloat())
         engine.setOutputGain(dbToGain(outputGainDb))
+        engine.setMicGain(micGainDbToGain(micGainDb))
+        engine.setCaptureEnabled(captureEnabled)
+        engine.setCaptureGain(dbToGain(captureGainDb))
+        engine.setOutputDeviceId(outputDeviceId)
+        engine.setInputDeviceId(inputDeviceId)
+        engine.setOutputUsage(outputUsage)
+        engine.setMicSweepMs(micSweepMs.toDouble())
     }
+
+    /**
+     * この設定と比べて、動作中に変えた場合に Service の stop → start が要る項目
+     * (デバイス指定 / 出力用途 / マイク走査幅)のいずれかが違うか。
+     */
+    fun requiresRestart(other: Params): Boolean =
+        outputDeviceId != other.outputDeviceId ||
+            inputDeviceId != other.inputDeviceId ||
+            outputUsage != other.outputUsage ||
+            micSweepMs != other.micSweepMs
 }

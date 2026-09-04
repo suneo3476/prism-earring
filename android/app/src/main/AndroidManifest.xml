@@ -7,9 +7,10 @@
     <!-- 画面を消しても処理を続けるための前景サービス。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Android 14 以降、foregroundServiceType ごとに個別の権限宣言が要る。
-         microphone + mediaPlayback を宣言しているので両方を挙げる。 -->
+         microphone + mediaPlayback + mediaProjection(v0.4.0、捕獲有効時のみ実際に使う)を挙げる。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Android 13 以降は通知も実行時許可。拒否されても処理自体は動く。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -43,6 +44,6 @@
         <service
             android:name=".PrismService"
             android:exported="false"
-            android:foregroundServiceType="microphone|mediaPlayback" />
+            android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
     </application>
 </manifest>

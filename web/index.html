@@ -84,13 +84,15 @@
         </div>
         <fieldset class="segfields">
             <legend class="sr-only">プリセットを選択</legend>
-            <div class="segmented seg-3">
+            <div class="segmented seg-4">
                 <input class="seg-input" id="preFast" type="radio" name="preset" value="20">
                 <label class="seg" for="preFast">反応優先</label>
                 <input class="seg-input" id="preStd" type="radio" name="preset" value="50" checked>
                 <label class="seg" for="preStd">標準</label>
                 <input class="seg-input" id="preHifi" type="radio" name="preset" value="100">
                 <label class="seg" for="preHifi">音質優先</label>
+                <input class="seg-input" id="preMax" type="radio" name="preset" value="200">
+                <label class="seg" for="preMax">最大</label>
             </div>
         </fieldset>
     </section>
@@ -226,7 +228,7 @@
                                 data-target="xfade" data-delta="-1"
                                 aria-label="窓長を 1 ミリ秒短くする">−</button>
                         <input class="minislider" id="xfade" type="range"
-                               min="10" max="100" step="1" value="50">
+                               min="10" max="200" step="1" value="50">
                         <button class="ministep" type="button"
                                 data-target="xfade" data-delta="1"
                                 aria-label="窓長を 1 ミリ秒長くする">+</button>
@@ -347,6 +349,7 @@
     <section data-key="xfade" data-title="窓長">
         <p>音のつなぎ目の長さです。短くすると音の変わりかたに速くついていき、長くするとうねりやにじみが減って滑らかになります。</p>
         <p><strong>遅れの大きさはこの値では変わりません。</strong>この装置の遅れは窓長によらず一定(処理部でおよそ 5 ミリ秒)で、窓長が変えるのは音の滑らかさだけです。</p>
+        <p>既定の −89 セントでは、つなぎ目の間隔が約 190 ミリ秒おきに来るため、200 ミリ秒付近まで伸ばすと常にどちらかのつなぎ目にかかり続ける状態になります。</p>
         <p>迷ったら「標準」(50 ミリ秒)のままにしてください。</p>
     </section>
     <section data-key="source" data-title="入力ソース">
@@ -356,7 +359,7 @@
         <p>動かしている間は切り替えられません。いったん停止してから選び直してください。</p>
     </section>
     <section data-key="preset" data-title="プリセット">
-        <p>窓長をよく使う 3 つの値にまとめて切り替えます。「反応優先」で 20、「標準」で 50、「音質優先」で 100 ミリ秒になります。</p>
+        <p>窓長をよく使う 4 つの値にまとめて切り替えます。「反応優先」で 20、「標準」で 50、「音質優先」で 100、「最大」で 200 ミリ秒になります。</p>
         <p><strong>どれを選んでも遅れの大きさは変わりません。</strong>変わるのは音の滑らかさだけです。</p>
         <p>まず「標準」で聞いてみて、うねりやにじみが気になるなら「音質優先」を、音の変化への追従が遅く感じるなら「反応優先」を試してください。</p>
         <p>いずれの値にも当てはまらないときは、どのボタンも選ばれていない見た目になります。</p>

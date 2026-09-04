@@ -22,9 +22,11 @@ import android.util.Log
  * ForegroundService にする。Activity は bind して状態を読むだけで、
  * エンジンの所有者はこの Service。
  *
- * foregroundServiceType は microphone + mediaPlayback。マイクを開き、かつ
- * 音を鳴らし続けるので両方に該当する(片方だけの宣言だと Android 14 以降で
- * ForegroundServiceTypeException になりうる)。
+ * foregroundServiceType は microphone + mediaPlayback + mediaProjection。マイクを開き、
+ * 音を鳴らし続け、v0.4.0 からは他アプリの再生音も捕獲しうるので 3 つとも該当する
+ * (宣言に無い型だと Android 14 以降で ForegroundServiceTypeException になりうる)。
+ * 実際に startForeground() へ渡す型は [Params.captureEnabled] に応じて動的に絞る
+ * ([startForegroundCompat] 参照)。
  */
 class PrismService : Service() {
 
@@ -35,6 +37,8 @@ class PrismService : Service() {
         val latency: NativeEngine.Latency = NativeEngine.Latency(0.0, 0.0, 0.0, 0.0, false),
         val info: NativeEngine.StreamInfo = NativeEngine.StreamInfo(0, 0, 0, 0, 0, 0, false, false),
         val error: String = "",
+        /** 他アプリの音を実際に捕獲中(MediaProjection 取得済み・録音スレッド稼働中)か。 */
+        val captureActive: Boolean = false,
     )
 
     fun interface StateListener {
@@ -52,6 +56,9 @@ class PrismService : Service() {
     private var params: Params = Params()
     private var listener: StateListener? = null
     private var polling = false
+
+    /** 他アプリの音を拾う(AudioPlaybackCapture)係。null なら捕獲していない。 */
+    private var captureController: CaptureController? = null
 
     @Volatile
     var state: State = State()
@@ -146,12 +153,93 @@ class PrismService : Service() {
     }
 
     fun stopProcessing() {
+        teardownCaptureRuntime()
         engine?.stop()
         stopPolling()
         state = state.copy(running = false, synced = false)
         stopForegroundCompat()
         publishState()
     }
+
+    // ---- 捕獲(他アプリの再生音)----------------------------------------------
+    // AudioPlaybackCapture は Oboe に無いため Java 側(AudioRecord)で完結させる。
+    // 実体は CaptureController。ここは start/stop を呼ぶだけ。
+    //
+    // [Params.captureEnabled] を触るのは [startCapture] / [stopCapture](ユーザーの
+    // 明示的な意図)だけ。エンジン全体の停止([stopProcessing] 経由の
+    // [teardownCaptureRuntime])や外部からの取り消しでは、次回開始時に同じ設定で
+    // 再同意を求められるよう、この設定値自体はそのまま残す。
+
+    /** 実行中の捕獲(コントローラ + エンジン側フラグ)を畳む。[Params.captureEnabled] は変えない。 */
+    private fun teardownCaptureRuntime() {
+        captureController?.stop()
+        captureController = null
+        engine?.setCaptureEnabled(false)
+    }
+
+    /**
+     * 捕獲を開始する。[resultCode] / [data] は
+     * `MediaProjectionManager.createScreenCaptureIntent()` の同意結果。
+     * エンジンが動作中でなければ失敗する(捕獲用ストリームのサンプルレートが決まらないため)。
+     * 成功したら [Params.captureEnabled] を true にして保存する。
+     */
+    fun startCapture(resultCode: Int, data: Intent): Boolean {
+        val e = engine
+        if (e == null || !e.isRunning()) return false
+        teardownCaptureRuntime()
+
+        params = params.copy(captureEnabled = true)
+        params.save(this)
+
+        // Android 14 以降は、getMediaProjection の **前** に mediaProjection 型を
+        // 含めて前景化し直す必要がある(順序を逆にすると SecurityException)。
+        // 起動直後の startProcessing() 経由ならここは型の変化なし(既に含めて呼ばれている)、
+        // 動作中に捕獲だけを ON にした場合はここで初めて型が追加される。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                startForegroundCompat()
+            } catch (t: Throwable) {
+                Log.e(TAG, "捕獲用の前景化に失敗", t)
+                state = state.copy(error = "捕獲を開始できません: ${t.message}")
+                publishState()
+                return false
+            }
+        }
+
+        e.setCaptureEnabled(true)
+        val controller = CaptureController(
+            context = this,
+            engine = e,
+            onError = { message ->
+                handler.post {
+                    state = state.copy(error = message)
+                    listener?.onState(state)
+                }
+            },
+            onProjectionStopped = {
+                handler.post {
+                    teardownCaptureRuntime()
+                    publishState()
+                }
+            },
+        )
+        captureController = controller
+        controller.start(resultCode, data)
+        publishState()
+        return true
+    }
+
+    /** ユーザーが明示的に捕獲を止める。[Params.captureEnabled] も false にして保存する。 */
+    fun stopCapture() {
+        teardownCaptureRuntime()
+        if (params.captureEnabled) {
+            params = params.copy(captureEnabled = false)
+            params.save(this)
+        }
+        publishState()
+    }
+
+    fun isCapturing(): Boolean = captureController?.isActive == true
 
     // ---- パラメータ ---------------------------------------------------------
 
@@ -192,6 +280,7 @@ class PrismService : Service() {
                 synced = e.isSynced(),
                 latency = e.latency(),
                 info = e.streamInfo(),
+                captureActive = captureController?.isActive == true,
             )
         }
         listener?.onState(state)
@@ -246,15 +335,20 @@ class PrismService : Service() {
             .build()
     }
 
+    /**
+     * Android 14 以降は、`getMediaProjection` を呼ぶ **前** に mediaProjection 型で
+     * 前景化しておく必要がある(順序を逆にすると SecurityException)。捕獲が無効な
+     * ときは従来どおり microphone + mediaPlayback の 2 型だけで前景化する。
+     */
     private fun startForegroundCompat() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            if (params.captureEnabled) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            startForeground(NOTIFICATION_ID, notification, types)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }

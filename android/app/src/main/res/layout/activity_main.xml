@@ -3,10 +3,11 @@
   構成:
     1. ヘッダ(ロゴ + 状態ピル)                — 上端の inset をここで吸収する
     2. 状態カード(使い方 / 動作中メッセージ)
-    3. なめらかさプリセット 3 分割
+    3. なめらかさプリセット 4 分割(20 / 50 / 100 / 200 ms)
     4. 主役カード(巨大な数値 / 太いスライダ / 72dp の −+ / 刻み幅切替 4 分割 / 既定に戻す / L·R 独立)
     5. 音量カード(スライダ + −/+ + dB 表示)
-    6. 折りたたみの詳細設定(Dry/Wet / なめらかさ / テーマ / 注意事項 / 診断)
+    5b. 音源カード(v0.4.0。マイク音量 / 他アプリの音を拾う + 音量 / 出力先・入力元)
+    6. 折りたたみの詳細設定(Dry/Wet / なめらかさ / 走査幅 / 出力用途 / テーマ / 注意事項 / 診断)
     7. 固定フッタの開始・停止              — 下端の inset をここで吸収する
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -168,6 +169,12 @@
                     style="@style/SegmentItem"
                     android:layout_marginStart="8dp"
                     android:text="@string/preset_100" />
+
+                <TextView
+                    android:id="@+id/preset3"
+                    style="@style/SegmentItem"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/preset_200" />
             </LinearLayout>
 
             <!-- ============ 4. 主役カード ============ -->
@@ -663,6 +670,216 @@
                     style="@style/SubLabel" />
             </LinearLayout>
 
+            <!-- ============ 5b. 音源カード(v0.4.0) ============ -->
+            <LinearLayout
+                android:id="@+id/sourceCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/source_card_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <!-- — マイク -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/mic_gain_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/micGainInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/mic_gain_label"
+                        android:src="@drawable/ic_info" />
+
+                    <TextView
+                        android:id="@+id/micGainValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="+0 dB"
+                        android:textColor="@color/muted"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/micGainDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_mic_gain_down"
+                        android:src="@drawable/ic_remove" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/micGainSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/desc_mic_gain_slider"
+                        android:value="0"
+                        android:valueFrom="-30"
+                        android:valueTo="12" />
+
+                    <ImageView
+                        android:id="@+id/micGainUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_mic_gain_up"
+                        android:src="@drawable/ic_add" />
+                </LinearLayout>
+
+                <!-- — 他アプリの音を拾う -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/capture_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/captureInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/capture_label"
+                        android:src="@drawable/ic_info" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/captureSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        app:thumbTint="@color/fg"
+                        app:trackTint="@color/track" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/captureGainDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_capture_gain_down"
+                        android:src="@drawable/ic_remove" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/captureGainSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/desc_capture_gain_slider"
+                        android:value="0"
+                        android:valueFrom="-12"
+                        android:valueTo="12" />
+
+                    <ImageView
+                        android:id="@+id/captureGainUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_capture_gain_up"
+                        android:src="@drawable/ic_add" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/captureStatusText"
+                    style="@style/SubLabel"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/capture_status_stopped" />
+
+                <!-- — 出力先 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/output_device_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/outputDeviceInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/output_device_label"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
+
+                <Spinner
+                    android:id="@+id/outputDeviceSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="4dp"
+                    android:contentDescription="@string/output_device_label" />
+
+                <!-- — 入力元 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/input_device_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/inputDeviceInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/input_device_label"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
+
+                <Spinner
+                    android:id="@+id/inputDeviceSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="4dp"
+                    android:contentDescription="@string/input_device_label" />
+            </LinearLayout>
+
             <!-- ============ 6. 詳細設定(折りたたみ) ============ -->
             <LinearLayout
                 android:id="@+id/advToggle"
@@ -819,7 +1036,7 @@
                         android:contentDescription="@string/crossfade_label"
                         android:value="50"
                         android:valueFrom="10"
-                        android:valueTo="100" />
+                        android:valueTo="200" />
 
                     <ImageView
                         android:id="@+id/crossfadeUp"
@@ -832,6 +1049,81 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/crossfade_sub_label"
+                    style="@style/SubLabel" />
+
+                <!-- 走査幅(マイク経路。聴感ヒアリング用) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/sweep_label"
+                        android:textColor="@color/fg"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/sweepInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/sweep_label"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
+
+                <Spinner
+                    android:id="@+id/sweepSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="4dp"
+                    android:contentDescription="@string/sweep_label" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sweep_sub_label"
+                    style="@style/SubLabel" />
+
+                <!-- 出力用途(実験) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/output_usage_label"
+                        android:textColor="@color/fg"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/outputUsageInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/output_usage_label"
+                        android:src="@drawable/ic_info" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/outputUsageSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        app:thumbTint="@color/fg"
+                        app:trackTint="@color/track" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/output_usage_sub_label"
                     style="@style/SubLabel" />
 
                 <!-- テーマ -->

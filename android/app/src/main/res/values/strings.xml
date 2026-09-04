@@ -22,8 +22,9 @@
     <string name="preset_20">20 ms</string>
     <string name="preset_50">50 ms</string>
     <string name="preset_100">100 ms</string>
+    <string name="preset_200">200 ms</string>
     <string name="info_presets_title">なめらかさプリセット</string>
-    <string name="info_presets_body">反応優先(20ms)/ 標準(50ms)/ 音質優先(100ms)の 3 段階から選べます。反応優先は声の動きに素早く追従しますが、ざらつきが出やすくなります。音質優先はなめらかですが、動きへの追従が少し遅れます。迷ったら標準のままで問題ありません。</string>
+    <string name="info_presets_body">反応優先(20ms)/ 標準(50ms)/ 音質優先(100ms)/ 最大(200ms)の 4 段階から選べます。反応優先は声の動きに素早く追従しますが、ざらつきが出やすくなります。数値が大きいほどなめらかになりますが、動きへの追従が遅れます。既定値 −89 セントでは跳躍間隔が約 190ms のため、200ms 付近まで伸ばすと常に片方からもう片方へつなぎ続ける状態になります。迷ったら標準のままで問題ありません。</string>
 
     <!-- 主役カード: 音の高さ -->
     <string name="shift_title">音の高さ</string>
@@ -119,7 +120,68 @@
     <string name="info_drywet_title">原音まぜ(Dry/Wet)</string>
     <string name="info_drywet_body">0 で元の音そのまま、1 で変換した音だけになります。間の値では両方をまぜて聞こえます。</string>
     <string name="info_crossfade_title">なめらかさ(窓長)</string>
-    <string name="info_crossfade_body">音のつなぎ方の長さです。短いと反応が速いですが、ざらつきやうねりが出やすくなります。長いとなめらかですが、音のにじみが増えます。遅延には影響しません。</string>
+    <string name="info_crossfade_body">音のつなぎ方の長さです。短いと反応が速いですが、ざらつきやうねりが出やすくなります。長いとなめらかですが、音のにじみが増えます。遅延には影響しません。既定値 −89 セントでは、走査幅から決まる跳躍間隔が約 190ms のため、窓長をその付近(200ms)まで伸ばすと常に片方の読み出しヘッドからもう片方へクロスフェードし続ける状態になります。</string>
+
+    <!-- 音源カード(v0.4.0) -->
+    <string name="source_card_title">音源</string>
+
+    <string name="mic_gain_label">マイク</string>
+    <string name="mic_gain_off">OFF</string>
+    <string name="desc_mic_gain_slider">マイク音量(dB)</string>
+    <string name="desc_mic_gain_down">マイク音量を 1dB 下げる</string>
+    <string name="desc_mic_gain_up">マイク音量を 1dB 上げる</string>
+    <string name="info_mic_gain_title">マイク</string>
+    <string name="info_mic_gain_body">この端末のマイクが拾う音の大きさです。スライダを一番左まで下げると「OFF」になり、マイクの音が完全に無音になります(捕獲音だけを聴きたいときに使います)。</string>
+
+    <string name="capture_label">他アプリの音を拾う</string>
+    <string name="desc_capture_gain_slider">他アプリの音の音量(dB)</string>
+    <string name="desc_capture_gain_down">他アプリの音の音量を 1dB 下げる</string>
+    <string name="desc_capture_gain_up">他アプリの音の音量を 1dB 上げる</string>
+    <string name="info_capture_title">他アプリの音を拾う</string>
+    <string name="info_capture_body">ON にすると、他のアプリが再生している音(YouTube や音楽アプリなど)も、マイクの音と同じようにピッチシフトして混ぜます。ON にした状態で開始すると、画面の共有を許可する確認画面が出ます(録画はされません)。\n\n原音がそのまま二重に聞こえないようにする使い方: 原音を「ダミーの Bluetooth イヤホン」に流し、このアプリの出力先には有線(USB)イヤホンを選んでください。こうすると、耳には変換した音だけが届きます。\n\nDRM 付きの音声(一部の動画配信など)や、キャプチャを拒否する設定のアプリの音は拾えません。捕獲した音には生音の漏れ込みが無いため、走査幅は「詳細設定」で別に広めの値に固定されています。</string>
+    <string name="capture_status_with_gain">%1$s ・ %2$+.0f dB</string>
+    <string name="capture_status_stopped">停止中</string>
+    <string name="capture_status_waiting">同意待ち…</string>
+    <string name="capture_status_capturing">捕獲中</string>
+    <string name="capture_status_silence">捕獲中(他アプリが音を出していません)</string>
+    <string name="capture_denied_hint">他アプリの音を拾う許可が得られなかったため、マイクのみで開始しました。</string>
+    <string name="capture_error_engine_not_running">捕獲を開始できません(エンジン未起動)</string>
+    <string name="capture_error_buffer">捕獲用の録音バッファを確保できません</string>
+    <string name="capture_error_open">捕獲用の AudioRecord を初期化できません</string>
+    <string name="capture_error_generic">他アプリの音を拾えませんでした: %1$s</string>
+    <string name="restart_capture_consent_hint">設定を反映するため再起動します。他アプリの音を拾う設定が ON のため、同意画面が再び表示されます。</string>
+
+    <!-- 出力先 / 入力元 -->
+    <string name="output_device_label">出力先</string>
+    <string name="input_device_label">入力元</string>
+    <string name="device_auto">自動</string>
+    <string name="info_output_device_title">出力先</string>
+    <string name="info_output_device_body">音を出すデバイスを指定します。「自動」では OS が選んだデバイス(通常はいま挿さっているイヤホン)が使われます。指定したデバイスで開けなかった場合は自動で開き直し、診断欄に「フォールバック」と表示します。抜き差しすると一覧は自動で更新されます。</string>
+    <string name="info_input_device_title">入力元</string>
+    <string name="info_input_device_body">マイクとして使うデバイスを指定します。「自動」では OS が選んだデバイス(通常は本体マイク)が使われます。指定したデバイスで開けなかった場合は自動で開き直し、診断欄に「フォールバック」と表示します。</string>
+    <string name="device_type_usb_headset">USB ヘッドセット</string>
+    <string name="device_type_usb_device">USB オーディオ</string>
+    <string name="device_type_wired_headset">有線ヘッドセット</string>
+    <string name="device_type_wired_headphones">有線イヤホン</string>
+    <string name="device_type_bluetooth">Bluetooth</string>
+    <string name="device_type_speaker">本体スピーカー</string>
+    <string name="device_type_builtin_mic">本体マイク</string>
+    <string name="device_type_earpiece">受話口</string>
+    <string name="device_type_other">その他のデバイス</string>
+    <string name="device_fallback_yes">フォールバック</string>
+    <string name="device_fallback_no">指定どおり</string>
+
+    <!-- 走査幅(マイク経路) -->
+    <string name="sweep_label">走査幅(マイク経路)</string>
+    <string name="sweep_sub_label">短い ← → 長い(聴感ヒアリング用)</string>
+    <string name="info_sweep_title">走査幅(マイク経路)</string>
+    <string name="info_sweep_body">ディレイラインの読み出しヘッドが往復する幅です。大きいほど跳躍(つなぎ目)の間隔が広がって歪みが減りますが、その分だけ遅延が増えます(設計値遅延 ≈ 8 サンプル + 走査幅の半分)。既定は 9.5ms で、往復遅延 10ms 以下の目標に収まる値です。数値を大きくして聴感を確かめたいときに使ってください(捕獲音の走査幅には影響しません。捕獲音は生音の漏れ込みが無いため別枠で広めに固定されています)。</string>
+
+    <!-- 出力用途(実験) -->
+    <string name="output_usage_label">出力をユーザー補助の音量系統に載せる(実験)</string>
+    <string name="output_usage_sub_label">端末の音量キーがこの用途の音量に切り替わります</string>
+    <string name="info_output_usage_title">出力用途(実験)</string>
+    <string name="info_output_usage_body">ON にすると、このアプリの出力がメディア音量ではなく「ユーザー補助」の音量系統で鳴ります。メディア音量をミュートしても本アプリの音だけを鳴らせるかを試す実験的な設定です。ON のあいだ、端末の音量キーはメディア音量ではなくユーザー補助音量を操作します。変更は次の開始から反映されます。</string>
 
     <!-- テーマ -->
     <string name="theme_title">テーマ</string>
@@ -134,9 +196,11 @@
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
     <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
     <string name="diag_placeholder">診断: --</string>
-    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回</string>
+    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms</string>
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
+    <string name="usage_media_short">メディア</string>
+    <string name="usage_accessibility_short">ユーザー補助</string>
 
     <!-- 情報ボタン -->
     <string name="info_button_desc_format">%1$s について説明を表示する</string>
