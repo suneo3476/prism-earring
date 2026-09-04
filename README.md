@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/assets/logo.svg" alt="prism earring" width="480">
+  <img src="web/assets/logo-horizontal.svg" alt="prism earring" width="640">
 </p>
 
 # prism — DSP コア + オフライン数値検証
@@ -142,3 +142,40 @@ Bolt B1(`u1-dsp-core`)と B2(`u2-verification`)の成果物。
   実時間経路(B3 の AudioWorklet)は `NDEBUG` 付きでビルドすること。
 - `prepare` / `reset` は音声スレッド停止中、または音声スレッド自身から呼ぶこと
   (`prepared_`・バッファ・ヘッド状態はスレッド間で保護されない)。
+
+## アセット一覧
+
+ロゴは 1 つの作図(耳飾りの金具から吊るされたカツオ / 左から入る白色光 / 尾から広がる六色)を
+用途ごとの座標系へ組み替えたもの。SVG が原本で、PNG は headless Chrome からの書き出し。
+
+| ファイル | 寸法 | 用途 |
+|---|---|---|
+| `web/assets/logo.svg` | 640×320 (2:1) | 原本。ワードマークを下端中央に置いた縦長寄りの構図。アプリのヘッダで使用 |
+| `web/assets/logo-horizontal.svg` | 960×240 (4:1) | 左にアイコン部・右にワードマークの横並び。README 先頭やページヘッダ向け |
+| `web/assets/banner-wide.svg` | 1200×630 | OG / SNS カードの原本。虹を右半分いっぱいに伸ばし、右下にワードマーク |
+| `web/assets/icon.svg` | 512×512 | 角丸(r=96)の黒プレート。ファビコン・通常アイコンの原本 |
+| `web/assets/icon-maskable.svg` | 512×512 | Android maskable 用。背景は角丸なしの黒全面、図柄は中央の安全円(直径 80%)内 |
+| `web/assets/icon-foreground.svg` | 512×512 | Android アダプティブアイコンの前景層。背景透過、図柄は安全円(直径 66%)内。黒の背景層と重ねて使う |
+| `web/favicon.svg` | — | ブラウザタブ用 |
+| `web/assets/icon-192.png` | 192×192 | manifest `purpose: any` |
+| `web/assets/icon-512.png` | 512×512 | manifest `purpose: any`。インストール時のスプラッシュ |
+| `web/assets/icon-maskable-512.png` | 512×512 | manifest `purpose: maskable`。ホーム画面でシステム側が任意の形に切り抜く |
+| `web/assets/apple-touch-icon-180.png` | 180×180 | iOS ホーム画面。角丸は OS が付けるため四隅まで黒で塗る |
+| `web/assets/og-1200x630.png` | 1200×630 | `og:image` / `twitter:image`。絶対 URL で参照する |
+| `web/manifest.webmanifest` | — | PWA マニフェスト。`start_url` / `scope` は `./`(GitHub Pages のサブパス配信のため) |
+
+### PNG の作り直し
+
+SVG を直すと PNG は自動では追随しない。書き出しは headless Chrome で行う
+(`<img>` を実寸で置いた薄いラッパー HTML を撮る)。
+
+```sh
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+"$CHROME" --headless=new --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=1 --default-background-color=00000000 \
+  --window-size=512,512 --screenshot=out.png file:///path/to/wrapper.html
+```
+
+macOS では幅 500px 未満のウィンドウが丸められるため、192 / 180 は 512 で撮ってから
+`sips -z 192 192 in.png --out out.png` で縮小する。
+`apple-touch-icon-180.png` だけはラッパーの背景を `#000000` にして四隅の透過を潰す。

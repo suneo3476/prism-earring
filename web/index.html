@@ -16,6 +16,36 @@
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>prism — PrismEarring</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon-180.png">
+
+<!-- PWA: GitHub Pages のサブパス配信のため、manifest / icons の参照はすべて ./ 始まりの相対パス。
+     CSP の manifest-src は default-src 'self' にフォールバックするので追加指定は不要。 -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prism">
+<meta name="application-name" content="Prism">
+
+<!-- OGP / Twitter カード。og:image はクローラが解決できるよう絶対 URL で書く。 -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PrismEarring">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="prism — PrismEarring">
+<meta property="og:description" content="マイクで拾った外界の音をリアルタイムに約 -89 セントピッチシフトして聴くためのデモ。">
+<meta property="og:url" content="https://suneo3476.github.io/prism-earring/">
+<meta property="og:image" content="https://suneo3476.github.io/prism-earring/assets/og-1200x630.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="黒地に、耳飾りの金具から吊るされたカツオ。左から入った白い光が体内を通り、尾から六色の光が扇状に広がる。">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="prism — PrismEarring">
+<meta name="twitter:description" content="マイクで拾った外界の音をリアルタイムに約 -89 セントピッチシフトして聴くためのデモ。">
+<meta name="twitter:image" content="https://suneo3476.github.io/prism-earring/assets/og-1200x630.png">
+
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
