@@ -7127,3 +7127,61 @@
 **Session**: 654f7c99-9b96-52a9-b016-43612697d881
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-04T07:43:33Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T07:47:49Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T07:53:42Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T07:55:32Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T08:00:08Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T08:10:00Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-04T08:31:17Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: general-purpose
+**Agent ID**: a2aa39b6d4c8d0fe0
+**Message**: All builds and checks are green. Summary of the work:\n\n## 変更ファイル\n- `dsp/include/prism/PitchShifter.h` — 走査幅のパラメータ化、`kCrossfadeMsMax` 100→200、`runLimit` 撤廃\n- `verify/verify.cpp` — sw40 / cf200 の検査追加\n- 
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T08:31:17Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
