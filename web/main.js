@@ -52,6 +52,7 @@ const PROCESSOR_NAME = 'prism-processor';
 
 const el = {
     status: document.getElementById('status'),
+    statusPill: document.getElementById('statusPill'),
     toggle: document.getElementById('toggle'),
     controls: document.getElementById('controls'),
     sourceSection: document.getElementById('source'),
@@ -63,7 +64,8 @@ const el = {
     shiftR: document.getElementById('shiftR'),
     shiftLOut: document.getElementById('shiftLOut'),
     shiftROut: document.getElementById('shiftROut'),
-    link: document.getElementById('link'),
+    split: document.getElementById('split'),
+    advParams: document.getElementById('advParams'),
     dryWet: document.getElementById('dryWet'),
     dryWetOut: document.getElementById('dryWetOut'),
     xfade: document.getElementById('xfade'),
@@ -77,15 +79,19 @@ const el = {
     srcMic: document.getElementById('srcMic'),
     srcTab: document.getElementById('srcTab'),
     tabNote: document.getElementById('tabNote'),
-    // スライダ横の微調整ボタン。data-target / data-delta をマークアップから読む
-    stepButtons: Array.from(document.querySelectorAll('.step'))
+    // 連動時にラベルから L を落とす対象(下記 renderSplit を参照)
+    stepLDown: document.getElementById('stepLDown'),
+    stepLUp: document.getElementById('stepLUp'),
+    // スライダ両脇の − / + ボタン。data-target / data-delta をマークアップから読む
+    stepButtons: Array.from(document.querySelectorAll('.bigstep, .ministep'))
 };
 
 /* ---------------------------- UIState ---------------------------- */
 
 const ui = {
     state: State.STOPPED,
-    linkLR: el.link.checked,
+    /** L/R 連動。既定は連動(「左右を別々に設定」スイッチが OFF)。 */
+    linkLR: !el.split.checked,
     /** 現在選択中の入力ソース(Source のいずれか)。 */
     source: Source.MIC,
     /** getDisplayMedia が使えるか。スマホの Chrome は非対応なのでタブ音声を出せない。 */
@@ -112,10 +118,10 @@ const audio = {
 /* -------------------------- 表示・描画 -------------------------- */
 
 const STATUS_TEXT = {
-    [State.STOPPED]: '状態: 停止中',
-    [State.RUNNING]: '状態: 動作中',
-    [State.DENIED]: '状態: マイクが許可されていません',
-    [State.UNSUPPORTED]: '状態: 非対応ブラウザ'
+    [State.STOPPED]: '停止中',
+    [State.RUNNING]: '動作中',
+    [State.DENIED]: 'マイク不許可',
+    [State.UNSUPPORTED]: '非対応'
 };
 
 const TOGGLE_TEXT = {
@@ -127,6 +133,8 @@ const TOGGLE_TEXT = {
 
 function render() {
     el.status.textContent = STATUS_TEXT[ui.state];
+    // ピルは色でも状態を示す(CSS の [data-state] が拾う)
+    el.statusPill.dataset.state = ui.state;
     el.toggle.textContent = TOGGLE_TEXT[ui.state];
     el.toggle.disabled = ui.state === State.UNSUPPORTED;
     // 文言だけでなく色でも状態が分かるようにする(CSS の [data-state] が拾う)
@@ -134,7 +142,8 @@ function render() {
 
     const controlsEnabled = ui.state === State.RUNNING;
     el.controls.setAttribute('aria-disabled', String(!controlsEnabled));
-    for (const input of [el.shiftL, el.shiftR, el.link, el.dryWet, el.xfade]) {
+    el.advParams.setAttribute('aria-disabled', String(!controlsEnabled));
+    for (const input of [el.shiftL, el.shiftR, el.split, el.dryWet, el.xfade]) {
         input.disabled = !controlsEnabled;
     }
     for (const button of el.stepButtons) {
@@ -280,10 +289,30 @@ function pushAllParams() {
 }
 
 function updateOutputs() {
-    el.shiftLOut.textContent = `${el.shiftL.value} cent`;
-    el.shiftROut.textContent = `${el.shiftR.value} cent`;
+    // 単位はマークアップ側の「セント」が担うので、ここは数値だけを出す
+    el.shiftLOut.textContent = el.shiftL.value;
+    el.shiftROut.textContent = el.shiftR.value;
     el.dryWetOut.textContent = Number(el.dryWet.value).toFixed(2);
     el.xfadeOut.textContent = `${el.xfade.value} ms`;
+}
+
+/**
+ * L/R 独立の ON/OFF を画面へ反映する。表示の切り替えは CSS が
+ * .hero[data-split] を見て行う。連動中は L 側のラベルから「L」を落とし、
+ * 「シフト量」1 本として読み上げられるようにする。
+ */
+function renderSplit() {
+    const split = el.split.checked;
+    el.controls.dataset.split = split ? 'on' : 'off';
+    el.shiftL.setAttribute('aria-label', split ? 'シフト量 L(セント)' : 'シフト量(セント)');
+    el.stepLDown.setAttribute(
+        'aria-label',
+        split ? 'シフト量 L を 1 セント下げる' : 'シフト量を 1 セント下げる'
+    );
+    el.stepLUp.setAttribute(
+        'aria-label',
+        split ? 'シフト量 L を 1 セント上げる' : 'シフト量を 1 セント上げる'
+    );
 }
 
 /* -------------------- Worklet メッセージ受信 -------------------- */
@@ -783,10 +812,12 @@ el.shiftR.addEventListener('input', () => {
     updateOutputs();
 });
 
-el.link.addEventListener('change', () => {
-    ui.linkLR = el.link.checked;
+el.split.addEventListener('change', () => {
+    // スイッチは「別々に設定」。ON = 独立、OFF = 連動。
+    ui.linkLR = !el.split.checked;
+    renderSplit();
     if (ui.linkLR) {
-        // 連動 ON にした瞬間に L の値へ揃える
+        // 連動へ戻した瞬間に R を L の値へ揃える
         el.shiftR.value = el.shiftL.value;
         postParam(PARAM_SHIFT_CENTS_R, Number(el.shiftR.value));
         updateOutputs();
@@ -830,17 +861,86 @@ function nudge(input, delta) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-for (const button of el.stepButtons) {
-    button.addEventListener('click', () => {
-        const input = document.getElementById(button.dataset.target);
-        const delta = Number(button.dataset.delta);
-        if (!input || !Number.isFinite(delta)) {
-            // マークアップ側の指定漏れ。黙って無視せず開発者に見えるようにする
-            console.error('prism: 微調整ボタンの data-target / data-delta が不正です', button);
+/** 長押しの判定時間と、連続変化の間隔。 */
+const HOLD_DELAY_MS = 400;
+const HOLD_INTERVAL_MS = 150;
+
+/**
+ * − / + ボタンを 1 個ぶん結線する。
+ * タップ/クリックで 1 ステップ、押しっぱなしで 150ms ごとに連続変化する。
+ * ポインタ操作は pointerdown で処理し、続く click は握りつぶす
+ * (キーボードの Enter / Space は pointerdown を伴わないので click 側が拾う)。
+ */
+function bindStepButton(button) {
+    const input = document.getElementById(button.dataset.target);
+    const delta = Number(button.dataset.delta);
+    if (!input || !Number.isFinite(delta)) {
+        // マークアップ側の指定漏れ。黙って無視せず開発者に見えるようにする
+        console.error('prism: 微調整ボタンの data-target / data-delta が不正です', button);
+        return;
+    }
+
+    let holdTimer = null;
+    let repeatTimer = null;
+    let fromPointer = false;
+
+    function stopRepeat() {
+        if (holdTimer !== null) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+        }
+        if (repeatTimer !== null) {
+            clearInterval(repeatTimer);
+            repeatTimer = null;
+        }
+    }
+
+    button.addEventListener('pointerdown', (event) => {
+        if (button.disabled || (event.pointerType === 'mouse' && event.button !== 0)) {
             return;
         }
+        fromPointer = true;
+        stopRepeat();
         nudge(input, delta);
+        // 指を離す前にボタン外へ動いても pointerup を受け取れるようにする
+        if (typeof button.setPointerCapture === 'function') {
+            try {
+                button.setPointerCapture(event.pointerId);
+            } catch {
+                // 捕捉できない環境(古い実装)では pointercancel / pointerleave で止める
+            }
+        }
+        holdTimer = setTimeout(() => {
+            holdTimer = null;
+            repeatTimer = setInterval(() => {
+                if (button.disabled) {
+                    stopRepeat();
+                    return;
+                }
+                nudge(input, delta);
+            }, HOLD_INTERVAL_MS);
+        }, HOLD_DELAY_MS);
     });
+
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+        button.addEventListener(type, stopRepeat);
+    }
+    window.addEventListener('blur', stopRepeat);
+
+    button.addEventListener('click', () => {
+        if (fromPointer) {
+            fromPointer = false;    // pointerdown で処理済み
+            return;
+        }
+        if (button.disabled) {
+            return;
+        }
+        nudge(input, delta);        // キーボード操作
+    });
+}
+
+for (const button of el.stepButtons) {
+    bindStepButton(button);
 }
 
 window.addEventListener('pagehide', () => {
@@ -872,6 +972,7 @@ function detectTabSupport() {
 
 function init() {
     updateOutputs();
+    renderSplit();
     detectTabSupport();
     ui.source = selectedSource();
     renderSource();

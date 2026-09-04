@@ -2,147 +2,177 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<!-- モバイルファースト。viewport-fit=cover でノッチ/ジェスチャバー領域まで塗り、
+<!-- スマホアプリとして設計する。viewport-fit=cover でノッチ/ジェスチャバー領域まで塗り、
      安全域は CSS の env(safe-area-inset-*) で確保する。 -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
 <!-- SR-2.2: 外部オリジンへの接続を宣言的に遮断する。
      connect-src は 'self' —— 同一オリジンの prism.wasm を fetch するため('none' だと
      WASM を取得できず JS フォールバックに落ちる)。外部オリジンは引き続き不許可。
      script-src の 'wasm-unsafe-eval' は WebAssembly のコンパイルに必要。 -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
-<title>prism — PrismEarring demo</title>
+<title>prism — PrismEarring</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-<main class="app">
-    <header class="app-header">
-        <!-- ロゴが「prism earring」を担うので、見出しは用途(demo)だけを名乗る。 -->
-        <div class="brand">
-            <img class="brand-logo" src="./assets/logo.svg" alt="prism earring" width="640" height="320">
-            <h1>PrismEarring demo</h1>
-        </div>
-        <p class="note">※イヤホン推奨(スピーカーはハウリングします)</p>
-    </header>
 
-    <!-- 状態表示は 1 か所に集約する。長文の案内は details に畳む。 -->
-    <section class="panel" aria-label="状態">
-        <p class="status" id="status" role="status" aria-live="polite">状態: 停止中</p>
-        <p class="metric"><span class="metric-label">往復遅延</span><span class="metric-value" id="latTotal">-- ms</span></p>
-        <details class="disclosure">
-            <summary>詳細と注意事項</summary>
-            <div class="disclosure-body">
-                <p class="breakdown">
-                    内訳: 出力 <span id="latOut">--</span>
-                    / ブロック <span id="latBlock">--</span>
-                    / DSP <span id="latDsp">--</span>
-                </p>
-                <p class="breakdown" id="engine">engine: --</p>
+<!-- 1. ヘッダ(56px)。ロゴと状態ピルだけ。 -->
+<header class="hdr">
+    <img class="hdr-logo" src="./assets/logo.svg" alt="prism earring" width="640" height="320">
+    <div class="pill" id="statusPill" data-state="stopped">
+        <span class="pill-dot" aria-hidden="true"></span>
+        <span class="pill-text" id="status" role="status" aria-live="polite">停止中</span>
+        <span class="pill-lat" id="latTotal">-- ms</span>
+    </div>
+</header>
+
+<main class="app">
+
+    <div id="error" hidden role="alert"></div>
+
+    <!-- 2. メイン: シフト量。この画面の主役。 -->
+    <section class="hero" id="controls" data-split="off" aria-label="シフト量">
+
+        <div class="chan" id="chanL">
+            <div class="chan-readout">
+                <span class="chan-tag" aria-hidden="true">L</span>
+                <output class="chan-num" id="shiftLOut" for="shiftL">-89</output>
+                <span class="chan-unit">セント</span>
+            </div>
+            <div class="chan-row">
+                <button class="bigstep" id="stepLDown" type="button"
+                        data-target="shiftL" data-delta="-1"
+                        aria-label="シフト量を 1 セント下げる">−</button>
+                <input class="bigslider" id="shiftL" type="range"
+                       min="-150" max="0" step="1" value="-89"
+                       aria-label="シフト量(セント)">
+                <button class="bigstep" id="stepLUp" type="button"
+                        data-target="shiftL" data-delta="1"
+                        aria-label="シフト量を 1 セント上げる">+</button>
+            </div>
+        </div>
+
+        <div class="chan" id="chanR">
+            <div class="chan-readout">
+                <span class="chan-tag" aria-hidden="true">R</span>
+                <output class="chan-num" id="shiftROut" for="shiftR">-89</output>
+                <span class="chan-unit">セント</span>
+            </div>
+            <div class="chan-row">
+                <button class="bigstep" type="button"
+                        data-target="shiftR" data-delta="-1"
+                        aria-label="シフト量 R を 1 セント下げる">−</button>
+                <input class="bigslider" id="shiftR" type="range"
+                       min="-150" max="0" step="1" value="-89"
+                       aria-label="シフト量 R(セント)">
+                <button class="bigstep" type="button"
+                        data-target="shiftR" data-delta="1"
+                        aria-label="シフト量 R を 1 セント上げる">+</button>
+            </div>
+        </div>
+
+        <label class="sw" for="split">
+            <span class="sw-text">左右を別々に設定</span>
+            <input id="split" type="checkbox">
+            <span class="sw-track" aria-hidden="true"><span class="sw-thumb"></span></span>
+        </label>
+
+    </section>
+
+    <!-- 3. 詳細設定。既定は閉じたまま。 -->
+    <details class="adv" id="adv">
+        <summary class="adv-sum">詳細設定</summary>
+        <div class="adv-body">
+
+            <div class="advparams" id="advParams">
+                <div class="mini">
+                    <div class="mini-head">
+                        <label class="mini-label" for="dryWet">Dry/Wet</label>
+                        <output class="mini-val" id="dryWetOut" for="dryWet">1.00</output>
+                    </div>
+                    <div class="mini-row">
+                        <button class="ministep" type="button"
+                                data-target="dryWet" data-delta="-0.05"
+                                aria-label="Dry/Wet を 0.05 下げる">−</button>
+                        <input class="minislider" id="dryWet" type="range"
+                               min="0" max="1" step="0.01" value="1">
+                        <button class="ministep" type="button"
+                                data-target="dryWet" data-delta="0.05"
+                                aria-label="Dry/Wet を 0.05 上げる">+</button>
+                    </div>
+                </div>
+
+                <div class="mini">
+                    <div class="mini-head">
+                        <label class="mini-label" for="xfade">窓長</label>
+                        <output class="mini-val" id="xfadeOut" for="xfade">50 ms</output>
+                    </div>
+                    <div class="mini-row">
+                        <button class="ministep" type="button"
+                                data-target="xfade" data-delta="-1"
+                                aria-label="窓長を 1 ミリ秒短くする">−</button>
+                        <input class="minislider" id="xfade" type="range"
+                               min="10" max="100" step="1" value="50">
+                        <button class="ministep" type="button"
+                                data-target="xfade" data-delta="1"
+                                aria-label="窓長を 1 ミリ秒長くする">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <section id="source" aria-label="入力ソース">
+                <h2 class="adv-title">入力</h2>
+                <fieldset id="sourceFields">
+                    <legend class="sr-only">入力ソースを選択</legend>
+                    <div class="segmented">
+                        <input class="seg-input" id="srcMic" type="radio" name="inputSource" value="mic" checked>
+                        <label class="seg" for="srcMic">マイク</label>
+                        <input class="seg-input" id="srcTab" type="radio" name="inputSource" value="tab">
+                        <label class="seg" for="srcTab">タブ音声</label>
+                        <input class="seg-input" id="srcFile" type="radio" name="inputSource" value="file">
+                        <label class="seg" for="srcFile">ファイル</label>
+                    </div>
+                </fieldset>
+                <p class="hint" id="tabNote" hidden></p>
+                <div class="filerow" id="fileRow" hidden>
+                    <label class="mini-label" for="audioFile">音声ファイル</label>
+                    <input id="audioFile" type="file" accept="audio/*">
+                </div>
+                <p class="hint" id="sourceHint" aria-live="polite"></p>
+            </section>
+
+            <div class="notes">
+                <h2 class="adv-title">注意事項</h2>
+                <p class="fine">※イヤホンを使ってください。スピーカーではハウリングします。</p>
                 <p class="fine">
                     音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
                     マイク・タブ音声・音声ファイルのいずれも、開始を押したときだけ読み込みます。
                 </p>
-                <p class="fine">
-                    パラメータは動作中のみ操作できます。スライダは指でドラッグ、
-                    細かい調整は各行の − / + ボタンを使ってください。
-                </p>
+                <p class="fine">パラメータは動作中のみ操作できます。</p>
                 <p class="fine">
                     スマートフォンではタブ音声の共有(getDisplayMedia)を使えません。
                     マイクか音声ファイルを選んでください。
                 </p>
+                <p class="fine">
+                    遅延内訳: 出力 <span id="latOut">--</span>
+                    / ブロック <span id="latBlock">--</span>
+                    / DSP <span id="latDsp">--</span>
+                </p>
+                <p class="fine" id="engine">engine: --</p>
             </div>
-        </details>
-    </section>
 
-    <div id="error" hidden role="alert"></div>
-
-    <section id="source" aria-label="入力ソース">
-        <h2 class="section-title">入力</h2>
-        <fieldset id="sourceFields">
-            <legend class="sr-only">入力ソースを選択</legend>
-            <div class="segmented">
-                <input class="seg-input" id="srcMic" type="radio" name="inputSource" value="mic" checked>
-                <label class="seg" for="srcMic">マイク</label>
-                <input class="seg-input" id="srcTab" type="radio" name="inputSource" value="tab">
-                <label class="seg" for="srcTab">タブ音声</label>
-                <input class="seg-input" id="srcFile" type="radio" name="inputSource" value="file">
-                <label class="seg" for="srcFile">ファイル</label>
-            </div>
-        </fieldset>
-        <p class="hint" id="tabNote" hidden></p>
-        <div class="filerow" id="fileRow" hidden>
-            <label class="control-label" for="audioFile">音声ファイル</label>
-            <input id="audioFile" type="file" accept="audio/*">
         </div>
-        <p class="hint" id="sourceHint" aria-live="polite"></p>
-    </section>
+    </details>
 
-    <section id="controls" aria-label="パラメータ">
-        <h2 class="section-title">パラメータ</h2>
-
-        <div class="control">
-            <div class="control-head">
-                <label class="control-label" for="shiftL">シフト量 L</label>
-                <output class="control-value" id="shiftLOut" for="shiftL">-89 cent</output>
-                <div class="stepper">
-                    <button class="step" type="button" data-target="shiftL" data-delta="-1" aria-label="シフト量 L を 1 セント下げる">−</button>
-                    <button class="step" type="button" data-target="shiftL" data-delta="1" aria-label="シフト量 L を 1 セント上げる">+</button>
-                </div>
-            </div>
-            <input class="slider" id="shiftL" type="range" min="-150" max="0" step="1" value="-89">
-        </div>
-
-        <div class="control">
-            <div class="control-head">
-                <label class="control-label" for="shiftR">シフト量 R</label>
-                <output class="control-value" id="shiftROut" for="shiftR">-89 cent</output>
-                <div class="stepper">
-                    <button class="step" type="button" data-target="shiftR" data-delta="-1" aria-label="シフト量 R を 1 セント下げる">−</button>
-                    <button class="step" type="button" data-target="shiftR" data-delta="1" aria-label="シフト量 R を 1 セント上げる">+</button>
-                </div>
-            </div>
-            <input class="slider" id="shiftR" type="range" min="-150" max="0" step="1" value="-89">
-        </div>
-
-        <div class="control control-switch">
-            <label class="switch" for="link">
-                <span class="switch-text">左右連動</span>
-                <input id="link" type="checkbox" checked>
-                <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-            </label>
-        </div>
-
-        <div class="control">
-            <div class="control-head">
-                <label class="control-label" for="dryWet">Dry/Wet</label>
-                <output class="control-value" id="dryWetOut" for="dryWet">1.00</output>
-                <div class="stepper">
-                    <button class="step" type="button" data-target="dryWet" data-delta="-0.05" aria-label="Dry/Wet を 0.05 下げる">−</button>
-                    <button class="step" type="button" data-target="dryWet" data-delta="0.05" aria-label="Dry/Wet を 0.05 上げる">+</button>
-                </div>
-            </div>
-            <input class="slider" id="dryWet" type="range" min="0" max="1" step="0.01" value="1">
-        </div>
-
-        <div class="control">
-            <div class="control-head">
-                <label class="control-label" for="xfade">窓長</label>
-                <output class="control-value" id="xfadeOut" for="xfade">50 ms</output>
-                <div class="stepper">
-                    <button class="step" type="button" data-target="xfade" data-delta="-1" aria-label="窓長を 1 ミリ秒短くする">−</button>
-                    <button class="step" type="button" data-target="xfade" data-delta="1" aria-label="窓長を 1 ミリ秒長くする">+</button>
-                </div>
-            </div>
-            <input class="slider" id="xfade" type="range" min="10" max="100" step="1" value="50">
-        </div>
-    </section>
-
-    <div class="actionbar">
-        <button id="toggle" type="button" data-state="stopped">▶ 開始</button>
-    </div>
 </main>
+
+<!-- 4. フッタ固定: 開始/停止。 -->
+<div class="dock">
+    <button id="toggle" type="button" data-state="stopped">▶ 開始</button>
+</div>
+
 <script type="module" src="./main.js"></script>
 </body>
 </html>
