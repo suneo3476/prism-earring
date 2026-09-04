@@ -15,8 +15,9 @@
     --bg: #0b0f14;
     --card: #161c24;
     --card-2: #1e2732;
-    --fg: #f3f4f6;
-    --muted: #9aa4b2;
+    --fg: #f8fafc;          /* 主役の数値。--card に対し 15.6:1 */
+    --muted: #cbd5e1;       /* ラベル・補足。--card-2 に対し 9.9:1 */
+    --muted-2: #9aa4b2;     /* 装飾のみ(文字に使わない) */
     --line: #2b3441;
     --primary: #3b82f6;
     --primary-fg: #ffffff;
@@ -106,6 +107,50 @@ body {
     border-radius: 6px;
 }
 
+/* ロゴの右。QR ボタンと状態ピルを右詰めで並べる。 */
+.hdr-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* アイコンだけのボタン。48x48(タップ目標の下限を満たす)。 */
+.iconbtn {
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--card-2);
+    color: var(--fg);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.iconbtn:active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-fg);
+}
+
+.iconbtn-svg {
+    width: 26px;
+    height: 26px;
+    fill: currentColor;
+}
+
+.iconbtn:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+}
+
 /* 状態ピル。色(灰/緑)と文言の両方で状態を示す。 */
 .pill {
     flex: 0 1 auto;
@@ -129,7 +174,7 @@ body {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: var(--muted);
+    background: var(--muted-2);
 }
 
 .pill-text {
@@ -187,7 +232,89 @@ body {
                      - var(--dock-h) - var(--dock-pad) * 2 - var(--safe-b) - 8px);
 }
 
-/* ------------------------ 2. メイン: シフト量 ------------------------ */
+/* --------------------- 見出し行と情報ボタン ⓘ --------------------- */
+
+/* 「項目名 + ⓘ」の 1 行。ⓘ は見出しの直後に置き、行の残りは空ける。 */
+.rowhead {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.rowhead-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 44x44。見た目の丸は 24px だが当たり判定は 44px 確保する。 */
+.infobtn {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.infobtn-glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 2px solid currentColor;
+    border-radius: 50%;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    font-weight: 700;
+    font-style: italic;
+    line-height: 1;
+}
+
+.infobtn:active {
+    color: var(--primary-fg);
+    background: var(--primary);
+}
+
+.infobtn:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 0;
+}
+
+/* --------------------------- 2. プリセット --------------------------- */
+
+.presets {
+    flex: 0 0 auto;
+    min-width: 0;
+    margin-bottom: 12px;
+}
+
+/* fieldset の既定の枠と余白を消す。 */
+.segfields {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+/* ------------------------ 3. メイン: シフト量 ------------------------ */
 
 .hero {
     /* 主役なので、ヘッダとフッタを除いた縦の余りはこのカードが吸う。
@@ -195,7 +322,6 @@ body {
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    justify-content: center;
     gap: 16px;
     min-height: min(40vh, 340px);
     margin-bottom: 12px;
@@ -205,12 +331,34 @@ body {
     border-radius: 20px;
 }
 
-.hero[aria-disabled="true"] {
+/* 停止中でも数値・見出し・範囲切替は読めるままにし、動かせない行だけ淡くする。 */
+.hero[aria-disabled="true"] .chan-row,
+.hero[aria-disabled="true"] .sw-track {
     opacity: 0.55;
+}
+
+/* 見出しはカードの上端。数値〜スイッチの塊は残りの余白の中央に置く
+   (上下の auto マージンが余りを均等に食う)。 */
+.hero > .rowhead {
+    flex: 0 0 auto;
+    margin-bottom: -8px;
+}
+
+.hero > #chanL {
+    margin-top: auto;
+}
+
+.hero > .swrow {
+    margin-bottom: auto;
 }
 
 .chan {
     min-width: 0;
+}
+
+/* 値の符号(+ / − / ±)。数値と同じ大きさで前置きする。 */
+.chan-num {
+    white-space: nowrap;
 }
 
 /* 巨大な数値表示。L/R 独立時だけ L / R のタグが出る。 */
@@ -423,7 +571,16 @@ body {
 
 /* ------------------------ 左右を別々に設定 ------------------------ */
 
+/* ⓘ は <label> の外に置く。label 内に button があるとタップが二重に効く。 */
+.swrow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
 .sw {
+    flex: 1 1 auto;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -556,6 +713,16 @@ body {
     border-top: 1px solid var(--line);
 }
 
+/* 詳細設定内の見出し行。見出しの上下余白は行そのものへ移し、
+   ⓘ が 44px 高いぶんで行が間延びしないようにする。 */
+.adv-body .rowhead {
+    margin: 16px 0 4px;
+}
+
+.adv-body .rowhead .adv-title {
+    margin: 0;
+}
+
 .adv-title {
     margin: 20px 0 10px;
     font-size: 13px;
@@ -564,7 +731,7 @@ body {
     letter-spacing: 0.06em;
 }
 
-.advparams[aria-disabled="true"] {
+.advparams[aria-disabled="true"] .mini-row {
     opacity: 0.55;
 }
 
@@ -575,21 +742,24 @@ body {
 
 .mini-head {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    align-items: center;
+    gap: 4px;
     min-width: 0;
 }
 
 .mini-label {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     font-size: 16px;
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .mini-val {
     flex: 0 0 auto;
+    margin-left: auto;
     font-size: 20px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
@@ -655,9 +825,18 @@ body {
 .segmented {
     position: relative;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     min-width: 0;
+}
+
+.seg-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 4 分割は 360px でも 1 行に収める。ラベルは 2 段組にして幅を稼ぐ。 */
+.seg-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
 }
 
 /* ラジオ本体は視覚的に隠すがフォーカスは受ける。 */
@@ -683,11 +862,37 @@ body {
     font-size: 15px;
     font-weight: 700;
     text-align: center;
+    line-height: 1.2;
     cursor: pointer;
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
+}
+
+.seg-2line {
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+}
+
+.seg-2line .seg-name {
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.seg-2line .seg-sub {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 選択中は下段も本文色にする(親の色を継がせない指定を上書きする)。 */
+.seg-input:checked + .seg .seg-sub {
+    color: var(--primary-fg);
 }
 
 .seg-input:checked + .seg {
@@ -745,13 +950,13 @@ body {
     display: none;
 }
 
-.notes .fine {
+.fine {
     margin: 0 0 8px;
     color: var(--muted);
     font-size: 14px;
 }
 
-.notes .fine span {
+.fine span {
     font-variant-numeric: tabular-nums;
 }
 
@@ -834,4 +1039,193 @@ body {
 #error p {
     margin: 4px 0;
     font-size: 14px;
+}
+
+/* ------------------- 6-7. QR モーダル / 説明シート ------------------- */
+
+/* モーダルを開いている間は背後をスクロールさせない。 */
+body.is-locked {
+    overflow: hidden;
+}
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+}
+
+.overlay[hidden] {
+    display: none;
+}
+
+.overlay-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.overlay-panel {
+    position: relative;
+    z-index: 1;
+    width: min(var(--app-w), 100%);
+    max-width: 100%;
+    min-width: 0;
+    margin: 0 auto;
+    background: var(--bg);
+}
+
+.overlay-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+    text-align: center;
+}
+
+.overlay-lead {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+    text-align: center;
+}
+
+.overlay-close {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 72px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    background: var(--primary);
+    color: var(--primary-fg);
+    font: inherit;
+    font-size: 20px;
+    font-weight: 800;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.overlay-close:focus-visible,
+.overlay-panel:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* --- QR: 全画面 --- */
+
+#qrModal {
+    align-items: stretch;
+}
+
+.qr-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    min-height: 100%;
+    padding: calc(env(safe-area-inset-top, 0px) + 20px) var(--pad-x)
+             calc(var(--safe-b) + 20px);
+    overflow-y: auto;
+}
+
+/* QR は白地でないと読み取り精度が落ちる。SVG 側でも白の下地を描く。 */
+.qr-frame {
+    flex: 0 0 auto;
+    width: min(300px, 74vw);
+    aspect-ratio: 1 / 1;
+    background: #ffffff;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.qr-frame svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.qr-url {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--card);
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.6;
+    text-align: center;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
+
+.qr-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: center;
+}
+
+.qr-note[hidden] {
+    display: none;
+}
+
+.qr-panel .overlay-close {
+    margin-top: 4px;
+}
+
+/* --- 説明: 下から出るシート --- */
+
+.sheet {
+    align-items: flex-end;
+}
+
+.sheet-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 88vh;
+    max-height: 88dvh;
+    background: var(--card);
+    padding: 20px var(--pad-x) calc(var(--safe-b) + 20px);
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 24px 24px 0 0;
+    overflow-y: auto;
+    animation: sheet-rise 0.18s ease-out;
+}
+
+@keyframes sheet-rise {
+    from { transform: translateY(16px); }
+    to   { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sheet-panel {
+        animation: none;
+    }
+}
+
+.sheet-body p {
+    margin: 0 0 12px;
+    font-size: 16px;
+    line-height: 1.7;
+}
+
+.sheet-body p:last-child {
+    margin-bottom: 0;
+}
+
+.sheet-body strong {
+    font-weight: 800;
+}
+
+.sheet-close {
+    flex: 0 0 auto;
+    height: 56px;
+    font-size: 18px;
 }

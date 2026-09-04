@@ -8,6 +8,8 @@
  * refined-mockups(mockups.md, interaction-spec.md, accessibility-checklist.md)
  */
 
+import { encodeQr, toSvgPathData } from './qr.js';
+
 /* ------------------------------ 定数 ------------------------------ */
 
 /** パラメータ ID(契約 2 / 契約 3 で共通)。 */
@@ -44,6 +46,23 @@ const RENDER_QUANTUM = 128;
 /** Worklet の ready / error を待つ上限。無反応で固まらせない。 */
 const READY_TIMEOUT_MS = 8000;
 
+/**
+ * プリセットが設定する窓長(ms)。dry_wet は触らない。
+ * 遅延はディレイライン長で決まり窓長に依存しない(処理部で約 5ms 固定)ので、
+ * ここで変わるのは音の滑らかさ(うねり・にじみ)だけ。説明文もそう書いてある。
+ */
+const PRESET_XFADE_MS = [20, 50, 100];
+
+/** シフト量スライダーの範囲(セント)。既定は微調整の ±150。 */
+const DEFAULT_RANGE_CENTS = 150;
+
+/** ±1200 の範囲では −/+ の刻みを 10 セントにする(1 セントでは遠すぎる)。 */
+const COARSE_RANGE_CENTS = 1200;
+const COARSE_STEP_CENTS = 10;
+
+/** モーダル内でフォーカスを回す対象。 */
+const FOCUSABLE = 'button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
 const WORKLET_URL = './prism-worklet.js';
 const WASM_URL = './prism.wasm';
 const PROCESSOR_NAME = 'prism-processor';
@@ -79,11 +98,37 @@ const el = {
     srcMic: document.getElementById('srcMic'),
     srcTab: document.getElementById('srcTab'),
     tabNote: document.getElementById('tabNote'),
-    // 連動時にラベルから L を落とす対象(下記 renderSplit を参照)
+    // 連動時にラベルから L を落とす対象(下記 renderShiftLabels を参照)
     stepLDown: document.getElementById('stepLDown'),
     stepLUp: document.getElementById('stepLUp'),
+    stepRDown: document.getElementById('stepRDown'),
+    stepRUp: document.getElementById('stepRUp'),
     // スライダ両脇の − / + ボタン。data-target / data-delta をマークアップから読む
-    stepButtons: Array.from(document.querySelectorAll('.bigstep, .ministep'))
+    stepButtons: Array.from(document.querySelectorAll('.bigstep, .ministep')),
+    // シフト量側だけ。範囲切替で刻み(data-delta)を書き換える対象
+    shiftStepButtons: Array.from(document.querySelectorAll('.bigstep')),
+
+    // プリセット / 範囲切替
+    presetRadios: Array.from(document.querySelectorAll('input[name="preset"]')),
+    rangeRadios: Array.from(document.querySelectorAll('input[name="shiftRange"]')),
+
+    // 説明シートと QR モーダル
+    hdr: document.getElementById('hdr'),
+    appMain: document.getElementById('app'),
+    dock: document.getElementById('dock'),
+    infoButtons: Array.from(document.querySelectorAll('.infobtn')),
+    infoTexts: document.getElementById('infoTexts'),
+    infoSheet: document.getElementById('infoSheet'),
+    infoTitle: document.getElementById('infoTitle'),
+    infoBody: document.getElementById('infoBody'),
+    infoClose: document.getElementById('infoClose'),
+    qrBtn: document.getElementById('qrBtn'),
+    qrModal: document.getElementById('qrModal'),
+    qrFrame: document.getElementById('qrFrame'),
+    qrUrl: document.getElementById('qrUrl'),
+    qrNote: document.getElementById('qrNote'),
+    qrClose: document.getElementById('qrClose'),
+    scrims: Array.from(document.querySelectorAll('.overlay-scrim'))
 };
 
 /* ---------------------------- UIState ---------------------------- */
@@ -94,6 +139,12 @@ const ui = {
     linkLR: !el.split.checked,
     /** 現在選択中の入力ソース(Source のいずれか)。 */
     source: Source.MIC,
+    /** シフト量スライダーの範囲(±セント)。値はクランプせず min/max だけを動かす。 */
+    rangeCents: DEFAULT_RANGE_CENTS,
+    /** 開いているモーダル(null なら無し)。 */
+    overlay: null,
+    /** モーダルを開く直前のフォーカス位置。閉じたら必ずここへ戻す。 */
+    lastFocus: null,
     /** getDisplayMedia が使えるか。スマホの Chrome は非対応なのでタブ音声を出せない。 */
     tabSupported: true,
     /** 'wasm'(本番)/ 'js'(フォールバック)/ null(停止中)。契約 3 の ready・latency から。 */
@@ -288,31 +339,83 @@ function pushAllParams() {
     postParam(PARAM_CROSSFADE_MS, Number(el.xfade.value));
 }
 
+/**
+ * シフト量を符号付きで書式化する。プラス側も設定できるので、
+ * 符号を必ず添えて「下げているのか上げているのか」を一目で分かるようにする。
+ * ちょうど 0 は「±0」(単なる 0 だと符号の欠落と紛らわしい)。
+ * 記号は U+2212 MINUS SIGN。読み上げでも「マイナス」と読まれる。
+ */
+function formatCents(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+        return '--';
+    }
+    if (n === 0) {
+        return '\u00b10';
+    }
+    return (n > 0 ? '+' : '\u2212') + Math.abs(n);
+}
+
 function updateOutputs() {
     // 単位はマークアップ側の「セント」が担うので、ここは数値だけを出す
-    el.shiftLOut.textContent = el.shiftL.value;
-    el.shiftROut.textContent = el.shiftR.value;
+    el.shiftLOut.textContent = formatCents(el.shiftL.value);
+    el.shiftROut.textContent = formatCents(el.shiftR.value);
     el.dryWetOut.textContent = Number(el.dryWet.value).toFixed(2);
     el.xfadeOut.textContent = `${el.xfade.value} ms`;
 }
 
 /**
- * L/R 独立の ON/OFF を画面へ反映する。表示の切り替えは CSS が
+ * L/R 独立の ON/OFF と −/+ の刻みを画面へ反映する。表示の切り替えは CSS が
  * .hero[data-split] を見て行う。連動中は L 側のラベルから「L」を落とし、
- * 「シフト量」1 本として読み上げられるようにする。
+ * 「シフト量」1 本として読み上げられるようにする。刻みは範囲切替で変わるので、
+ * 読み上げラベルも実際の刻みに追随させる。
  */
-function renderSplit() {
+function renderShiftLabels() {
     const split = el.split.checked;
     el.controls.dataset.split = split ? 'on' : 'off';
-    el.shiftL.setAttribute('aria-label', split ? 'シフト量 L(セント)' : 'シフト量(セント)');
-    el.stepLDown.setAttribute(
-        'aria-label',
-        split ? 'シフト量 L を 1 セント下げる' : 'シフト量を 1 セント下げる'
-    );
-    el.stepLUp.setAttribute(
-        'aria-label',
-        split ? 'シフト量 L を 1 セント上げる' : 'シフト量を 1 セント上げる'
-    );
+    const step = Math.abs(Number(el.stepLUp.dataset.delta)) || 1;
+    const name = split ? 'シフト量 L' : 'シフト量';
+    el.shiftL.setAttribute('aria-label', `${name}(セント)`);
+    el.shiftR.setAttribute('aria-label', 'シフト量 R(セント)');
+    el.stepLDown.setAttribute('aria-label', `${name}を ${step} セント下げる`);
+    el.stepLUp.setAttribute('aria-label', `${name}を ${step} セント上げる`);
+    el.stepRDown.setAttribute('aria-label', `シフト量 R を ${step} セント下げる`);
+    el.stepRUp.setAttribute('aria-label', `シフト量 R を ${step} セント上げる`);
+}
+
+/**
+ * シフト量スライダーの可動範囲を切り替える。
+ * 現在値はクランプしない —— 範囲外にいるときは min/max のほうを現在値まで広げる
+ * (せっかく合わせ込んだ値を、表示の都合で勝手に動かさないため)。
+ * スライダの step は 1 のまま据え置く。step を 10 にすると min からの格子に
+ * 吸着して -89 が -90 に化けてしまうため、粗い刻みは −/+ ボタン側だけで表現する。
+ */
+function applyShiftRange(limit) {
+    ui.rangeCents = limit;
+    const values = [Number(el.shiftL.value), Number(el.shiftR.value)];
+    const min = Math.min(-limit, ...values);
+    const max = Math.max(limit, ...values);
+    for (const input of [el.shiftL, el.shiftR]) {
+        const keep = input.value;
+        input.min = String(min);
+        input.max = String(max);
+        input.value = keep;     // min/max 変更時のブラウザ側の丸めを打ち消す
+    }
+    const delta = limit >= COARSE_RANGE_CENTS ? COARSE_STEP_CENTS : 1;
+    for (const button of el.shiftStepButtons) {
+        const sign = Number(button.dataset.delta) < 0 ? -1 : 1;
+        button.dataset.delta = String(sign * delta);
+    }
+    renderShiftLabels();
+    updateOutputs();
+}
+
+/** 現在の窓長に一致するプリセットだけを選択状態にする(無ければ全て非選択)。 */
+function renderPreset() {
+    const current = Number(el.xfade.value);
+    for (const radio of el.presetRadios) {
+        radio.checked = Number(radio.value) === current;
+    }
 }
 
 /* -------------------- Worklet メッセージ受信 -------------------- */
@@ -815,7 +918,7 @@ el.shiftR.addEventListener('input', () => {
 el.split.addEventListener('change', () => {
     // スイッチは「別々に設定」。ON = 独立、OFF = 連動。
     ui.linkLR = !el.split.checked;
-    renderSplit();
+    renderShiftLabels();
     if (ui.linkLR) {
         // 連動へ戻した瞬間に R を L の値へ揃える
         el.shiftR.value = el.shiftL.value;
@@ -832,7 +935,41 @@ el.dryWet.addEventListener('input', () => {
 el.xfade.addEventListener('input', () => {
     postParam(PARAM_CROSSFADE_MS, Number(el.xfade.value));
     updateOutputs();
+    renderPreset();     // 手で動かしてプリセット値から外れたら非選択に戻す
 });
+
+/* --------------------- プリセット / 範囲切替 --------------------- */
+
+for (const radio of el.presetRadios) {
+    radio.addEventListener('change', () => {
+        if (!radio.checked) {
+            return;
+        }
+        const value = Number(radio.value);
+        if (!PRESET_XFADE_MS.includes(value)) {
+            console.error('prism: 未知のプリセット値です', radio.value);
+            return;
+        }
+        // 窓長だけを動かす。dry_wet は 1.0 のまま触らない。
+        el.xfade.value = String(value);
+        postParam(PARAM_CROSSFADE_MS, value);
+        updateOutputs();
+    });
+}
+
+for (const radio of el.rangeRadios) {
+    radio.addEventListener('change', () => {
+        if (!radio.checked) {
+            return;
+        }
+        const limit = Number(radio.value);
+        if (!Number.isFinite(limit) || limit <= 0) {
+            console.error('prism: 範囲切替の値が不正です', radio.value);
+            return;
+        }
+        applyShiftRange(limit);
+    });
+}
 
 /** step 属性の小数桁数。0.05 刻みの加算で浮動小数の端数が出るのを丸めるために使う。 */
 function decimalsOf(step) {
@@ -873,12 +1010,13 @@ const HOLD_INTERVAL_MS = 150;
  */
 function bindStepButton(button) {
     const input = document.getElementById(button.dataset.target);
-    const delta = Number(button.dataset.delta);
-    if (!input || !Number.isFinite(delta)) {
+    if (!input || !Number.isFinite(Number(button.dataset.delta))) {
         // マークアップ側の指定漏れ。黙って無視せず開発者に見えるようにする
         console.error('prism: 微調整ボタンの data-target / data-delta が不正です', button);
         return;
     }
+    // 範囲切替で data-delta が書き換わるので、束縛時ではなく押すたびに読む。
+    const delta = () => Number(button.dataset.delta);
 
     let holdTimer = null;
     let repeatTimer = null;
@@ -901,7 +1039,7 @@ function bindStepButton(button) {
         }
         fromPointer = true;
         stopRepeat();
-        nudge(input, delta);
+        nudge(input, delta());
         // 指を離す前にボタン外へ動いても pointerup を受け取れるようにする
         if (typeof button.setPointerCapture === 'function') {
             try {
@@ -917,7 +1055,7 @@ function bindStepButton(button) {
                     stopRepeat();
                     return;
                 }
-                nudge(input, delta);
+                nudge(input, delta());
             }, HOLD_INTERVAL_MS);
         }, HOLD_DELAY_MS);
     });
@@ -935,13 +1073,176 @@ function bindStepButton(button) {
         if (button.disabled) {
             return;
         }
-        nudge(input, delta);        // キーボード操作
+        nudge(input, delta());        // キーボード操作
     });
 }
 
 for (const button of el.stepButtons) {
     bindStepButton(button);
 }
+
+/* ------------------ モーダル(QR / 説明シート) ------------------ */
+
+/**
+ * モーダルを開く。背後は inert で操作不能にし、スクロールも止める。
+ * inert 非対応のブラウザ向けに、下の keydown で Tab も閉じ込める。
+ */
+function openOverlay(overlay) {
+    if (ui.overlay === overlay) {
+        return;
+    }
+    if (ui.overlay) {
+        closeOverlay();
+    }
+    ui.lastFocus = document.activeElement;
+    overlay.hidden = false;
+    document.body.classList.add('is-locked');
+    for (const node of [el.hdr, el.appMain, el.dock]) {
+        node.inert = true;
+    }
+    ui.overlay = overlay;
+    const close = overlay.querySelector('.overlay-close');
+    if (close) {
+        close.focus();
+    }
+}
+
+/** モーダルを閉じ、開く前のフォーカス位置へ必ず戻す(a11y チェックリスト 6)。 */
+function closeOverlay() {
+    const overlay = ui.overlay;
+    if (!overlay) {
+        return;
+    }
+    overlay.hidden = true;
+    ui.overlay = null;
+    document.body.classList.remove('is-locked');
+    for (const node of [el.hdr, el.appMain, el.dock]) {
+        node.inert = false;
+    }
+    const back = ui.lastFocus;
+    ui.lastFocus = null;
+    if (back && typeof back.focus === 'function' && document.contains(back)) {
+        back.focus();
+    }
+}
+
+document.addEventListener('keydown', (event) => {
+    if (!ui.overlay) {
+        return;
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeOverlay();
+        return;
+    }
+    if (event.key !== 'Tab') {
+        return;
+    }
+    const panel = ui.overlay.querySelector('.overlay-panel');
+    const items = Array.from(panel.querySelectorAll(FOCUSABLE)).filter((node) => !node.disabled);
+    if (items.length === 0) {
+        return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+});
+
+for (const scrim of el.scrims) {
+    scrim.addEventListener('click', closeOverlay);
+}
+el.infoClose.addEventListener('click', closeOverlay);
+el.qrClose.addEventListener('click', closeOverlay);
+
+/* ------------------------ 説明のボトムシート ------------------------ */
+
+/**
+ * data-info のキーに対応する説明を #infoTexts から複製して開く。
+ * 文面は index.html の <template> にまとめてあり、ここでは組み立てない。
+ */
+function showInfo(key) {
+    const source = el.infoTexts.content.querySelector(`[data-key="${key}"]`);
+    if (!source) {
+        // マークアップ側の指定漏れ。無言で開かないよりは開発者に見せる
+        console.error('prism: 説明文が見つかりません', key);
+        return;
+    }
+    el.infoTitle.textContent = source.dataset.title || '説明';
+    el.infoBody.replaceChildren(...Array.from(source.cloneNode(true).children));
+    openOverlay(el.infoSheet);
+}
+
+for (const button of el.infoButtons) {
+    button.addEventListener('click', () => {
+        showInfo(button.dataset.info);
+    });
+}
+
+/* --------------------------- QR コード --------------------------- */
+
+/** いま開いている画面の URL。ハッシュとクエリは落として素の場所だけを渡す。 */
+function shareUrl() {
+    const url = new URL(window.location.href);
+    url.hash = '';
+    url.search = '';
+    return url.href;
+}
+
+/**
+ * QR コードの SVG を組み立てる。エンコードは web/qr.js(自前実装・外部依存なし)。
+ * 白の下地を SVG 内に描くのは、読み取り機が明暗の比を見るため。
+ * ゆとり(quiet zone)4 モジュールは規格の要求。
+ */
+function buildQrSvg(text) {
+    const qr = encodeQr(text);          // バイトモード / 誤り訂正 M / 版とマスクは自動
+    const border = 4;
+    const span = qr.size + border * 2;
+    const NS = 'http://www.w3.org/2000/svg';
+
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('xmlns', NS);
+    svg.setAttribute('viewBox', `0 0 ${span} ${span}`);
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `${text} を開く QR コード`);
+
+    const background = document.createElementNS(NS, 'rect');
+    background.setAttribute('width', String(span));
+    background.setAttribute('height', String(span));
+    background.setAttribute('fill', '#ffffff');
+
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', toSvgPathData(qr.modules, border));
+    path.setAttribute('fill', '#000000');
+
+    svg.append(background, path);
+    return svg;
+}
+
+function openQr() {
+    const text = shareUrl();
+    el.qrUrl.textContent = text;
+    try {
+        el.qrFrame.replaceChildren(buildQrSvg(text));
+        el.qrNote.hidden = true;
+        el.qrNote.textContent = '';
+    } catch (err) {
+        // URL が長すぎる等。QR を出せなくても URL 文字列は読めるようにしておく。
+        el.qrFrame.replaceChildren();
+        el.qrNote.textContent = `QR コードを作れませんでした: ${err.message}`;
+        el.qrNote.hidden = false;
+        console.error('prism: QR コードの生成に失敗しました', err);
+    }
+    openOverlay(el.qrModal);
+}
+
+el.qrBtn.addEventListener('click', openQr);
 
 window.addEventListener('pagehide', () => {
     // タブを閉じる/離れるときにマイクを確実に解放する
@@ -971,8 +1272,8 @@ function detectTabSupport() {
 }
 
 function init() {
-    updateOutputs();
-    renderSplit();
+    applyShiftRange(DEFAULT_RANGE_CENTS);   // updateOutputs / renderShiftLabels も呼ばれる
+    renderPreset();
     detectTabSupport();
     ui.source = selectedSource();
     renderSource();

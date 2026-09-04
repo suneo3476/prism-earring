@@ -9,7 +9,9 @@
 <!-- SR-2.2: 外部オリジンへの接続を宣言的に遮断する。
      connect-src は 'self' —— 同一オリジンの prism.wasm を fetch するため('none' だと
      WASM を取得できず JS フォールバックに落ちる)。外部オリジンは引き続き不許可。
-     script-src の 'wasm-unsafe-eval' は WebAssembly のコンパイルに必要。 -->
+     script-src の 'wasm-unsafe-eval' は WebAssembly のコンパイルに必要。
+     QR コードは外部サービスを一切使わず web/qr.js で自前生成するので、
+     img-src / connect-src を緩める必要はない。 -->
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>prism — PrismEarring</title>
@@ -18,22 +20,61 @@
 </head>
 <body>
 
-<!-- 1. ヘッダ(56px)。ロゴと状態ピルだけ。 -->
-<header class="hdr">
+<!-- 1. ヘッダ(56px)。ロゴ・QR ボタン・状態ピルだけ。 -->
+<header class="hdr" id="hdr">
     <img class="hdr-logo" src="./assets/logo.svg" alt="prism earring" width="640" height="320">
-    <div class="pill" id="statusPill" data-state="stopped">
-        <span class="pill-dot" aria-hidden="true"></span>
-        <span class="pill-text" id="status" role="status" aria-live="polite">停止中</span>
-        <span class="pill-lat" id="latTotal">-- ms</span>
+    <div class="hdr-actions">
+        <button class="iconbtn" id="qrBtn" type="button"
+                aria-haspopup="dialog" aria-label="この画面を開く QR コードを表示">
+            <svg class="iconbtn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 3h7v7H3V3zm2 2v3h3V5H5zM14 3h7v7h-7V3zm2 2v3h3V5h-3zM3 14h7v7H3v-7zm2 2v3h3v-3H5z"></path>
+                <path d="M14 14h3v3h-3v-3zm5 0h2v2h-2v-2zm-5 5h2v2h-2v-2zm3 0h2v2h-2v-2zm2-2h2v2h-2v-2z"></path>
+            </svg>
+        </button>
+        <div class="pill" id="statusPill" data-state="stopped">
+            <span class="pill-dot" aria-hidden="true"></span>
+            <span class="pill-text" id="status" role="status" aria-live="polite">停止中</span>
+            <span class="pill-lat" id="latTotal">-- ms</span>
+        </div>
     </div>
 </header>
 
-<main class="app">
+<main class="app" id="app">
 
     <div id="error" hidden role="alert"></div>
 
-    <!-- 2. メイン: シフト量。この画面の主役。 -->
-    <section class="hero" id="controls" data-split="off" aria-label="シフト量">
+    <!-- 2. プリセット。窓長をよく使う 3 値へまとめて動かす。 -->
+    <section class="presets" id="presets">
+        <div class="rowhead">
+            <h2 class="rowhead-title" id="presetTitle">プリセット</h2>
+            <button class="infobtn" type="button" data-info="preset"
+                    aria-haspopup="dialog" aria-label="プリセットの説明を見る">
+                <span class="infobtn-glyph" aria-hidden="true">i</span>
+            </button>
+        </div>
+        <fieldset class="segfields">
+            <legend class="sr-only">プリセットを選択</legend>
+            <div class="segmented seg-3">
+                <input class="seg-input" id="preFast" type="radio" name="preset" value="20">
+                <label class="seg" for="preFast">反応優先</label>
+                <input class="seg-input" id="preStd" type="radio" name="preset" value="50" checked>
+                <label class="seg" for="preStd">標準</label>
+                <input class="seg-input" id="preHifi" type="radio" name="preset" value="100">
+                <label class="seg" for="preHifi">音質優先</label>
+            </div>
+        </fieldset>
+    </section>
+
+    <!-- 3. メイン: シフト量。この画面の主役。 -->
+    <section class="hero" id="controls" data-split="off" aria-labelledby="shiftTitle">
+
+        <div class="rowhead">
+            <h2 class="rowhead-title" id="shiftTitle">シフト量</h2>
+            <button class="infobtn" type="button" data-info="shift"
+                    aria-haspopup="dialog" aria-label="シフト量の説明を見る">
+                <span class="infobtn-glyph" aria-hidden="true">i</span>
+            </button>
+        </div>
 
         <div class="chan" id="chanL">
             <div class="chan-readout">
@@ -46,7 +87,7 @@
                         data-target="shiftL" data-delta="-1"
                         aria-label="シフト量を 1 セント下げる">−</button>
                 <input class="bigslider" id="shiftL" type="range"
-                       min="-150" max="0" step="1" value="-89"
+                       min="-150" max="150" step="1" value="-89"
                        aria-label="シフト量(セント)">
                 <button class="bigstep" id="stepLUp" type="button"
                         data-target="shiftL" data-delta="1"
@@ -61,27 +102,60 @@
                 <span class="chan-unit">セント</span>
             </div>
             <div class="chan-row">
-                <button class="bigstep" type="button"
+                <button class="bigstep" id="stepRDown" type="button"
                         data-target="shiftR" data-delta="-1"
                         aria-label="シフト量 R を 1 セント下げる">−</button>
                 <input class="bigslider" id="shiftR" type="range"
-                       min="-150" max="0" step="1" value="-89"
+                       min="-150" max="150" step="1" value="-89"
                        aria-label="シフト量 R(セント)">
-                <button class="bigstep" type="button"
+                <button class="bigstep" id="stepRUp" type="button"
                         data-target="shiftR" data-delta="1"
                         aria-label="シフト量 R を 1 セント上げる">+</button>
             </div>
         </div>
 
-        <label class="sw" for="split">
-            <span class="sw-text">左右を別々に設定</span>
-            <input id="split" type="checkbox">
-            <span class="sw-track" aria-hidden="true"><span class="sw-thumb"></span></span>
-        </label>
+        <!-- スライダの動く幅。値は変えず min/max だけを切り替える。 -->
+        <fieldset class="segfields">
+            <legend class="sr-only">シフト量スライダーの範囲を選択</legend>
+            <div class="segmented seg-4" id="rangeSeg">
+                <input class="seg-input" id="rng150" type="radio" name="shiftRange" value="150" checked>
+                <label class="seg seg-2line" for="rng150">
+                    <span class="seg-name">微調整</span>
+                    <span class="seg-sub">±150</span>
+                </label>
+                <input class="seg-input" id="rng100" type="radio" name="shiftRange" value="100">
+                <label class="seg seg-2line" for="rng100">
+                    <span class="seg-name">半音</span>
+                    <span class="seg-sub">±100</span>
+                </label>
+                <input class="seg-input" id="rng200" type="radio" name="shiftRange" value="200">
+                <label class="seg seg-2line" for="rng200">
+                    <span class="seg-name">全音</span>
+                    <span class="seg-sub">±200</span>
+                </label>
+                <input class="seg-input" id="rng1200" type="radio" name="shiftRange" value="1200">
+                <label class="seg seg-2line" for="rng1200">
+                    <span class="seg-name">オクターブ</span>
+                    <span class="seg-sub">±1200</span>
+                </label>
+            </div>
+        </fieldset>
+
+        <div class="swrow">
+            <label class="sw" for="split">
+                <span class="sw-text">左右を別々に設定</span>
+                <input id="split" type="checkbox">
+                <span class="sw-track" aria-hidden="true"><span class="sw-thumb"></span></span>
+            </label>
+            <button class="infobtn" type="button" data-info="split"
+                    aria-haspopup="dialog" aria-label="左右を別々に設定の説明を見る">
+                <span class="infobtn-glyph" aria-hidden="true">i</span>
+            </button>
+        </div>
 
     </section>
 
-    <!-- 3. 詳細設定。既定は閉じたまま。 -->
+    <!-- 4. 詳細設定。既定は閉じたまま。 -->
     <details class="adv" id="adv">
         <summary class="adv-sum">詳細設定</summary>
         <div class="adv-body">
@@ -90,6 +164,10 @@
                 <div class="mini">
                     <div class="mini-head">
                         <label class="mini-label" for="dryWet">Dry/Wet</label>
+                        <button class="infobtn" type="button" data-info="drywet"
+                                aria-haspopup="dialog" aria-label="Dry/Wet の説明を見る">
+                            <span class="infobtn-glyph" aria-hidden="true">i</span>
+                        </button>
                         <output class="mini-val" id="dryWetOut" for="dryWet">1.00</output>
                     </div>
                     <div class="mini-row">
@@ -107,6 +185,10 @@
                 <div class="mini">
                     <div class="mini-head">
                         <label class="mini-label" for="xfade">窓長</label>
+                        <button class="infobtn" type="button" data-info="xfade"
+                                aria-haspopup="dialog" aria-label="窓長の説明を見る">
+                            <span class="infobtn-glyph" aria-hidden="true">i</span>
+                        </button>
                         <output class="mini-val" id="xfadeOut" for="xfade">50 ms</output>
                     </div>
                     <div class="mini-row">
@@ -122,11 +204,17 @@
                 </div>
             </div>
 
-            <section id="source" aria-label="入力ソース">
-                <h2 class="adv-title">入力</h2>
-                <fieldset id="sourceFields">
+            <section id="source" aria-labelledby="sourceTitle">
+                <div class="rowhead">
+                    <h2 class="adv-title" id="sourceTitle">入力</h2>
+                    <button class="infobtn" type="button" data-info="source"
+                            aria-haspopup="dialog" aria-label="入力ソースの説明を見る">
+                        <span class="infobtn-glyph" aria-hidden="true">i</span>
+                    </button>
+                </div>
+                <fieldset id="sourceFields" class="segfields">
                     <legend class="sr-only">入力ソースを選択</legend>
-                    <div class="segmented">
+                    <div class="segmented seg-3">
                         <input class="seg-input" id="srcMic" type="radio" name="inputSource" value="mic" checked>
                         <label class="seg" for="srcMic">マイク</label>
                         <input class="seg-input" id="srcTab" type="radio" name="inputSource" value="tab">
@@ -143,6 +231,22 @@
                 <p class="hint" id="sourceHint" aria-live="polite"></p>
             </section>
 
+            <section aria-labelledby="latTitle">
+                <div class="rowhead">
+                    <h2 class="adv-title" id="latTitle">遅延</h2>
+                    <button class="infobtn" type="button" data-info="latency"
+                            aria-haspopup="dialog" aria-label="遅延表示の説明を見る">
+                        <span class="infobtn-glyph" aria-hidden="true">i</span>
+                    </button>
+                </div>
+                <p class="fine">
+                    内訳: 出力 <span id="latOut">--</span>
+                    / ブロック <span id="latBlock">--</span>
+                    / DSP <span id="latDsp">--</span>
+                </p>
+                <p class="fine" id="engine">engine: --</p>
+            </section>
+
             <div class="notes">
                 <h2 class="adv-title">注意事項</h2>
                 <p class="fine">※イヤホンを使ってください。スピーカーではハウリングします。</p>
@@ -150,17 +254,14 @@
                     音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
                     マイク・タブ音声・音声ファイルのいずれも、開始を押したときだけ読み込みます。
                 </p>
-                <p class="fine">パラメータは動作中のみ操作できます。</p>
+                <p class="fine">
+                    スライダーは動作中のみ操作できます。
+                    プリセットとスライダーの範囲は停止中でも変えられ、次に開始したときに反映されます。
+                </p>
                 <p class="fine">
                     スマートフォンではタブ音声の共有(getDisplayMedia)を使えません。
                     マイクか音声ファイルを選んでください。
                 </p>
-                <p class="fine">
-                    遅延内訳: 出力 <span id="latOut">--</span>
-                    / ブロック <span id="latBlock">--</span>
-                    / DSP <span id="latDsp">--</span>
-                </p>
-                <p class="fine" id="engine">engine: --</p>
             </div>
 
         </div>
@@ -168,10 +269,74 @@
 
 </main>
 
-<!-- 4. フッタ固定: 開始/停止。 -->
-<div class="dock">
+<!-- 5. フッタ固定: 開始/停止。 -->
+<div class="dock" id="dock">
     <button id="toggle" type="button" data-state="stopped">▶ 開始</button>
 </div>
+
+<!-- 6. QR コード(全画面)。中身は main.js が qr.js で生成して差し込む。 -->
+<div class="overlay" id="qrModal" hidden>
+    <div class="overlay-scrim" data-close="qr"></div>
+    <div class="overlay-panel qr-panel" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+        <h2 class="overlay-title" id="qrTitle">この画面を開く QR コード</h2>
+        <p class="overlay-lead">スマートフォンのカメラで読み取ってください。</p>
+        <div class="qr-frame" id="qrFrame"></div>
+        <p class="qr-url" id="qrUrl"></p>
+        <p class="qr-note" id="qrNote" hidden></p>
+        <button class="overlay-close" id="qrClose" type="button">閉じる</button>
+    </div>
+</div>
+
+<!-- 7. 説明のボトムシート。中身は #infoTexts から複製する。 -->
+<div class="overlay sheet" id="infoSheet" hidden>
+    <div class="overlay-scrim" data-close="info"></div>
+    <div class="overlay-panel sheet-panel" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+        <h2 class="overlay-title" id="infoTitle"></h2>
+        <div class="sheet-body" id="infoBody"></div>
+        <button class="overlay-close sheet-close" id="infoClose" type="button">閉じる</button>
+    </div>
+</div>
+
+<!-- 説明文の置き場。日本語の平易な文だけをここに集め、JS からは複製するだけにする。 -->
+<template id="infoTexts">
+    <section data-key="shift" data-title="シフト量">
+        <p>音の高さをどれだけずらすかを決めます。100 セントが半音です。この装置の既定値 −89 セントは、半音よりほんの少しだけ狭いずらし量です。</p>
+        <p>マイナスにすると低く、プラスにすると高くずらします。数字の左の − と + のボタンでも 1 目盛りずつ動かせます。</p>
+        <p>スライダーの下の 4 つのボタンで、動かせる幅を切り替えられます。ふだんは「微調整」のままで足ります。</p>
+    </section>
+    <section data-key="split" data-title="左右を別々に設定">
+        <p>左の耳と右の耳で聞こえ方が違うときに使います。</p>
+        <p>切っているときは、左右が同じ値でいっしょに動きます。入れると、左と右をそれぞれ別の値にできます。</p>
+        <p>ふだんは切ったままで構いません。入れたあとに切ると、右の値は左に合わせて戻ります。</p>
+    </section>
+    <section data-key="drywet" data-title="Dry/Wet(原音とのまぜ具合)">
+        <p>そのままの音(Dry)と、高さを直した音(Wet)をどれだけまぜるかです。</p>
+        <p>1.00 で直した音だけ、0.00 でそのままの音だけになります。途中の値にすると両方が重なって聞こえます。</p>
+        <p>ふだんは 1.00 のままにしてください。効きぐあいを聞き比べたいときだけ下げます。</p>
+    </section>
+    <section data-key="xfade" data-title="窓長">
+        <p>音のつなぎ目の長さです。短くすると音の変わりかたに速くついていき、長くするとうねりやにじみが減って滑らかになります。</p>
+        <p><strong>遅れの大きさはこの値では変わりません。</strong>この装置の遅れは窓長によらず一定(処理部でおよそ 5 ミリ秒)で、窓長が変えるのは音の滑らかさだけです。</p>
+        <p>迷ったら「標準」(50 ミリ秒)のままにしてください。</p>
+    </section>
+    <section data-key="source" data-title="入力ソース">
+        <p>どこから音を取り込むかを選びます。</p>
+        <p>「マイク」はこの端末のマイクが拾う周りの音、「タブ音声」は同じブラウザで開いている別のタブの音、「ファイル」は選んだ音声ファイルをくり返し再生した音です。</p>
+        <p>スマートフォンでは「タブ音声」を使えません。マイクかファイルを選んでください。</p>
+        <p>動かしている間は切り替えられません。いったん停止してから選び直してください。</p>
+    </section>
+    <section data-key="preset" data-title="プリセット">
+        <p>窓長をよく使う 3 つの値にまとめて切り替えます。「反応優先」で 20、「標準」で 50、「音質優先」で 100 ミリ秒になります。</p>
+        <p><strong>どれを選んでも遅れの大きさは変わりません。</strong>変わるのは音の滑らかさだけです。</p>
+        <p>まず「標準」で聞いてみて、うねりやにじみが気になるなら「音質優先」を、音の変化への追従が遅く感じるなら「反応優先」を試してください。</p>
+        <p>いずれの値にも当てはまらないときは、どのボタンも選ばれていない見た目になります。</p>
+    </section>
+    <section data-key="latency" data-title="遅延表示">
+        <p>マイクが音を拾ってから、イヤホンで聞こえるまでの往復の遅れです。画面の右上に合計が出ます。</p>
+        <p><strong>20 ミリ秒以下がめやすです。</strong>これより大きいと、イヤホンから漏れて聞こえる生の音と処理した音が重なって、響いたり、話が聞き取りにくくなったりします。</p>
+        <p>詳細設定の「遅延」に内訳が出ます。出力とブロックは端末とブラウザで決まる分、DSP はこの装置の処理そのものの分です。</p>
+    </section>
+</template>
 
 <script type="module" src="./main.js"></script>
 </body>
