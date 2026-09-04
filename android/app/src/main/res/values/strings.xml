@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PrismEarring</string>
+
+    <!-- ヘッダ -->
+    <string name="brand">prism earring</string>
+    <string name="status_stopped">停止中</string>
+    <string name="status_starting">同期中</string>
+    <string name="status_running">動作中</string>
+    <string name="latency_unknown">-- ms</string>
+    <string name="latency_format">往復 %1$.1f ms</string>
+    <string name="latency_measuring">測定中</string>
+
+    <!-- 窓長プリセット -->
+    <string name="preset_title">窓長プリセット</string>
+    <string name="preset_20">20 ms</string>
+    <string name="preset_50">50 ms</string>
+    <string name="preset_100">100 ms</string>
+
+    <!-- 主役カード -->
+    <string name="shift_unit">セント</string>
+    <string name="tag_left">L</string>
+    <string name="tag_right">R</string>
+    <string name="step_down">−</string>
+    <string name="step_up">+</string>
+    <string name="desc_step_down_l">シフト量を 1 セント下げる</string>
+    <string name="desc_step_up_l">シフト量を 1 セント上げる</string>
+    <string name="desc_step_down_r">シフト量 R を 1 セント下げる</string>
+    <string name="desc_step_up_r">シフト量 R を 1 セント上げる</string>
+    <string name="desc_slider_l">シフト量(セント)</string>
+    <string name="desc_slider_r">シフト量 R(セント)</string>
+
+    <string name="range_title">スライダの範囲</string>
+    <string name="range_fine">微調整\n±150</string>
+    <string name="range_semitone">半音\n±100</string>
+    <string name="range_tone">全音\n±200</string>
+    <string name="range_octave">オクターブ\n±1200</string>
+
+    <string name="split_label">左右を別々に設定</string>
+
+    <string name="clamp_note">DSP の下限は −150 セントです。これより低い値を選んでも −150 セントで頭打ちになります。</string>
+
+    <!-- 詳細設定 -->
+    <string name="adv_title">詳細設定</string>
+    <string name="adv_open">詳細設定 ▾</string>
+    <string name="adv_close">詳細設定 ▴</string>
+    <string name="dry_wet_label">Dry/Wet</string>
+    <string name="crossfade_label">窓長</string>
+    <string name="desc_drywet_down">Dry/Wet を 0.05 下げる</string>
+    <string name="desc_drywet_up">Dry/Wet を 0.05 上げる</string>
+    <string name="desc_xfade_down">窓長を 1 ミリ秒短くする</string>
+    <string name="desc_xfade_up">窓長を 1 ミリ秒長くする</string>
+    <string name="crossfade_format">%1$d ms</string>
+
+    <string name="notes_title">注意事項</string>
+    <string name="note_earphone">※イヤホンを使ってください。スピーカーではハウリングします。</string>
+    <string name="note_wired">有線イヤホンを推奨します。Bluetooth は 100ms 以上遅れるため、この用途では実用になりません。</string>
+    <string name="note_privacy">音声はこの端末の外へ出ません(外部送信・録音・保存なし)。マイクは開始を押している間だけ開きます。</string>
+    <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
+    <string name="diag_placeholder">診断: --</string>
+    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回</string>
+    <string name="yes">はい</string>
+    <string name="no">いいえ</string>
+
+    <!-- フッタ -->
+    <string name="action_start">▶ 開始</string>
+    <string name="action_stop">■ 停止</string>
+
+    <!-- 権限 -->
+    <string name="perm_mic_required">マイクの権限が必要です。設定から許可してください。</string>
+    <string name="perm_notification_hint">通知を許可すると、常駐中の状態と停止ボタンが通知に出ます。</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel_name">ピッチシフト処理</string>
+    <string name="notif_channel_desc">マイク入力をピッチシフトして再生している間に表示されます。</string>
+    <string name="notif_title">PrismEarring 動作中</string>
+    <string name="notif_text">マイク入力をピッチシフトして再生しています。</string>
+    <string name="notif_action_stop">停止</string>
+</resources>

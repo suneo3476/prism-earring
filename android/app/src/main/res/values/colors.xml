@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- web/styles.css の :root トークンをそのまま持ってくる。
+     web 側の値を変えたらここも合わせること(意匠を 1 つに保つ)。 -->
+<resources>
+    <color name="bg">#FF0B0F14</color>
+    <color name="card">#FF161C24</color>
+    <color name="card2">#FF1E2732</color>
+    <color name="fg">#FFF3F4F6</color>
+    <color name="muted">#FF9AA4B2</color>
+    <color name="line">#FF2B3441</color>
+    <color name="primary">#FF3B82F6</color>
+    <color name="primary_fg">#FFFFFFFF</color>
+    <color name="track">#FF2F3743</color>
+
+    <color name="ok">#FF22C55E</color>
+    <color name="ok_fg">#FF0B0F14</color>
+    <color name="idle">#FF2A323D</color>
+    <color name="idle_fg">#FFF3F4F6</color>
+    <color name="stop">#FFEF4444</color>
+    <color name="stop_fg">#FFFFFFFF</color>
+
+    <color name="danger_bg">#FF2A1414</color>
+    <color name="danger_fg">#FFFFB4B4</color>
+    <color name="danger_line">#FF7F3535</color>
+
+    <color name="warn_fg">#FFFFD98A</color>
+</resources>

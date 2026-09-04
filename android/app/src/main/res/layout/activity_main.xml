@@ -1,0 +1,563 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  web/index.html と同じ構成:
+    1. ヘッダ(ロゴ + 状態ピル)
+    2. 窓長プリセット 3 分割
+    3. 主役カード(巨大な数値 / 太いスライダ / 72dp の −+ / 範囲切替 4 分割 / L·R 独立)
+    4. 折りたたみの詳細設定
+    5. 固定フッタの開始・停止(72dp)
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true">
+
+    <ScrollView
+        android:id="@+id/scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="112dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="8dp">
+
+            <!-- ============ 1. ヘッダ ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:contentDescription="@string/brand"
+                    android:src="@drawable/ic_launcher_foreground" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/brand"
+                    android:textColor="@color/fg"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/statusPill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="@drawable/bg_pill"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp">
+
+                    <View
+                        android:id="@+id/statusDot"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/bg_dot" />
+
+                    <TextView
+                        android:id="@+id/statusText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/status_stopped"
+                        android:textColor="@color/idle_fg"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/latencyText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/latency_unknown"
+                        android:textColor="@color/muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============ エラー表示 ============ -->
+            <TextView
+                android:id="@+id/errorBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_error"
+                android:padding="12dp"
+                android:textColor="@color/danger_fg"
+                android:textSize="14sp"
+                android:visibility="gone"
+                tools:text="マイクを開けません"
+                tools:visibility="visible" />
+
+            <!-- ============ 2. 窓長プリセット(3 分割) ============ -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="@string/preset_title"
+                android:textColor="@color/muted"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/preset0"
+                    style="@style/SegmentItem"
+                    android:text="@string/preset_20" />
+
+                <TextView
+                    android:id="@+id/preset1"
+                    style="@style/SegmentItem"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/preset_50" />
+
+                <TextView
+                    android:id="@+id/preset2"
+                    style="@style/SegmentItem"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/preset_100" />
+            </LinearLayout>
+
+            <!-- ============ 3. 主役カード ============ -->
+            <LinearLayout
+                android:id="@+id/hero"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="20dp">
+
+                <!-- — L チャンネル -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tagL"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/bg_tag"
+                        android:minWidth="34dp"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="2dp"
+                        android:text="@string/tag_left"
+                        android:textAlignment="center"
+                        android:textColor="@color/muted"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/shiftLValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:includeFontPadding="false"
+                        android:text="-89"
+                        android:textColor="@color/fg"
+                        android:textSize="56sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/shift_unit"
+                        android:textColor="@color/muted"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/stepLDown"
+                        style="@style/BigStep"
+                        android:contentDescription="@string/desc_step_down_l"
+                        android:text="@string/step_down" />
+
+                    <SeekBar
+                        android:id="@+id/shiftLSlider"
+                        style="@style/BigSlider"
+                        android:contentDescription="@string/desc_slider_l" />
+
+                    <TextView
+                        android:id="@+id/stepLUp"
+                        style="@style/BigStep"
+                        android:contentDescription="@string/desc_step_up_l"
+                        android:text="@string/step_up" />
+                </LinearLayout>
+
+                <!-- — R チャンネル(L/R 独立 ON のときだけ) -->
+                <LinearLayout
+                    android:id="@+id/chanR"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="8dp"
+                            android:background="@drawable/bg_tag"
+                            android:minWidth="34dp"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="2dp"
+                            android:text="@string/tag_right"
+                            android:textAlignment="center"
+                            android:textColor="@color/muted"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/shiftRValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
+                            android:includeFontPadding="false"
+                            android:text="-89"
+                            android:textColor="@color/fg"
+                            android:textSize="40sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/shift_unit"
+                            android:textColor="@color/muted"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/stepRDown"
+                            style="@style/BigStep"
+                            android:contentDescription="@string/desc_step_down_r"
+                            android:text="@string/step_down" />
+
+                        <SeekBar
+                            android:id="@+id/shiftRSlider"
+                            style="@style/BigSlider"
+                            android:contentDescription="@string/desc_slider_r" />
+
+                        <TextView
+                            android:id="@+id/stepRUp"
+                            style="@style/BigStep"
+                            android:contentDescription="@string/desc_step_up_r"
+                            android:text="@string/step_up" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- — 範囲切替(4 分割) -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/range_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/range0"
+                        style="@style/SegmentItemSmall"
+                        android:text="@string/range_fine" />
+
+                    <TextView
+                        android:id="@+id/range1"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/range_semitone" />
+
+                    <TextView
+                        android:id="@+id/range2"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/range_tone" />
+
+                    <TextView
+                        android:id="@+id/range3"
+                        style="@style/SegmentItemSmall"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/range_octave" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/clampNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/clamp_note"
+                    android:textColor="@color/warn_fg"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <!-- — L/R 独立スイッチ -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/split_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/splitSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:thumbTint="@color/fg"
+                        app:trackTint="@color/track" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============ 4. 詳細設定(折りたたみ) ============ -->
+            <TextView
+                android:id="@+id/advToggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_adv"
+                android:padding="16dp"
+                android:text="@string/adv_open"
+                android:textColor="@color/fg"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/advBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_adv"
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <!-- Dry/Wet -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/dry_wet_label"
+                        android:textColor="@color/fg"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/dryWetValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="1.00"
+                        android:textColor="@color/muted"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/dryWetDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_drywet_down"
+                        android:text="@string/step_down" />
+
+                    <SeekBar
+                        android:id="@+id/dryWetSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/dry_wet_label" />
+
+                    <TextView
+                        android:id="@+id/dryWetUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_drywet_up"
+                        android:text="@string/step_up" />
+                </LinearLayout>
+
+                <!-- 窓長 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/crossfade_label"
+                        android:textColor="@color/fg"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/crossfadeValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="50 ms"
+                        android:textColor="@color/muted"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/crossfadeDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_xfade_down"
+                        android:text="@string/step_down" />
+
+                    <SeekBar
+                        android:id="@+id/crossfadeSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/crossfade_label" />
+
+                    <TextView
+                        android:id="@+id/crossfadeUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_xfade_up"
+                        android:text="@string/step_up" />
+                </LinearLayout>
+
+                <!-- 注意事項と診断 -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="@string/notes_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    style="@style/Fine"
+                    android:text="@string/note_earphone" />
+
+                <TextView
+                    style="@style/Fine"
+                    android:text="@string/note_wired" />
+
+                <TextView
+                    style="@style/Fine"
+                    android:text="@string/note_aec" />
+
+                <TextView
+                    style="@style/Fine"
+                    android:text="@string/note_privacy" />
+
+                <TextView
+                    android:id="@+id/diagText"
+                    style="@style/Fine"
+                    android:fontFeatureSettings="tnum"
+                    android:text="@string/diag_placeholder" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ============ 5. 固定フッタ ============ -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@color/bg"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp">
+
+        <TextView
+            android:id="@+id/toggleButton"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:background="@drawable/bg_dock_button"
+            android:backgroundTint="@color/primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="@string/action_start"
+            android:textColor="@color/primary_fg"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+</FrameLayout>

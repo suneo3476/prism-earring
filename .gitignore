@@ -87,3 +87,14 @@ aidlc/diagnostics/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Android (android/)
+# gradle-wrapper.jar はコミットする(クローン直後に ./gradlew が動くようにするため)。
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.cxx/
+android/app/.cxx/
+*.iml

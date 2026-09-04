@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- web/styles.css の .seg / .bigstep / .bigslider / .ministep / .minislider /
+     .fine に対応する寸法をここに集約する。ここを触れば全体のスケールが動く。 -->
+<resources>
+
+    <!-- セグメント 1 個(3 分割の窓長プリセット)。web の .seg = min-height 56px。 -->
+    <style name="SegmentItem">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/bg_seg</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:textColor">@color/seg_text</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- 4 分割は 1 個あたりが狭いので 2 行 / 小さめの字にする。 -->
+    <style name="SegmentItemSmall" parent="SegmentItem">
+        <item name="android:layout_height">60dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:lineSpacingExtra">1dp</item>
+    </style>
+
+    <!-- 72dp の − / + 。web の .bigstep(72px / radius 16px / font 34px)。 -->
+    <style name="BigStep">
+        <item name="android:layout_width">72dp</item>
+        <item name="android:layout_height">72dp</item>
+        <item name="android:background">@drawable/bg_step</item>
+        <item name="android:gravity">center</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:textColor">@color/step_text</item>
+        <item name="android:textSize">30sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- 太いスライダ。トラック 16dp / つまみ 48dp / 当たり判定 56dp。
+         splitTrack=false にしないと、つまみの下でトラックが途切れる。 -->
+    <style name="BigSlider">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginHorizontal">12dp</item>
+        <item name="android:progressDrawable">@drawable/seekbar_track</item>
+        <item name="android:thumb">@drawable/seekbar_thumb</item>
+        <item name="android:splitTrack">false</item>
+        <item name="android:thumbOffset">0dp</item>
+        <item name="android:paddingHorizontal">24dp</item>
+        <item name="android:maxHeight">16dp</item>
+        <item name="android:minHeight">16dp</item>
+    </style>
+
+    <style name="MiniStep">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:background">@drawable/bg_ministep</item>
+        <item name="android:gravity">center</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:textColor">@color/step_text</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="MiniSlider">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginHorizontal">10dp</item>
+        <item name="android:progressDrawable">@drawable/seekbar_track_mini</item>
+        <item name="android:thumb">@drawable/seekbar_thumb_mini</item>
+        <item name="android:splitTrack">false</item>
+        <item name="android:thumbOffset">0dp</item>
+        <item name="android:paddingHorizontal">20dp</item>
+        <item name="android:maxHeight">12dp</item>
+        <item name="android:minHeight">12dp</item>
+    </style>
+
+    <style name="Fine">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+</resources>
