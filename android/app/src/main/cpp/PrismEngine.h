@@ -41,7 +41,19 @@ public:
         double dspMillis = 0.0;
         double totalMillis = 0.0;
         bool valid = false;
+        double micSweepMillis = 0.0;      // マイク経路の走査幅(採用値)
+        double captureSweepMillis = 0.0;  // 捕獲経路の走査幅(採用値)
     };
+
+    // 出力の用途。setOutputUsage() の引数。
+    //   Media  … 既定。メディア音量に乗る(ContentType::Music)。
+    //   Accessibility … アクセシビリティ用途(ContentType::Speech)。メディア音量を
+    //                   絞っても本アプリの出力だけ鳴らせるかの実験用。
+    static constexpr int kUsageMedia = 0;
+    static constexpr int kUsageAccessibility = 1;
+
+    // 0 = 自動(OS 既定のデバイス)。setOutput/InputDeviceId() の「指定なし」。
+    static constexpr int32_t kDeviceIdAuto = 0;
 
     PrismEngine() = default;
     ~PrismEngine() override;
@@ -78,15 +90,75 @@ public:
         return unprocessedInput_.load(std::memory_order_relaxed);
     }
 
+    // ---- 捕獲経路の診断 -----------------------------------------------------
+    int captureUnderruns() const noexcept { return bridge_.captureUnderruns(); }
+    int captureOverruns() const noexcept { return bridge_.captureOverruns(); }
+    int captureFillFrames() const noexcept { return bridge_.captureFillFrames(); }
+
+    // ---- 実際に開いたデバイスと用途 -----------------------------------------
+    // 0 = 未取得。指定した ID で開けなかった場合は *DeviceFallback() が true になる。
+    int32_t actualOutputDeviceId() const;
+    int32_t actualInputDeviceId() const;
+    bool outputDeviceFallback() const noexcept {
+        return outputDeviceFallback_.load(std::memory_order_relaxed);
+    }
+    bool inputDeviceFallback() const noexcept {
+        return inputDeviceFallback_.load(std::memory_order_relaxed);
+    }
+    int outputUsage() const noexcept { return outputUsage_.load(std::memory_order_relaxed); }
+
     std::string lastError() const;
 
     // ---- パラメータ(制御スレッドから。内部は std::atomic なのでロック不要) --
+    // シフト量 / dry-wet / クロスフェードはマイク経路と捕獲経路の両方へ流す
+    // (2 本のシフタで違うのは走査幅だけ)。
     // channel: 0 = L, 1 = R, それ以外 = 両方
     void setShiftCents(int channel, float cents) noexcept;
-    void setDryWet(float mix) noexcept { bridge_.shifter().setDryWet(mix); }
-    void setCrossfadeMs(float ms) noexcept { bridge_.shifter().setCrossfadeMs(ms); }
+    void setDryWet(float mix) noexcept {
+        bridge_.shifter().setDryWet(mix);
+        bridge_.captureShifter().setDryWet(mix);
+    }
+    void setCrossfadeMs(float ms) noexcept {
+        bridge_.shifter().setCrossfadeMs(ms);
+        bridge_.captureShifter().setCrossfadeMs(ms);
+    }
     // gain は倍率(0.5〜4.0)。AudioBridge::setOutputGain が clamp する。
     void setOutputGain(float gain) noexcept { bridge_.setOutputGain(gain); }
+
+    // ---- 捕獲経路(制御スレッドから。動作中に呼んでよい) ---------------------
+    void setCaptureEnabled(bool enabled) noexcept { bridge_.setCaptureEnabled(enabled); }
+    bool isCaptureEnabled() const noexcept { return bridge_.isCaptureEnabled(); }
+    // 0.0 でマイクを完全ミュート(捕獲音だけを聞く)。
+    void setMicGain(float gain) noexcept { bridge_.setMicGain(gain); }
+    void setCaptureGain(float gain) noexcept { bridge_.setCaptureGain(gain); }
+    // Java の AudioRecord スレッドから。戻り値は実際に書けたフレーム数。
+    int pushCapture(const float* interleaved, int frames, int channels) noexcept {
+        return bridge_.pushCapture(interleaved, frames, channels);
+    }
+
+    // ---- 次の start() から効く設定(制御スレッドから) ------------------------
+    // 0 = 自動。指定 ID で開けなければ自動で開き直し、*DeviceFallback() が立つ。
+    void setOutputDeviceId(int32_t id) noexcept {
+        outputDeviceId_.store(id, std::memory_order_relaxed);
+    }
+    void setInputDeviceId(int32_t id) noexcept {
+        inputDeviceId_.store(id, std::memory_order_relaxed);
+    }
+    // kUsageMedia / kUsageAccessibility。未知の値は kUsageMedia として扱う。
+    void setOutputUsage(int usage) noexcept {
+        outputUsage_.store(usage == kUsageAccessibility ? kUsageAccessibility : kUsageMedia,
+                           std::memory_order_relaxed);
+    }
+    // マイク経路の走査幅(ms)。範囲外は PitchShifter が clamp する。
+    void setMicSweepMs(double ms) noexcept {
+        micSweepMs_.store(ms, std::memory_order_relaxed);
+    }
+    // 実際に採用されている走査幅(ms)。start 前は要求値をそのまま返す。
+    double micSweepMs() const noexcept {
+        return bridge_.isPrepared() ? bridge_.micSweepMs()
+                                    : micSweepMs_.load(std::memory_order_relaxed);
+    }
+    double captureSweepMs() const noexcept { return bridge_.captureSweepMs(); }
 
 private:
     // oboe::AudioStreamDataCallback
@@ -124,6 +196,14 @@ private:
     std::atomic<int> inputErrors_{0};
     std::atomic<bool> exclusiveMode_{false};
     std::atomic<bool> unprocessedInput_{false};
+
+    // 次の start() で使う設定と、その結果。
+    std::atomic<int32_t> outputDeviceId_{kDeviceIdAuto};
+    std::atomic<int32_t> inputDeviceId_{kDeviceIdAuto};
+    std::atomic<bool> outputDeviceFallback_{false};
+    std::atomic<bool> inputDeviceFallback_{false};
+    std::atomic<int> outputUsage_{kUsageMedia};
+    std::atomic<double> micSweepMs_{PitchShifter::kSweepMs};
 
     mutable std::mutex errorMutex_;
     std::string lastError_;

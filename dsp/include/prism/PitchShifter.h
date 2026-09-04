@@ -34,7 +34,11 @@ public:
     static constexpr float kDryWetMax = 1.0f;
     static constexpr float kDryWetDefault = 1.0f;
     static constexpr float kCrossfadeMsMin = 10.0f;
-    static constexpr float kCrossfadeMsMax = 100.0f;
+    // 上限 200ms は「跳躍間隔いっぱいまでフェードし続ける」極端を聴けるようにする値。
+    // 既定 -89 セント・sweep 9.5ms では跳躍間隔 = sweep / |1-比| ≈ 190ms なので、
+    // 200ms は実質「常時クロスフェード」に相当する(実効長は下の byExcursion 上限で
+    // 跳躍間隔に丸められる)。容量は windowMaxSamples_ 経由で自動的に追従する。
+    static constexpr float kCrossfadeMsMax = 200.0f;
     static constexpr float kCrossfadeMsDefault = 50.0f;
 
     static constexpr double kSampleRateMin = 8000.0;
@@ -53,7 +57,14 @@ public:
     //   * 下限は「正しくシフトできる最低周波数」— スイープ幅が入力の 1 周期未満だと
     //     跳躍で位相が入力に再同期してしまい、出力スペクトルのピークが f_in に戻る。
     //     sweep = 9.5ms は約 105Hz 以上の成分を正しくシフトできることを意味する。
+    //
+    // この値は prepare() の第 3 引数で個体ごとに変えられる(既定はここの 9.5ms)。
+    // 生音の漏れ込みが無い経路(例: Android の再生音キャプチャ)では 10ms 予算に
+    // 縛られないため、走査幅を広げて跳躍間隔(= sweep / |1-比|)を伸ばし、
+    // 大きなシフト量でのアーティファクトを減らせる。
     static constexpr double kSweepMs = 9.5;
+    static constexpr double kSweepMsMin = 2.0;
+    static constexpr double kSweepMsMax = 100.0;
 
     // 上げ方向専用のガード帯(サンプル)= sweep / kGuardDivisor。
     // 上げ方向ではクロスフェード中の旧ヘッドが「遅れの小さい側」へ走り抜けるため、
@@ -84,13 +95,25 @@ public:
     // ---- WF-1 prepare ------------------------------------------------------
     // 初期化時のみ呼ぶ(ヒープ確保はここだけ、BR1.5)。成功で true。
     // 音声スレッド停止中、または音声スレッド自身から呼ぶこと(logical-components LC-7 / A-3)。
-    bool prepare(double sampleRate, int maxBlockFrames) {
+    //
+    // sweepMs: 遅延スイープ幅(ms)。省略すると kSweepMs = 9.5ms(従来と 1 サンプルも
+    //          変わらない)。[kSweepMsMin, kSweepMsMax] に clamp し、非有限値は既定値に
+    //          丸める。容量・遅延・跳躍間隔はすべてこの値から導かれる。
+    bool prepare(double sampleRate, int maxBlockFrames, double sweepMs = kSweepMs) {
         prepared_ = false;
         if (!(sampleRate >= kSampleRateMin) || !(sampleRate <= kSampleRateMax)) {
             return false;  // NaN もここで弾かれる
         }
         if (maxBlockFrames < 1) {
             return false;
+        }
+        if (!std::isfinite(sweepMs)) {
+            sweepMs = kSweepMs;  // SR-3.2: 非有限値は既定値に丸める(clamp より前に検査)
+        }
+        if (sweepMs < kSweepMsMin) {
+            sweepMs = kSweepMsMin;
+        } else if (sweepMs > kSweepMsMax) {
+            sweepMs = kSweepMsMax;
         }
 
         fs_ = sampleRate;
@@ -99,7 +122,7 @@ public:
         if (windowMaxSamples_ < 2) {
             windowMaxSamples_ = 2;
         }
-        sweepSamples_ = roundToInt(kSweepMs * sampleRate / 1000.0);
+        sweepSamples_ = roundToInt(sweepMs * sampleRate / 1000.0);
         if (sweepSamples_ < 4) {
             sweepSamples_ = 4;
         }
@@ -139,6 +162,7 @@ public:
         smoothCoeff_ =
             static_cast<float>(std::exp(-1.0 / (kSmoothingTimeConstantSec * sampleRate)));
 
+        sweepMs_ = sweepMs;  // 採用値(clamp 後)。確保に成功した経路でだけ記録する。
         prepared_ = true;
         reset();
         return true;
@@ -296,6 +320,9 @@ public:
     int getWindowSamples() const noexcept { return window_; }
     // 遅延スイープ幅(サンプル)。下げ方向の最大遅れ = baseOffset + これ。
     int getSweepSamples() const noexcept { return sweepSamples_; }
+    // prepare() が実際に採用した遅延スイープ幅(ms)。clamp 後の値。
+    // prepare 前・prepare 失敗後は既定値 kSweepMs を返す。
+    double getSweepMs() const noexcept { return sweepMs_; }
     // 上げ方向のガード帯(サンプル)。上げ方向の走査域は baseOffset + これ から始まる。
     int getGuardSamples() const noexcept { return guardSamples_; }
     bool isPrepared() const noexcept { return prepared_; }
@@ -452,15 +479,16 @@ private:
         v.lag[next] = clampLag(oldLag - static_cast<double>(dirSign * bestJump));
         v.active = next;
         int len = window_;
-        // クロスフェードは走行長を超えてはならない(跳躍間隔の 1/2 を上限にする)
-        const int runLimit = bestJump * 8;
-        if (len > runLimit) {
-            len = runLimit;
-        }
-        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。
-        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。|drift| <= 0.125 の域では
-        //         runLimit が先に効くため、既定 -89 セントの挙動は従来と同一。
+        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。これが実効の
+        // 上限であり、下げ方向では「次の跳躍までの走行長」そのものになる。
+        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。したがって
+        //         fadeLen <= 跳躍量 / |1-比| = 跳躍間隔。
         //   上げ: 予算 = ガード帯(旧ヘッドを baseOffset より下へ出さない)。
+        // 以前はここに runLimit = 跳躍量 x 8 という別のキャップがあったが、
+        // 下げ方向では byExcursion より必ず小さくなる(|1-比| <= 0.125 の域)ため、
+        // 窓長を実効 76ms 程度に丸めてしまっていた。上の予算だけで安全は保たれる
+        // ので撤廃した(既定の窓長 50ms では runLimit は効いていなかったため、
+        // 既定の挙動・数値は従来と完全に一致する)。
         if (driftAbs > 0.0) {
             const double budget =
                 (dirSign > 0) ? static_cast<double>(bestJump) : static_cast<double>(guardSamples_);
@@ -508,6 +536,7 @@ private:
     SmoothedParam dryWetSm_;
 
     double fs_ = 0.0;
+    double sweepMs_ = kSweepMs;
     float smoothCoeff_ = 0.0f;
     int maxBlockFrames_ = 0;
     int windowMaxSamples_ = 0;

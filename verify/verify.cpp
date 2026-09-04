@@ -68,6 +68,9 @@ constexpr double kGlitchFreqHz = 440.0;
 constexpr double kGlitchDurationSec = 5.0;
 constexpr double kCpuDurationSec = 5.0;
 constexpr double kPi = 3.14159265358979323846;
+// 捕獲経路(Android の再生音キャプチャ)の走査幅。生音の漏れ込みが無いため
+// NFR-1 の 10ms 予算は適用されず、跳躍間隔(= sweep / |1-比|)を優先して広く取る。
+constexpr double kCaptureSweepMs = 40.0;
 
 const double kPitchFreqs[3] = {110.0, 440.0, 3520.0};
 const double kSampleRates[2] = {44100.0, 48000.0};
@@ -273,9 +276,18 @@ void testPitch(double fs) {
 // 期待比は常に 2^(cents/1200)。半音 = 100 セントの決め打ちはしない(BR1.1)。
 // ---------------------------------------------------------------------------
 void testPitchAt(double fs, double f, double cents, Scratch& s, std::size_t warmup,
-                 std::size_t frames) {
+                 std::size_t frames, double sweepMs = prism::PitchShifter::kSweepMs,
+                 double crossfadeMs =
+                     static_cast<double>(prism::PitchShifter::kCrossfadeMsDefault)) {
     char name[64];
-    std::snprintf(name, sizeof(name), "pitch@%.0f/%.0fHz/%+.0fc", fs, f, cents);
+    if (crossfadeMs != static_cast<double>(prism::PitchShifter::kCrossfadeMsDefault)) {
+        std::snprintf(name, sizeof(name), "pitch@%.0f/%.0fHz/%+.0fc/cf%.0f", fs, f, cents,
+                      crossfadeMs);
+    } else if (sweepMs == prism::PitchShifter::kSweepMs) {
+        std::snprintf(name, sizeof(name), "pitch@%.0f/%.0fHz/%+.0fc", fs, f, cents);
+    } else {
+        std::snprintf(name, sizeof(name), "pitch@%.0f/%.0fHz/%+.0fc/sw%.0f", fs, f, cents, sweepMs);
+    }
     Report r;
     r.caseName = name;
     r.metric = "ratio";
@@ -283,7 +295,7 @@ void testPitchAt(double fs, double f, double cents, Scratch& s, std::size_t warm
     r.tolerance = r.expected * kPitchRelTolerance;
 
     prism::PitchShifter ps;
-    if (!ps.prepare(fs, kBlockFrames) || !preparedOrReport(ps, fs, r.caseName)) {
+    if (!ps.prepare(fs, kBlockFrames, sweepMs) || !preparedOrReport(ps, fs, r.caseName)) {
         r.passed = false;
         r.note = "prepare failed";
         g_reports.push_back(r);
@@ -291,6 +303,7 @@ void testPitchAt(double fs, double f, double cents, Scratch& s, std::size_t warm
     }
     ps.setShiftCentsL(static_cast<float>(cents));
     ps.setShiftCentsR(static_cast<float>(cents));
+    ps.setCrossfadeMs(static_cast<float>(crossfadeMs));
     ps.reset();  // 平滑器を整定させ、走査域の中央から始める
 
     fillSine(s.inL, f, fs, kSignalAmplitude);
@@ -324,17 +337,76 @@ void testShiftRange(double fs) {
 }
 
 // ---------------------------------------------------------------------------
+// 走査幅のパラメータ化(捕獲経路 = 40ms)
+// prepare() の第 3 引数で走査幅を広げても、BR2.1 の判定式・許容差(±0.5%)を
+// そのまま満たすこと、および遅延式 baseOffset + sweep/2 が追従することを確認する。
+// ---------------------------------------------------------------------------
+void testSweepDesign(double fs, double sweepMs) {
+    char name[64];
+    std::snprintf(name, sizeof(name), "sweep@%.0f/sw%.0f/latency-design", fs, sweepMs);
+    Report r;
+    r.caseName = name;
+    r.metric = "samples";
+    r.tolerance = 0.0;
+
+    prism::PitchShifter ps;
+    if (!ps.prepare(fs, kBlockFrames, sweepMs) || !preparedOrReport(ps, fs, r.caseName)) {
+        r.passed = false;
+        r.note = "prepare failed";
+        g_reports.push_back(r);
+        return;
+    }
+    const double sweepSamples = static_cast<double>(ps.getSweepSamples());
+    r.expected = static_cast<double>(prism::PitchShifter::kBaseOffsetSamples) + 0.5 * sweepSamples;
+    r.measured = ps.getLatencySamples();  // 既定 -89 セント = 下げ方向(ガード帯なし)
+    const bool sweepMsMatches = (ps.getSweepMs() == sweepMs);
+    r.passed = (r.measured == r.expected) && sweepMsMatches;
+    char note[128];
+    std::snprintf(note, sizeof(note), "sweep=%.0f samples (%.2fms), getSweepMs=%.1f, %.2fms",
+                  sweepSamples, sweepSamples / fs * 1000.0, ps.getSweepMs(),
+                  r.measured / fs * 1000.0);
+    r.note = note;
+    g_reports.push_back(r);
+}
+
+void testCaptureSweep(double fs) {
+    const std::size_t warmup = static_cast<std::size_t>(fs * 0.6);
+    const std::size_t frames = warmup + static_cast<std::size_t>(kFftSize);
+    Scratch s;
+    s.allocate(frames);
+
+    // (a) 既定 -89 セントのピッチ精度が 110 / 440 / 3520 Hz で保たれること。
+    const double defaultCents = static_cast<double>(prism::PitchShifter::kShiftCentsDefault);
+    for (int fi = 0; fi < 3; ++fi) {
+        testPitchAt(fs, kPitchFreqs[fi], defaultCents, s, warmup, frames, kCaptureSweepMs);
+    }
+    // (b) 遅延式が走査幅に追従すること。
+    testSweepDesign(fs, kCaptureSweepMs);
+    // (c) 定義域の端(比 2.0 / 0.5)でも ±0.5% に収まること。
+    testPitchAt(fs, kPitchFreqs[1], static_cast<double>(prism::PitchShifter::kShiftCentsMax), s,
+                warmup, frames, kCaptureSweepMs);
+    testPitchAt(fs, kPitchFreqs[1], static_cast<double>(prism::PitchShifter::kShiftCentsMin), s,
+                warmup, frames, kCaptureSweepMs);
+}
+
+// ---------------------------------------------------------------------------
 // BR2.3 拡張: 上げ方向のグリッチ
 // 閾値は出力側の最大スロープ基準(= 3.0 x 2pi x f x ratio x A / fs)。既定 -89 の
 // 既存ケース(testGlitch)は入力側基準の式のまま据え置き、判定を緩めも締めもしない。
 // ---------------------------------------------------------------------------
-void testGlitchAt(double fs, double cents) {
+void testGlitchAt(double fs, double cents,
+                  double crossfadeMs =
+                      static_cast<double>(prism::PitchShifter::kCrossfadeMsDefault)) {
     const std::size_t frames = static_cast<std::size_t>(fs * kGlitchDurationSec);
     Scratch s;
     s.allocate(frames);
 
     char name[64];
-    std::snprintf(name, sizeof(name), "glitch@%.0f/%+.0fc", fs, cents);
+    if (crossfadeMs != static_cast<double>(prism::PitchShifter::kCrossfadeMsDefault)) {
+        std::snprintf(name, sizeof(name), "glitch@%.0f/%+.0fc/cf%.0f", fs, cents, crossfadeMs);
+    } else {
+        std::snprintf(name, sizeof(name), "glitch@%.0f/%+.0fc", fs, cents);
+    }
     Report r;
     r.caseName = name;
     r.metric = "discontinuities";
@@ -350,6 +422,7 @@ void testGlitchAt(double fs, double cents) {
     }
     ps.setShiftCentsL(static_cast<float>(cents));
     ps.setShiftCentsR(static_cast<float>(cents));
+    ps.setCrossfadeMs(static_cast<float>(crossfadeMs));
     ps.reset();
     fillSine(s.inL, kGlitchFreqHz, fs, kSignalAmplitude);
     s.inR = s.inL;
@@ -377,6 +450,29 @@ void testGlitchAt(double fs, double cents) {
     std::snprintf(note, sizeof(note), "max|dy|=%.5f limit=%.5f", worst, limit);
     r.note = note;
     g_reports.push_back(r);
+}
+
+// ---------------------------------------------------------------------------
+// クロスフェード窓長の上限(200ms)
+// startJump() の runLimit(跳躍量 x 8)を撤廃したことで、既定 -89 セントでも
+// 窓長が跳躍間隔(sweep / |1-比| ≈ 190ms)いっぱいまで伸びる。その極端でも
+// ピッチ精度(BR2.1)とグリッチゼロ(BR2.3)が保たれることを確認する。
+// ---------------------------------------------------------------------------
+void testCrossfadeMax(double fs) {
+    const std::size_t warmup = static_cast<std::size_t>(fs * 0.6);
+    const std::size_t frames = warmup + static_cast<std::size_t>(kFftSize);
+    Scratch s;
+    s.allocate(frames);
+
+    const double cf = static_cast<double>(prism::PitchShifter::kCrossfadeMsMax);
+    const double defaultCents = static_cast<double>(prism::PitchShifter::kShiftCentsDefault);
+    for (int fi = 0; fi < 3; ++fi) {
+        testPitchAt(fs, kPitchFreqs[fi], defaultCents, s, warmup, frames,
+                    prism::PitchShifter::kSweepMs, cf);
+    }
+    testGlitchAt(fs, defaultCents, cf);
+    // 上げ方向はガード帯が予算になるため、窓長を伸ばしても実効長は別式で決まる。
+    testGlitchAt(fs, static_cast<double>(prism::PitchShifter::kShiftCentsMax), cf);
 }
 
 // ---------------------------------------------------------------------------
@@ -766,6 +862,8 @@ int main() {
         const double fs = kSampleRates[i];
         testPitch(fs);
         testShiftRange(fs);
+        testCaptureSweep(fs);
+        testCrossfadeMax(fs);
         testLatency(fs);
         testGlitch(fs);
         testGlitchAt(fs, 100.0);

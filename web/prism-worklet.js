@@ -51,7 +51,8 @@ const DRY_WET_MIN = 0;
 const DRY_WET_MAX = 1;
 const DRY_WET_DEFAULT = 1;
 const CROSSFADE_MS_MIN = 10;
-const CROSSFADE_MS_MAX = 100;
+// C++ 正本 kCrossfadeMsMax と揃える(README の D-H)。
+const CROSSFADE_MS_MAX = 200;
 const CROSSFADE_MS_DEFAULT = 50;
 
 /** prepare の妥当域(契約 1 / WF-1.1)。 */
@@ -636,15 +637,10 @@ class PitchShifterJS {
         lag[base + next] = this._clampLag(oldLag - dirSign * bestJump);
         active[ch] = next;
         let len = this._window;
-        // クロスフェードは走行長を超えてはならない(跳躍間隔の 1/2 を上限にする)
-        const runLimit = bestJump * 8;
-        if (len > runLimit) {
-            len = runLimit;
-        }
-        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。
-        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。|drift| <= 0.125 の域では
-        //         runLimit が先に効くため、既定 -89 セントの挙動は従来と同一。
+        // フェード中に旧ヘッドが走り抜ける遅れの幅を予算内に収める。これが実効の上限。
+        //   下げ: 予算 = 跳躍量(= 次の跳躍までの走行長)。
         //   上げ: 予算 = ガード帯(旧ヘッドを baseOffset より下へ出さない)。
+        // C++ 正本と同様、以前あった runLimit(跳躍量 x 8)は撤廃した(README の D-H)。
         if (driftAbs > 0) {
             const budget = dirSign > 0 ? bestJump : this._guardSamples;
             const byExcursion = Math.trunc(budget / driftAbs);

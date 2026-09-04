@@ -238,6 +238,64 @@ v0.1.0 にはなかった出力音量調整を `AudioBridge`(`android/app/src/ma
   ヒープ確保・ロックなし(RT 安全)。`build-smoke.sh` の `audio_bridge_smoke.cpp`
   テスト [8] がゲインの反映・clamp・ソフトクリップの飽和を検証する。
 
+### 捕獲音のミックス(AudioPlaybackCapture)
+
+v0.4.0 で、**他アプリの再生音**をマイクと並ぶ第 2 の音源として受け取れるようにした。
+捕獲は `AudioPlaybackCaptureConfiguration` + `AudioRecord`(Java 側)でしか開けない —
+Oboe / AAudio にはこの API が無い。したがってネイティブ側は「Java の録音スレッドから
+サンプルを受け取る口」だけを持つ。
+
+```
+Java: MediaProjection -> AudioRecord -> NativeEngine.pushCapture(FloatArray, frames, channels)
+                                              |
+                                    ロックフリー SPSC リング(1 秒ぶん)
+                                              |
+音声スレッド: onAudioReady -> AudioBridge::render()
+                 マイク経路 (PitchShifter, sweep 9.5ms) x micGain
+               + 捕獲経路   (PitchShifter, sweep 40ms)  x captureGain
+               -> 出力ゲイン -> ソフトクリップ
+```
+
+- **走査幅が経路ごとに違う**。捕獲音には「イヤホンから漏れる生音」が存在しないため
+  10ms の遅延予算が効かない。走査幅を 40ms に広げると跳躍間隔(= `sweep ÷ |1−比|`)が
+  4 倍になり、シフト量が大きいときのざらつきが減る(根拠はリポジトリ直下 README の D-A2)。
+- **シフト量 / dry-wet / クロスフェードは 2 本のシフタへ同じ値が流れる**
+  (`PrismEngine` のセッターが両方へ書く)。違うのは走査幅だけ。
+- **読み出しの状態機械**: 有効化直後とアンダーラン後は約 20ms たまるまで無音、
+  たまったら毎コールバック `numFrames` ぶん pop、滞留が 200ms を超えたら古い分を
+  捨てて追いつく(捕獲側と出力側のクロック差への対策)。
+- **Kotlin 側の注意**:
+  - `AudioRecord` は **エンジンの出力と同じサンプルレート**(`streamInfo().sampleRate`)で
+    開くこと。違うと再生速度がずれる。フォーマットは `ENCODING_PCM_FLOAT`。
+  - `pushCapture` は録音スレッドから直接呼ぶ(1 秒に 50〜100 回想定)。
+    JNI は `GetPrimitiveArrayCritical` で配列を直接読むのでコピーは発生しない。
+  - `setCaptureEnabled(false)` のあいだ `pushCapture` は 0 を返す(何も書かない)。
+    再び true にすると、リングは空・シフタは初期状態から始まる。
+  - `micGain = 0.0` でマイクを完全ミュートでき、「捕獲音だけを聴く」構成になる。
+  - 診断は `streamInfo()` の `captureUnderruns` / `captureOverruns` / `captureFillFrames`。
+- ホストスモーク `audio_bridge_smoke.cpp` のテスト [9]〜[12] がリングの順序保証・
+  クッション・ミックス・under/overrun カウントを検証する。
+
+### 出力先 / 入力元のデバイス指定と用途
+
+`PrismEngine::setOutputDeviceId` / `setInputDeviceId`(0 = 自動)と `setOutputUsage`
+(0 = Media/Music、1 = AssistanceAccessibility/Speech)を追加した。いずれも
+**次の `start()` から**有効。指定した ID で開けなかった場合は自動(0)で開き直し、
+`streamInfo()` の `outputDeviceFallback` / `inputDeviceFallback` が true になる
+(UI が「指定先で開けませんでした」と出せる)。実際に開いたデバイスは
+`outputDeviceId` / `inputDeviceId` に入る。
+
+用途 1 の狙いは「メディア音量を絞っても本アプリの出力だけ鳴らす」実験。
+Exclusive が取れなければ従来どおり Shared に落ちる。
+
+### マイク経路の走査幅(聴感ヒアリング用)
+
+`NativeEngine.setMicSweepMs(Double)`(既定 9.5、次の `start()` から有効)。
+広げるほど低域のピッチ精度と跳躍間隔が改善する代わりに遅延が増える
+(設計値遅延 ≈ 8 サンプル + 走査幅の半分)。採用値は `latency().micSweepMs`、
+そのときの DSP 遅延は従来どおり `latency().dspMs`。範囲はネイティブ側で
+2.0〜100.0ms に clamp される。
+
 ### スライダの範囲と刻み幅
 
 `prism::PitchShifter` は `kShiftCentsMin = -1200` 〜 `kShiftCentsMax = +1200` を

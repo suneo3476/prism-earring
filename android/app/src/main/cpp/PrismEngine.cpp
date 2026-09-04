@@ -31,22 +31,28 @@ void logError(const char* fmt, ...) {
     va_end(args);
 }
 
-// 出力ビルダの共通設定。sampleRate / framesPerCallback が 0 なら未指定。
+// 出力ビルダの共通設定。sampleRate / framesPerCallback / deviceId が 0 なら未指定。
+// usage は PrismEngine::kUsageMedia / kUsageAccessibility。
 void configureOutput(oboe::AudioStreamBuilder& builder,
                      oboe::SharingMode sharing,
                      int32_t sampleRate,
                      int32_t framesPerCallback,
                      oboe::AudioStreamDataCallback* dataCallback,
-                     oboe::AudioStreamErrorCallback* errorCallback) {
+                     oboe::AudioStreamErrorCallback* errorCallback,
+                     int32_t deviceId,
+                     int usage) {
+    // 既定は Media/Music。VoiceCommunication にすると AEC と受話口ルーティングが
+    // 有効になり、遅延も音質も悪化する(この用途では逆効果)。
+    // AssistanceAccessibility/Speech は「メディア音量を絞っても本アプリだけ鳴らす」
+    // ための選択肢(端末によってはアクセシビリティ音量に乗る)。
+    const bool accessibility = (usage == PrismEngine::kUsageAccessibility);
     builder.setDirection(oboe::Direction::Output)
         ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
         ->setSharingMode(sharing)
         ->setFormat(oboe::AudioFormat::Float)
         ->setChannelCount(oboe::ChannelCount::Stereo)
-        // Media/Music にする。VoiceCommunication にすると AEC と受話口ルーティングが
-        // 有効になり、遅延も音質も悪化する(この用途では逆効果)。
-        ->setUsage(oboe::Usage::Media)
-        ->setContentType(oboe::ContentType::Music)
+        ->setUsage(accessibility ? oboe::Usage::AssistanceAccessibility : oboe::Usage::Media)
+        ->setContentType(accessibility ? oboe::ContentType::Speech : oboe::ContentType::Music)
         ->setFormatConversionAllowed(true)
         ->setChannelConversionAllowed(true)
         ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
@@ -55,6 +61,9 @@ void configureOutput(oboe::AudioStreamBuilder& builder,
     }
     if (framesPerCallback > 0) {
         builder.setFramesPerDataCallback(framesPerCallback);
+    }
+    if (deviceId != PrismEngine::kDeviceIdAuto) {
+        builder.setDeviceId(deviceId);
     }
     if (dataCallback != nullptr) {
         builder.setDataCallback(dataCallback);
@@ -69,7 +78,8 @@ void configureInput(oboe::AudioStreamBuilder& builder,
                     oboe::InputPreset preset,
                     int32_t sampleRate,
                     int32_t capacityFrames,
-                    oboe::AudioStreamErrorCallback* errorCallback) {
+                    oboe::AudioStreamErrorCallback* errorCallback,
+                    int32_t deviceId) {
     builder.setDirection(oboe::Direction::Input)
         ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
         ->setSharingMode(sharing)
@@ -83,10 +93,55 @@ void configureInput(oboe::AudioStreamBuilder& builder,
     if (capacityFrames > 0) {
         builder.setBufferCapacityInFrames(capacityFrames);
     }
+    if (deviceId != PrismEngine::kDeviceIdAuto) {
+        builder.setDeviceId(deviceId);
+    }
     if (errorCallback != nullptr) {
         builder.setErrorCallback(errorCallback);
     }
     // 入力はコールバックを持たない。出力コールバックから read する。
+}
+
+// 出力ストリームを開く。要求どおりに開けなければ順に緩めていく:
+//   指定デバイス x Exclusive -> 指定デバイス x Shared
+//   -> 自動デバイス x Exclusive -> 自動デバイス x Shared
+// deviceId は実際に要求した ID を返し、fellBack は自動へ落ちたかを返す。
+// allowExclusive は入出力両用(探査で Shared と分かっていれば最初から Shared)。
+oboe::Result openOutput(std::shared_ptr<oboe::AudioStream>& stream,
+                        bool& allowExclusive,
+                        int32_t& deviceId,
+                        bool& fellBack,
+                        int usage,
+                        int32_t sampleRate,
+                        int32_t framesPerCallback,
+                        oboe::AudioStreamDataCallback* dataCallback,
+                        oboe::AudioStreamErrorCallback* errorCallback) {
+    const int32_t requested = deviceId;
+    oboe::Result result = oboe::Result::ErrorInternal;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const int32_t id = (attempt == 0) ? requested : PrismEngine::kDeviceIdAuto;
+        if (attempt == 1 && requested == PrismEngine::kDeviceIdAuto) {
+            break;  // 既に自動で試している
+        }
+        const oboe::SharingMode sharings[] = {oboe::SharingMode::Exclusive,
+                                              oboe::SharingMode::Shared};
+        for (const oboe::SharingMode sharing : sharings) {
+            if (sharing == oboe::SharingMode::Exclusive && !allowExclusive) {
+                continue;
+            }
+            oboe::AudioStreamBuilder builder;
+            configureOutput(builder, sharing, sampleRate, framesPerCallback, dataCallback,
+                            errorCallback, id, usage);
+            result = builder.openStream(stream);
+            if (result == oboe::Result::OK) {
+                allowExclusive = (stream->getSharingMode() == oboe::SharingMode::Exclusive);
+                deviceId = id;
+                fellBack = (id != requested);
+                return result;
+            }
+        }
+    }
+    return result;
 }
 
 }  // namespace
@@ -116,21 +171,21 @@ bool PrismEngine::startLocked() {
     // ---- 1. 出力デバイスの素性を調べる(サンプルレートとバースト長) ---------
     // framesPerDataCallback を「バースト長」に設定したいが、バースト長は
     // 開いてみないと分からない。そこで一度開いて閉じ、値を得てから本開きする。
+    const int32_t wantOutputDevice = outputDeviceId_.load(std::memory_order_relaxed);
+    const int32_t wantInputDevice = inputDeviceId_.load(std::memory_order_relaxed);
+    const int usage = outputUsage_.load(std::memory_order_relaxed);
+    outputDeviceFallback_.store(false, std::memory_order_relaxed);
+    inputDeviceFallback_.store(false, std::memory_order_relaxed);
+
     int32_t deviceSampleRate = 0;
     int32_t burst = 0;
     bool exclusive = true;
+    int32_t outputDevice = wantOutputDevice;
+    bool outputFellBack = false;
     {
-        oboe::AudioStreamBuilder probe;
-        configureOutput(probe, oboe::SharingMode::Exclusive, 0, 0, nullptr, nullptr);
         std::shared_ptr<oboe::AudioStream> stream;
-        oboe::Result result = probe.openStream(stream);
-        if (result != oboe::Result::OK) {
-            // Exclusive が取れない端末は Shared で開き直す。
-            exclusive = false;
-            oboe::AudioStreamBuilder shared;
-            configureOutput(shared, oboe::SharingMode::Shared, 0, 0, nullptr, nullptr);
-            result = shared.openStream(stream);
-        }
+        const oboe::Result result = openOutput(stream, exclusive, outputDevice, outputFellBack,
+                                               usage, 0, 0, nullptr, nullptr);
         if (result != oboe::Result::OK) {
             setError(std::string("出力ストリームを開けません: ") +
                      oboe::convertToText(result));
@@ -138,7 +193,6 @@ bool PrismEngine::startLocked() {
         }
         deviceSampleRate = stream->getSampleRate();
         burst = stream->getFramesPerBurst();
-        exclusive = (stream->getSharingMode() == oboe::SharingMode::Exclusive);
         stream->close();
     }
     if (deviceSampleRate <= 0) {
@@ -153,18 +207,12 @@ bool PrismEngine::startLocked() {
 
     // ---- 2. 出力ストリームを本開き ------------------------------------------
     {
-        oboe::AudioStreamBuilder builder;
-        configureOutput(builder,
-                        exclusive ? oboe::SharingMode::Exclusive : oboe::SharingMode::Shared,
-                        deviceSampleRate, framesPerCallback, this, this);
-        oboe::Result result = builder.openStream(outputStream_);
-        if (result != oboe::Result::OK && exclusive) {
-            exclusive = false;
-            oboe::AudioStreamBuilder shared;
-            configureOutput(shared, oboe::SharingMode::Shared, deviceSampleRate,
-                            framesPerCallback, this, this);
-            result = shared.openStream(outputStream_);
-        }
+        // 探査と同じ順序でもう一度緩めていく(探査が通っても本開きで失敗しうる)。
+        outputDevice = wantOutputDevice;
+        outputFellBack = false;
+        const oboe::Result result = openOutput(outputStream_, exclusive, outputDevice,
+                                               outputFellBack, usage, deviceSampleRate,
+                                               framesPerCallback, this, this);
         if (result != oboe::Result::OK) {
             setError(std::string("出力ストリームを開けません: ") +
                      oboe::convertToText(result));
@@ -176,6 +224,7 @@ bool PrismEngine::startLocked() {
     }
     exclusiveMode_.store(outputStream_->getSharingMode() == oboe::SharingMode::Exclusive,
                          std::memory_order_relaxed);
+    outputDeviceFallback_.store(outputFellBack, std::memory_order_relaxed);
 
     // ---- 3. 入力ストリーム(出力と同じサンプルレートで) ---------------------
     // Unprocessed は AGC / ノイズ抑制 / AEC をすべて切る。ピッチを正しく通し、
@@ -188,20 +237,29 @@ bool PrismEngine::startLocked() {
         const oboe::SharingMode sharings[] = {oboe::SharingMode::Exclusive,
                                               oboe::SharingMode::Shared};
         oboe::Result result = oboe::Result::ErrorInternal;
-        for (const oboe::InputPreset preset : presets) {
-            for (const oboe::SharingMode sharing : sharings) {
-                oboe::AudioStreamBuilder builder;
-                configureInput(builder, sharing, preset, deviceSampleRate,
-                               framesPerCallback * kInputBurstsCapacity, this);
-                result = builder.openStream(inputStream_);
+        // 指定デバイスで一巡し、駄目なら自動(0)でもう一巡する。
+        for (int attempt = 0; attempt < 2 && result != oboe::Result::OK; ++attempt) {
+            const int32_t id = (attempt == 0) ? wantInputDevice : kDeviceIdAuto;
+            if (attempt == 1 && wantInputDevice == kDeviceIdAuto) {
+                break;
+            }
+            for (const oboe::InputPreset preset : presets) {
+                for (const oboe::SharingMode sharing : sharings) {
+                    oboe::AudioStreamBuilder builder;
+                    configureInput(builder, sharing, preset, deviceSampleRate,
+                                   framesPerCallback * kInputBurstsCapacity, this, id);
+                    result = builder.openStream(inputStream_);
+                    if (result == oboe::Result::OK) {
+                        unprocessedInput_.store(preset == oboe::InputPreset::Unprocessed,
+                                                std::memory_order_relaxed);
+                        inputDeviceFallback_.store(id != wantInputDevice,
+                                                   std::memory_order_relaxed);
+                        break;
+                    }
+                }
                 if (result == oboe::Result::OK) {
-                    unprocessedInput_.store(preset == oboe::InputPreset::Unprocessed,
-                                            std::memory_order_relaxed);
                     break;
                 }
-            }
-            if (result == oboe::Result::OK) {
-                break;
             }
         }
         if (result != oboe::Result::OK) {
@@ -235,7 +293,8 @@ bool PrismEngine::startLocked() {
         return false;
     }
     if (!bridge_.prepare(static_cast<double>(outputStream_->getSampleRate()), inputChannels_,
-                         outputChannels_)) {
+                         outputChannels_, micSweepMs_.load(std::memory_order_relaxed),
+                         AudioBridge::kCaptureSweepMsDefault)) {
         setError("DSP の初期化に失敗しました");
         return false;
     }
@@ -265,6 +324,12 @@ bool PrismEngine::startLocked() {
             outputStream_->getFramesPerBurst(), framesPerCallback,
             exclusiveMode_.load(std::memory_order_relaxed) ? 1 : 0,
             unprocessedInput_.load(std::memory_order_relaxed) ? 1 : 0);
+    logInfo("routing: usage=%d outDev=%d(req %d, fallback=%d) inDev=%d(req %d, fallback=%d) "
+            "micSweep=%.1fms captureSweep=%.1fms",
+            usage, outputStream_->getDeviceId(), wantOutputDevice, outputFellBack ? 1 : 0,
+            inputStream_->getDeviceId(), wantInputDevice,
+            inputDeviceFallback_.load(std::memory_order_relaxed) ? 1 : 0, bridge_.micSweepMs(),
+            bridge_.captureSweepMs());
     return true;
 }
 
@@ -409,7 +474,9 @@ void PrismEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/, oboe::Result 
 PrismEngine::LatencyReport PrismEngine::latency() const {
     std::lock_guard<std::mutex> lock(controlMutex_);
     LatencyReport report;
-    report.dspMillis = bridge_.dspLatencyMillis();
+    report.dspMillis = bridge_.dspLatencyMillis();  // マイク経路の値(捕獲経路は含まない)
+    report.micSweepMillis = bridge_.micSweepMs();
+    report.captureSweepMillis = bridge_.captureSweepMs();
     if (!running_.load(std::memory_order_acquire) || !inputStream_ || !outputStream_) {
         report.totalMillis = report.dspMillis;
         return report;
@@ -455,6 +522,16 @@ int PrismEngine::framesPerBurst() const {
     return outputStream_ ? outputStream_->getFramesPerBurst() : 0;
 }
 
+int32_t PrismEngine::actualOutputDeviceId() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    return outputStream_ ? outputStream_->getDeviceId() : kDeviceIdAuto;
+}
+
+int32_t PrismEngine::actualInputDeviceId() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    return inputStream_ ? inputStream_->getDeviceId() : kDeviceIdAuto;
+}
+
 std::string PrismEngine::lastError() const {
     std::lock_guard<std::mutex> lock(errorMutex_);
     return lastError_;
@@ -468,12 +545,15 @@ void PrismEngine::setError(const std::string& message) {
     lastError_ = message;
 }
 
+// シフト量は 2 本のシフタ(マイク経路 / 捕獲経路)へ同じ値を流す。
 void PrismEngine::setShiftCents(int channel, float cents) noexcept {
     if (channel != 1) {
         bridge_.shifter().setShiftCentsL(cents);
+        bridge_.captureShifter().setShiftCentsL(cents);
     }
     if (channel != 0) {
         bridge_.shifter().setShiftCentsR(cents);
+        bridge_.captureShifter().setShiftCentsR(cents);
     }
 }
 

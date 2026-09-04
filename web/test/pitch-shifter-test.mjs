@@ -638,13 +638,14 @@ section('T7 エッジケース — setParam のクランプ/無効値無視(BR1.
         );
     }
 
-    // crossfadeMs は [10, 100] にクランプされる(窓長サンプル数で検算)
+    // crossfadeMs は [10, 200] にクランプされる(窓長サンプル数で検算)
+    // 上限 200ms は C++ 正本 kCrossfadeMsMax と揃えた値(README の D-H)。
     const sLow = makeShifter(fs, -89, 1);
     const sHigh = makeShifter(fs, -89, 999);
     check(
-        'crossfadeMs=1 は 10ms に、999 は 100ms にクランプされる',
+        'crossfadeMs=1 は 10ms に、999 は 200ms にクランプされる',
         sLow.windowSamples() === Math.round((10 * fs) / 1000) &&
-            sHigh.windowSamples() === Math.round((100 * fs) / 1000),
+            sHigh.windowSamples() === Math.round((200 * fs) / 1000),
         `window=${sLow.windowSamples()} / ${sHigh.windowSamples()} サンプル`
     );
 

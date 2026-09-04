@@ -344,6 +344,233 @@ void testOutputGainAndSoftClip() {
     check(peakClipped > 0.9f, "折れ点(0.9)を超える入力はきちんと持ち上がる");
 }
 
+// ---- 捕獲経路の共通ヘルパ ---------------------------------------------------
+// 捕獲経路を「素通し(dryWet=0)+ マイク無音」に構成する。こうするとリングに
+// 書いた値がそのまま出力に現れるため、順序・クッション・欠落を厳密に検査できる。
+//   out = マイク経路 x 0.0 + 捕獲経路 x 1.0、出力ゲイン 1.0、|x| <= 0.9 は素通し。
+void configurePassthroughCapture(prism::AudioBridge& bridge) {
+    bridge.captureShifter().setDryWet(0.0f);  // 有効化時の reset() で即座に整定する
+    bridge.setMicGain(0.0f);
+    bridge.setCaptureGain(1.0f);
+    bridge.setCaptureEnabled(true);
+}
+
+// 値が単調増加するインタリーブ stereo の列(L=R)。
+std::vector<float> makeRamp(int frames) {
+    std::vector<float> buf(static_cast<std::size_t>(frames) * 2u);
+    for (int i = 0; i < frames; ++i) {
+        const float v = 0.0001f * static_cast<float>(i + 1);
+        buf[static_cast<std::size_t>(i) * 2u] = v;
+        buf[static_cast<std::size_t>(i) * 2u + 1u] = v;
+    }
+    return buf;
+}
+
+// ---- 9. 捕獲リング: push した順に pop されること ----------------------------
+void testCaptureRingOrdering() {
+    std::printf("[9] 捕獲リング: push/pop の順序保証\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    check(!bridge.isCaptureEnabled(), "捕獲は既定で無効");
+    check(bridge.captureSweepMs() == prism::AudioBridge::kCaptureSweepMsDefault,
+          "捕獲シフタの走査幅が既定 40ms で開かれている");
+    check(bridge.shifter().getSweepMs() == prism::PitchShifter::kSweepMs,
+          "マイクシフタの走査幅は従来どおり 9.5ms");
+
+    check(bridge.pushCapture(nullptr, 128, 2) == 0, "無効中の pushCapture は 0 を返す");
+
+    configurePassthroughCapture(bridge);
+    runToSteadyState(bridge);
+
+    // クッション(20ms = 960 フレーム @48k)を超える量をまとめて書く。
+    const int pushed = 2000;
+    const std::vector<float> ramp = makeRamp(pushed);
+    check(bridge.pushCapture(ramp.data(), pushed, 2) == pushed, "2000 フレーム全部書ける");
+    check(bridge.captureFillFrames() == pushed, "滞留が push した分だけ増える");
+
+    const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
+
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    bool ordered = true;
+    for (int i = 0; i < kFrames; ++i) {
+        if (out[static_cast<std::size_t>(i) * 2u] != ramp[static_cast<std::size_t>(i) * 2u]) {
+            ordered = false;
+        }
+    }
+    check(ordered, "1 回目のコールバックに先頭 192 フレームが順番どおり現れる");
+
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    bool continued = true;
+    for (int i = 0; i < kFrames; ++i) {
+        const std::size_t src = static_cast<std::size_t>(kFrames + i) * 2u;
+        if (out[static_cast<std::size_t>(i) * 2u] != ramp[src]) {
+            continued = false;
+        }
+    }
+    check(continued, "2 回目は続きから途切れずに出る(取りこぼし・重複なし)");
+    check(bridge.captureFillFrames() == pushed - 2 * kFrames, "滞留が pop した分だけ減る");
+    check(bridge.captureUnderruns() == 0 && bridge.captureOverruns() == 0,
+          "順調な経路では under/overrun が発生しない");
+
+    // モノ捕獲は L/R に複製される。
+    const std::vector<float> mono(64, 0.25f);
+    check(bridge.pushCapture(mono.data(), 64, 1) == 64, "モノ 64 フレームを書ける");
+}
+
+// ---- 10. クッション: たまるまで読まないこと --------------------------------
+void testCaptureCushion() {
+    std::printf("[10] 捕獲リング: クッション動作\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    configurePassthroughCapture(bridge);
+    runToSteadyState(bridge);
+
+    const int cushion = bridge.captureCushionFrames();
+    check(cushion == static_cast<int>(prism::AudioBridge::kCaptureCushionMs * kFs / 1000.0),
+          "クッションは 20ms 相当(960 フレーム @48k)");
+
+    // クッション未満: 読まずに無音を出す(滞留も減らない)。
+    const int half = cushion / 2;
+    const std::vector<float> quiet(static_cast<std::size_t>(half) * 2u, 0.5f);
+    check(bridge.pushCapture(quiet.data(), half, 2) == half, "クッション未満だけ書く");
+
+    const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(peak(out, 1, 0) == 0.0f, "クッションがたまるまで捕獲経路は無音");
+    check(bridge.captureFillFrames() == half, "読まないので滞留は減らない");
+    check(bridge.captureUnderruns() == 0, "クッション待ちはアンダーランに数えない");
+
+    // クッションを超えたら読み始める。
+    check(bridge.pushCapture(quiet.data(), half, 2) == half, "追加で書いてクッションを超える");
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(out[0] == 0.5f, "クッションが満ちたら捕獲音がそのまま出る");
+    check(bridge.captureFillFrames() == 2 * half - kFrames, "読んだ分だけ滞留が減る");
+}
+
+// ---- 11. mic 0 + capture 1 のとき捕獲音だけが出ること -----------------------
+void testMicMuteCaptureOnly() {
+    std::printf("[11] ミックス: micGain=0 なら捕獲音だけが出る\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    check(bridge.micGain() == 1.0f && bridge.captureGain() == 1.0f, "ゲインの既定は 1.0");
+    runToSteadyState(bridge);
+
+    // 捕獲無効 + micGain=0: マイクに信号があっても出力は完全な無音。
+    bridge.setMicGain(0.0f);
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
+    double phase = 0.0;
+    for (int block = 0; block < 50; ++block) {
+        const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, phase);
+        phase += kFrames;
+        bridge.render(in.data(), kFrames, out.data(), kFrames);
+    }
+    check(peak(out, 1, 0) == 0.0f, "micGain=0 かつ捕獲無効なら出力は無音");
+
+    // 捕獲を有効にして一定値を流すと、その値だけが出る(マイクは混ざらない)。
+    bridge.captureShifter().setDryWet(0.0f);
+    bridge.setCaptureGain(1.0f);
+    bridge.setCaptureEnabled(true);
+    const std::vector<float> constant(4000u * 2u, 0.25f);
+    check(bridge.pushCapture(constant.data(), 4000, 2) == 4000, "捕獲音を 4000 フレーム書く");
+
+    const std::vector<float> mic = makeSine(kFrames, 2, 440.0, kFs, 0.0);
+    bridge.render(mic.data(), kFrames, out.data(), kFrames);
+    bool captureOnly = true;
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        if (out[i] != 0.25f) {
+            captureOnly = false;
+        }
+    }
+    check(captureOnly, "マイク信号があっても捕獲音の値だけが出る");
+
+    // 捕獲ゲイン 0 では無音に戻る。
+    bridge.setCaptureGain(0.0f);
+    bridge.render(mic.data(), kFrames, out.data(), kFrames);
+    check(peak(out, 1, 0) == 0.0f, "captureGain=0 で捕獲経路も無音になる");
+
+    // ゲインの clamp。
+    bridge.setMicGain(-1.0f);
+    check(bridge.micGain() == prism::AudioBridge::kMicGainMin, "micGain の下限は 0.0");
+    bridge.setMicGain(99.0f);
+    check(bridge.micGain() == prism::AudioBridge::kMicGainMax, "micGain の上限は 2.0");
+    bridge.setMicGain(std::nanf(""));
+    check(bridge.micGain() == prism::AudioBridge::kMicGainDefault,
+          "非有限な micGain は既定値 1.0 に丸められる");
+    bridge.setCaptureGain(99.0f);
+    check(bridge.captureGain() == prism::AudioBridge::kCaptureGainMax,
+          "captureGain の上限は 4.0");
+    bridge.setCaptureGain(std::nanf(""));
+    check(bridge.captureGain() == prism::AudioBridge::kCaptureGainDefault,
+          "非有限な captureGain は既定値 1.0 に丸められる");
+}
+
+// ---- 12. overrun / underrun のカウント -------------------------------------
+void testCaptureOverrunUnderrun() {
+    std::printf("[12] 捕獲リング: overrun / underrun のカウント\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    configurePassthroughCapture(bridge);
+    runToSteadyState(bridge);
+
+    const int ring = bridge.captureRingFrames();
+    check(ring == static_cast<int>(prism::AudioBridge::kCaptureRingSeconds * kFs),
+          "リング容量は 1 秒ぶん(48000 フレーム @48k)");
+
+    // 容量を超える push は余りを捨て、overrun を 1 数える。
+    const int over = ring + 1000;
+    const std::vector<float> big(static_cast<std::size_t>(over) * 2u, 0.1f);
+    check(bridge.pushCapture(big.data(), over, 2) == ring - 1,
+          "満杯の 1 フレーム手前まで書ける(空と満杯を区別するため)");
+    check(bridge.captureOverruns() == 1, "取りこぼした push が 1 回数えられる");
+    check(bridge.pushCapture(big.data(), 128, 2) == 0, "満杯のあいだは 1 フレームも書けない");
+    check(bridge.captureOverruns() == 2, "満杯への push も取りこぼしとして数える");
+
+    // 滞留が上限(200ms)を超えているので、最初の読み出しで古い分が捨てられる。
+    const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(bridge.captureFillFrames() <= bridge.captureCushionFrames(),
+          "滞留が上限を超えたら古い分を捨ててクッション量まで詰める(ドリフト対策)");
+    check(bridge.captureUnderruns() == 0, "捨てただけではアンダーランに数えない");
+
+    // 読み続けるとリングが空になり、アンダーランが数えられる。
+    for (int k = 0; k < 16; ++k) {
+        bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    }
+    check(bridge.captureUnderruns() >= 1, "リングが空になるとアンダーランを数える");
+
+    // アンダーラン後はクッション待ちに戻るので、たまるまでは無音。
+    const int before = bridge.captureUnderruns();
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(peak(out, 1, 0) == 0.0f, "アンダーラン後はクッション待ちに戻って無音になる");
+    check(bridge.captureUnderruns() == before,
+          "クッション待ちのあいだはアンダーランを重ねて数えない");
+
+    // 無効化すると経路が無音になり、再有効化ではリングが空から始まる。
+    check(bridge.pushCapture(big.data(), 2000, 2) == 2000, "無音化の前に捕獲音を書いておく");
+    bridge.setCaptureEnabled(false);
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(peak(out, 1, 0) == 0.0f, "無効化すると捕獲経路は無音");
+    bridge.setCaptureEnabled(true);
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(bridge.captureFillFrames() == 0, "再有効化ではリングが空から始まる");
+    check(peak(out, 1, 0) == 0.0f, "再有効化直後はクッションがたまるまで無音");
+}
+
 }  // namespace
 
 int main() {
@@ -356,6 +583,10 @@ int main() {
     testOversizedCallbackAndMonoOutput();
     testParameterClamping();
     testOutputGainAndSoftClip();
+    testCaptureRingOrdering();
+    testCaptureCushion();
+    testMicMuteCaptureOnly();
+    testCaptureOverrunUnderrun();
 
     std::printf("\n");
     if (g_failures == 0) {
