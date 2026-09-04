@@ -6842,3 +6842,33 @@
 **Message**: WASM 化を完了し、ワークツリーに 1 コミット(`e306b2e`)しました。\n\n- テスト実測(`node web/test/wasm-test.mjs` → **86 PASS / 0 FAIL**): 比 0.949849〜0.949902(-0.18〜-0.28 cents、許容 ±0.5%)@110/440/3520Hz × 44.1k/48k、インパルス実測遅延 228 サンプル@
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-04T00:25:03Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-04T00:32:39Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: ab601a46ad566dc79
+**Message**: コミット済み(`535d386`)。既存テストは緑のまま(`web/test/wasm-test.mjs` 86 PASS / `web/test/pitch-shifter-test.mjs` 71 PASS)、`node --check` も通過。\n\n- `<project-dir>/web/index.html` — 状態表示とボタンの間に「入力」ラジ
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T00:36:45Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-04T00:38:35Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
