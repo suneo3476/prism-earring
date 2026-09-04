@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/assets/logo.svg" alt="prism earring" width="480">
+</p>
+
 # prism — DSP コア + オフライン数値検証
 
 Bolt B1(`u1-dsp-core`)と B2(`u2-verification`)の成果物。

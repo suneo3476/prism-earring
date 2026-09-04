@@ -13,12 +13,17 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <title>prism — PrismEarring demo</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <main class="app">
     <header class="app-header">
-        <h1>prism — PrismEarring demo</h1>
+        <!-- ロゴが「prism earring」を担うので、見出しは用途(demo)だけを名乗る。 -->
+        <div class="brand">
+            <img class="brand-logo" src="./assets/logo.svg" alt="prism earring" width="640" height="320">
+            <h1>PrismEarring demo</h1>
+        </div>
         <p class="note">※イヤホン推奨(スピーカーはハウリングします)</p>
     </header>
 
