@@ -10,45 +10,94 @@
     <string name="latency_unknown">-- ms</string>
     <string name="latency_format">往復 %1$.1f ms</string>
     <string name="latency_measuring">測定中</string>
+    <string name="info_latency_title">遅延表示</string>
+    <string name="info_latency_body">マイクからイヤホンまでの往復時間です。20 ミリ秒以下なら生音とほぼ重なって聞こえます。Bluetooth イヤホンは 100 ミリ秒以上遅れるため、この用途では有線イヤホンを使ってください。</string>
 
-    <!-- 窓長プリセット -->
-    <string name="preset_title">窓長プリセット</string>
+    <!-- 使い方(状態カード) -->
+    <string name="usage_stopped">1. 有線イヤホンをつなぐ\n2. 開始を押す\n3. 音の高さを合わせる</string>
+    <string name="usage_running">動作中 — 画面を消しても動きます。止めるには停止を押すか、通知の「停止」を押してください。</string>
+
+    <!-- なめらかさプリセット -->
+    <string name="preset_title">なめらかさプリセット</string>
     <string name="preset_20">20 ms</string>
     <string name="preset_50">50 ms</string>
     <string name="preset_100">100 ms</string>
+    <string name="info_presets_title">なめらかさプリセット</string>
+    <string name="info_presets_body">反応優先(20ms)/ 標準(50ms)/ 音質優先(100ms)の 3 段階から選べます。反応優先は声の動きに素早く追従しますが、ざらつきが出やすくなります。音質優先はなめらかですが、動きへの追従が少し遅れます。迷ったら標準のままで問題ありません。</string>
 
-    <!-- 主役カード -->
+    <!-- 主役カード: 音の高さ -->
+    <string name="shift_title">音の高さ</string>
     <string name="shift_unit">セント</string>
+    <string name="shift_sub_label">低く ← → 高く</string>
+    <string name="label_low">低く</string>
+    <string name="label_high">高く</string>
     <string name="tag_left">L</string>
     <string name="tag_right">R</string>
     <string name="step_down">−</string>
     <string name="step_up">+</string>
-    <string name="desc_step_down_l">シフト量を 1 セント下げる</string>
-    <string name="desc_step_up_l">シフト量を 1 セント上げる</string>
-    <string name="desc_step_down_r">シフト量 R を 1 セント下げる</string>
-    <string name="desc_step_up_r">シフト量 R を 1 セント上げる</string>
+    <string name="desc_step_down_l">シフト量を下げる</string>
+    <string name="desc_step_up_l">シフト量を上げる</string>
+    <string name="desc_step_down_r">シフト量 R を下げる</string>
+    <string name="desc_step_up_r">シフト量 R を上げる</string>
     <string name="desc_slider_l">シフト量(セント)</string>
     <string name="desc_slider_r">シフト量 R(セント)</string>
+    <string name="info_shift_title">音の高さ(シフト量)</string>
+    <string name="info_shift_body">入ってきた音を、どれだけ高く / 低くして聞くかです。100 で半音、200 で全音、1200 で 1 オクターブ変わります。マイナスにすると低く聞こえます。作者本人の既定値は −89(半音よりわずかに狭い)です。</string>
 
-    <string name="range_title">スライダの範囲</string>
-    <string name="range_fine">微調整\n±150</string>
-    <string name="range_semitone">半音\n±100</string>
-    <string name="range_tone">全音\n±200</string>
-    <string name="range_octave">オクターブ\n±1200</string>
+    <!-- 既定に戻す -->
+    <string name="reset_shift_button">既定に戻す(−89)</string>
+    <string name="desc_reset_shift">シフト量を既定値の −89 セントに戻す</string>
+
+    <!-- 刻み幅(範囲切替を置き換え) -->
+    <string name="step_title">刻み幅</string>
+    <string name="step_whole_tone">全音\n200</string>
+    <string name="step_semitone">半音\n100</string>
+    <string name="step_quarter_tone">1/4 音\n50</string>
+    <string name="step_eighth_tone">1/8 音\n25</string>
+    <string name="step_name_whole_tone">全音</string>
+    <string name="step_name_semitone">半音</string>
+    <string name="step_name_quarter_tone">1/4 音</string>
+    <string name="step_name_eighth_tone">1/8 音</string>
+    <string name="step_hint_down_format">%1$s 下げる</string>
+    <string name="step_hint_up_format">%1$s 上げる</string>
+    <string name="info_step_title">刻み幅</string>
+    <string name="info_step_body">−/+ ボタンを 1 回押したときに、シフト量がどれだけ変わるかです。細かく合わせたいときは 1/8 音、大きく動かしたいときは全音を選んでください。</string>
 
     <string name="split_label">左右を別々に設定</string>
+    <string name="info_split_title">左右を別々に</string>
+    <string name="info_split_body">左右の耳で聞こえ方が違う人向けの機能です。ON にすると、左右のイヤホンで別々の高さに調整できます。</string>
+
+    <!-- 音量 -->
+    <string name="volume_label">音量</string>
+    <string name="volume_sub_label">小さく ← → 大きく</string>
+    <string name="volume_format">%1$+.0f dB</string>
+    <string name="desc_volume_slider">音量(dB)</string>
+    <string name="desc_volume_down">音量を 1dB 下げる</string>
+    <string name="desc_volume_up">音量を 1dB 上げる</string>
+    <string name="info_volume_title">音量</string>
+    <string name="info_volume_body">イヤホンに出す音の大きさです。上げすぎると音が歪んでしまうため、自動でやわらかく抑えます(ソフトクリップ)。端末の音量キーでも調整できます。</string>
 
     <!-- 詳細設定 -->
     <string name="adv_title">詳細設定</string>
-    <string name="adv_open">詳細設定 ▾</string>
-    <string name="adv_close">詳細設定 ▴</string>
-    <string name="dry_wet_label">Dry/Wet</string>
-    <string name="crossfade_label">窓長</string>
-    <string name="desc_drywet_down">Dry/Wet を 0.05 下げる</string>
-    <string name="desc_drywet_up">Dry/Wet を 0.05 上げる</string>
-    <string name="desc_xfade_down">窓長を 1 ミリ秒短くする</string>
-    <string name="desc_xfade_up">窓長を 1 ミリ秒長くする</string>
+    <string name="adv_open">詳細設定</string>
+    <string name="dry_wet_label">原音まぜ(Dry/Wet)</string>
+    <string name="crossfade_label">なめらかさ</string>
+    <string name="crossfade_sub_label">速い反応 ← → なめらか</string>
+    <string name="desc_drywet_down">原音まぜを 0.05 下げる</string>
+    <string name="desc_drywet_up">原音まぜを 0.05 上げる</string>
+    <string name="desc_xfade_down">なめらかさを 1 ミリ秒短くする</string>
+    <string name="desc_xfade_up">なめらかさを 1 ミリ秒長くする</string>
     <string name="crossfade_format">%1$d ms</string>
+    <string name="info_drywet_title">原音まぜ(Dry/Wet)</string>
+    <string name="info_drywet_body">0 で元の音そのまま、1 で変換した音だけになります。間の値では両方をまぜて聞こえます。</string>
+    <string name="info_crossfade_title">なめらかさ(窓長)</string>
+    <string name="info_crossfade_body">音のつなぎ方の長さです。短いと反応が速いですが、ざらつきやうねりが出やすくなります。長いとなめらかですが、音のにじみが増えます。遅延には影響しません。</string>
+
+    <!-- テーマ -->
+    <string name="theme_title">テーマ</string>
+    <string name="theme_system">システム</string>
+    <string name="theme_light">ライト</string>
+    <string name="theme_dark">ダーク</string>
 
     <string name="notes_title">注意事項</string>
     <string name="note_earphone">※イヤホンを使ってください。スピーカーではハウリングします。</string>
@@ -60,9 +109,15 @@
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
 
+    <!-- 情報ボタン -->
+    <string name="info_button_desc_format">%1$s について説明を表示する</string>
+    <string name="info_close">閉じる</string>
+
     <!-- フッタ -->
-    <string name="action_start">▶ 開始</string>
-    <string name="action_stop">■ 停止</string>
+    <string name="action_start">開始</string>
+    <string name="action_stop">停止</string>
+    <string name="desc_toggle_start">処理を開始する</string>
+    <string name="desc_toggle_stop">処理を停止する</string>
 
     <!-- 権限 -->
     <string name="perm_mic_required">マイクの権限が必要です。設定から許可してください。</string>

@@ -85,6 +85,8 @@ public:
     void setShiftCents(int channel, float cents) noexcept;
     void setDryWet(float mix) noexcept { bridge_.shifter().setDryWet(mix); }
     void setCrossfadeMs(float ms) noexcept { bridge_.shifter().setCrossfadeMs(ms); }
+    // gain は倍率(0.5〜4.0)。AudioBridge::setOutputGain が clamp する。
+    void setOutputGain(float gain) noexcept { bridge_.setOutputGain(gain); }
 
 private:
     // oboe::AudioStreamDataCallback

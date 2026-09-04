@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  web/index.html と同じ構成:
-    1. ヘッダ(ロゴ + 状態ピル)
-    2. 窓長プリセット 3 分割
-    3. 主役カード(巨大な数値 / 太いスライダ / 72dp の −+ / 範囲切替 4 分割 / L·R 独立)
-    4. 折りたたみの詳細設定
-    5. 固定フッタの開始・停止(72dp)
+  構成:
+    1. ヘッダ(ロゴ + 状態ピル)                — 上端の inset をここで吸収する
+    2. 状態カード(使い方 / 動作中メッセージ)
+    3. なめらかさプリセット 3 分割
+    4. 主役カード(巨大な数値 / 太いスライダ / 72dp の −+ / 刻み幅切替 4 分割 / 既定に戻す / L·R 独立)
+    5. 音量カード(スライダ + −/+ + dB 表示)
+    6. 折りたたみの詳細設定(Dry/Wet / なめらかさ / テーマ / 注意事項 / 診断)
+    7. 固定フッタの開始・停止              — 下端の inset をここで吸収する
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:fitsSystemWindows="true">
+    android:background="@color/bg">
 
     <ScrollView
         android:id="@+id/scroll"
@@ -27,15 +28,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="8dp">
+            android:paddingHorizontal="16dp">
 
             <!-- ============ 1. ヘッダ ============ -->
             <LinearLayout
+                android:id="@+id/headerRow"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
                 android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:paddingTop="8dp">
 
                 <ImageView
                     android:layout_width="36dp"
@@ -106,16 +108,43 @@
                 tools:text="マイクを開けません"
                 tools:visibility="visible" />
 
-            <!-- ============ 2. 窓長プリセット(3 分割) ============ -->
+            <!-- ============ 2. 状態カード(使い方) ============ -->
             <TextView
+                android:id="@+id/usageText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:background="@drawable/bg_adv"
+                android:lineSpacingExtra="4dp"
+                android:padding="16dp"
+                android:text="@string/usage_stopped"
+                android:textColor="@color/fg"
+                android:textSize="15sp" />
+
+            <!-- ============ 3. なめらかさプリセット(3 分割) ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:layout_marginBottom="8dp"
-                android:text="@string/preset_title"
-                android:textColor="@color/muted"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/preset_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/presetInfoButton"
+                    style="@style/InfoButton"
+                    android:contentDescription="@string/preset_title"
+                    android:src="@drawable/ic_info" />
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -141,7 +170,7 @@
                     android:text="@string/preset_100" />
             </LinearLayout>
 
-            <!-- ============ 3. 主役カード ============ -->
+            <!-- ============ 4. 主役カード ============ -->
             <LinearLayout
                 android:id="@+id/hero"
                 android:layout_width="match_parent"
@@ -151,6 +180,29 @@
                 android:orientation="vertical"
                 android:paddingHorizontal="16dp"
                 android:paddingVertical="20dp">
+
+                <!-- — タイトル行 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/shift_title"
+                        android:textColor="@color/muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/shiftInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/shift_title"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
 
                 <!-- — L チャンネル -->
                 <LinearLayout
@@ -203,23 +255,66 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/stepLDown"
                         style="@style/BigStep"
                         android:contentDescription="@string/desc_step_down_l"
-                        android:text="@string/step_down" />
+                        android:src="@drawable/ic_remove" />
 
-                    <SeekBar
+                    <com.google.android.material.slider.Slider
                         android:id="@+id/shiftLSlider"
                         style="@style/BigSlider"
-                        android:contentDescription="@string/desc_slider_l" />
+                        android:contentDescription="@string/desc_slider_l"
+                        android:value="-89" />
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/stepLUp"
                         style="@style/BigStep"
                         android:contentDescription="@string/desc_step_up_l"
-                        android:text="@string/step_up" />
+                        android:src="@drawable/ic_add" />
                 </LinearLayout>
+
+                <!-- — 端のラベルと現在の刻み幅ヒント -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_low"
+                        style="@style/SubLabel" />
+
+                    <TextView
+                        android:id="@+id/shiftStepHintL"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        style="@style/SubLabel"
+                        tools:text="半音 下げる / 上げる" />
+
+                    <TextView
+                        android:layout_width="72dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/label_high"
+                        style="@style/SubLabel" />
+                </LinearLayout>
+
+                <!-- — 既定に戻す -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/resetShiftButton"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="4dp"
+                    android:contentDescription="@string/desc_reset_shift"
+                    android:text="@string/reset_shift_button"
+                    android:textAllCaps="false"
+                    android:textSize="13sp"
+                    app:cornerRadius="12dp" />
 
                 <!-- — R チャンネル(L/R 独立 ON のときだけ) -->
                 <LinearLayout
@@ -278,35 +373,57 @@
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
-                        <TextView
+                        <ImageView
                             android:id="@+id/stepRDown"
                             style="@style/BigStep"
                             android:contentDescription="@string/desc_step_down_r"
-                            android:text="@string/step_down" />
+                            android:src="@drawable/ic_remove" />
 
-                        <SeekBar
+                        <com.google.android.material.slider.Slider
                             android:id="@+id/shiftRSlider"
                             style="@style/BigSlider"
-                            android:contentDescription="@string/desc_slider_r" />
+                            android:contentDescription="@string/desc_slider_r"
+                            android:value="-89" />
 
-                        <TextView
+                        <ImageView
                             android:id="@+id/stepRUp"
                             style="@style/BigStep"
                             android:contentDescription="@string/desc_step_up_r"
-                            android:text="@string/step_up" />
+                            android:src="@drawable/ic_add" />
                     </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/shiftStepHintR"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/SubLabel"
+                        tools:text="半音 下げる / 上げる" />
                 </LinearLayout>
 
-                <!-- — 範囲切替(4 分割) -->
-                <TextView
+                <!-- — 刻み幅(4 分割) -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="18dp"
                     android:layout_marginBottom="8dp"
-                    android:text="@string/range_title"
-                    android:textColor="@color/muted"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/step_title"
+                        android:textColor="@color/muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/stepInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/step_title"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -315,27 +432,27 @@
                     android:orientation="horizontal">
 
                     <TextView
-                        android:id="@+id/range0"
+                        android:id="@+id/step0"
                         style="@style/SegmentItemSmall"
-                        android:text="@string/range_fine" />
+                        android:text="@string/step_whole_tone" />
 
                     <TextView
-                        android:id="@+id/range1"
+                        android:id="@+id/step1"
                         style="@style/SegmentItemSmall"
                         android:layout_marginStart="6dp"
-                        android:text="@string/range_semitone" />
+                        android:text="@string/step_semitone" />
 
                     <TextView
-                        android:id="@+id/range2"
+                        android:id="@+id/step2"
                         style="@style/SegmentItemSmall"
                         android:layout_marginStart="6dp"
-                        android:text="@string/range_tone" />
+                        android:text="@string/step_quarter_tone" />
 
                     <TextView
-                        android:id="@+id/range3"
+                        android:id="@+id/step3"
                         style="@style/SegmentItemSmall"
                         android:layout_marginStart="6dp"
-                        android:text="@string/range_octave" />
+                        android:text="@string/step_eighth_tone" />
                 </LinearLayout>
 
                 <!-- — L/R 独立スイッチ -->
@@ -355,27 +472,130 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
+                    <ImageView
+                        android:id="@+id/splitInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/split_label"
+                        android:src="@drawable/ic_info" />
+
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/splitSwitch"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
                         app:thumbTint="@color/fg"
                         app:trackTint="@color/track" />
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- ============ 4. 詳細設定(折りたたみ) ============ -->
-            <TextView
+            <!-- ============ 5. 音量カード ============ -->
+            <LinearLayout
+                android:id="@+id/volumeCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/volume_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/volumeInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/volume_label"
+                        android:src="@drawable/ic_info" />
+
+                    <TextView
+                        android:id="@+id/volumeValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="+0 dB"
+                        android:textColor="@color/muted"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/volumeDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_volume_down"
+                        android:src="@drawable/ic_remove" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/volumeSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/desc_volume_slider"
+                        android:value="0"
+                        android:valueFrom="-6"
+                        android:valueTo="12" />
+
+                    <ImageView
+                        android:id="@+id/volumeUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_volume_up"
+                        android:src="@drawable/ic_add" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/volume_sub_label"
+                    style="@style/SubLabel" />
+            </LinearLayout>
+
+            <!-- ============ 6. 詳細設定(折りたたみ) ============ -->
+            <LinearLayout
                 android:id="@+id/advToggle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:background="@drawable/bg_adv"
-                android:padding="16dp"
-                android:text="@string/adv_open"
-                android:textColor="@color/fg"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/adv_open"
+                    android:textColor="@color/fg"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/advChevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_chevron_down"
+                    android:tint="@color/muted" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/advBody"
@@ -392,6 +612,7 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
                     <TextView
@@ -402,6 +623,12 @@
                         android:textColor="@color/fg"
                         android:textSize="15sp"
                         android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/dryWetInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/dry_wet_label"
+                        android:src="@drawable/ic_info" />
 
                     <TextView
                         android:id="@+id/dryWetValue"
@@ -421,29 +648,33 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/dryWetDown"
                         style="@style/MiniStep"
                         android:contentDescription="@string/desc_drywet_down"
-                        android:text="@string/step_down" />
+                        android:src="@drawable/ic_remove" />
 
-                    <SeekBar
+                    <com.google.android.material.slider.Slider
                         android:id="@+id/dryWetSlider"
                         style="@style/MiniSlider"
-                        android:contentDescription="@string/dry_wet_label" />
+                        android:contentDescription="@string/dry_wet_label"
+                        android:value="1.0"
+                        android:valueFrom="0.0"
+                        android:valueTo="1.0" />
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/dryWetUp"
                         style="@style/MiniStep"
                         android:contentDescription="@string/desc_drywet_up"
-                        android:text="@string/step_up" />
+                        android:src="@drawable/ic_add" />
                 </LinearLayout>
 
-                <!-- 窓長 -->
+                <!-- なめらかさ -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
                     <TextView
@@ -454,6 +685,12 @@
                         android:textColor="@color/fg"
                         android:textSize="15sp"
                         android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/crossfadeInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/crossfade_label"
+                        android:src="@drawable/ic_info" />
 
                     <TextView
                         android:id="@+id/crossfadeValue"
@@ -473,29 +710,97 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/crossfadeDown"
                         style="@style/MiniStep"
                         android:contentDescription="@string/desc_xfade_down"
-                        android:text="@string/step_down" />
+                        android:src="@drawable/ic_remove" />
 
-                    <SeekBar
+                    <com.google.android.material.slider.Slider
                         android:id="@+id/crossfadeSlider"
                         style="@style/MiniSlider"
-                        android:contentDescription="@string/crossfade_label" />
+                        android:contentDescription="@string/crossfade_label"
+                        android:value="50"
+                        android:valueFrom="10"
+                        android:valueTo="100" />
 
-                    <TextView
+                    <ImageView
                         android:id="@+id/crossfadeUp"
                         style="@style/MiniStep"
                         android:contentDescription="@string/desc_xfade_up"
-                        android:text="@string/step_up" />
+                        android:src="@drawable/ic_add" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/crossfade_sub_label"
+                    style="@style/SubLabel" />
+
+                <!-- テーマ -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/theme_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/themeSystem"
+                        style="@style/SegmentItem"
+                        android:text="@string/theme_system" />
+
+                    <TextView
+                        android:id="@+id/themeLight"
+                        style="@style/SegmentItem"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/theme_light" />
+
+                    <TextView
+                        android:id="@+id/themeDark"
+                        style="@style/SegmentItem"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/theme_dark" />
+                </LinearLayout>
+
+                <!-- 遅延表示 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/info_latency_title"
+                        android:textColor="@color/muted"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/latencyInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/info_latency_title"
+                        android:src="@drawable/ic_info" />
                 </LinearLayout>
 
                 <!-- 注意事項と診断 -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
+                    android:layout_marginTop="12dp"
                     android:text="@string/notes_title"
                     android:textColor="@color/muted"
                     android:textSize="13sp"
@@ -526,27 +831,32 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- ============ 5. 固定フッタ ============ -->
+    <!-- ============ 7. 固定フッタ ============ -->
     <FrameLayout
+        android:id="@+id/footer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:background="@color/bg"
         android:paddingHorizontal="16dp"
-        android:paddingVertical="12dp">
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp">
 
-        <TextView
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/toggleButton"
             android:layout_width="match_parent"
             android:layout_height="72dp"
-            android:background="@drawable/bg_dock_button"
             android:backgroundTint="@color/primary"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
             android:text="@string/action_start"
+            android:textAllCaps="false"
             android:textColor="@color/primary_fg"
             android:textSize="20sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            app:cornerRadius="20dp"
+            app:icon="@drawable/ic_play"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/primary_fg" />
     </FrameLayout>
 </FrameLayout>

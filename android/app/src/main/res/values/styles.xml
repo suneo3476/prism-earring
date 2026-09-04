@@ -3,7 +3,7 @@
      .fine に対応する寸法をここに集約する。ここを触れば全体のスケールが動く。 -->
 <resources>
 
-    <!-- セグメント 1 個(3 分割の窓長プリセット)。web の .seg = min-height 56px。 -->
+    <!-- セグメント 1 個(3 分割のなめらかさプリセット / テーマ切替)。web の .seg = min-height 56px。 -->
     <style name="SegmentItem">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">56dp</item>
@@ -18,68 +18,80 @@
         <item name="android:focusable">true</item>
     </style>
 
-    <!-- 4 分割は 1 個あたりが狭いので 2 行 / 小さめの字にする。 -->
+    <!-- 4 分割(刻み幅)は 1 個あたりが狭いので 2 行 / 小さめの字にする。 -->
     <style name="SegmentItemSmall" parent="SegmentItem">
         <item name="android:layout_height">60dp</item>
         <item name="android:textSize">12sp</item>
         <item name="android:lineSpacingExtra">1dp</item>
     </style>
 
-    <!-- 72dp の − / + 。web の .bigstep(72px / radius 16px / font 34px)。 -->
+    <!-- 72dp の − / + (remove / add アイコン)。web の .bigstep(72px / radius 16px)。
+         タップ領域は 72dp のまま、アイコンは 32dp を中央に配置する。 -->
     <style name="BigStep">
         <item name="android:layout_width">72dp</item>
         <item name="android:layout_height">72dp</item>
         <item name="android:background">@drawable/bg_step</item>
-        <item name="android:gravity">center</item>
-        <item name="android:includeFontPadding">false</item>
-        <item name="android:textColor">@color/step_text</item>
-        <item name="android:textSize">30sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:padding">20dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">@color/step_text</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
 
-    <!-- 太いスライダ。トラック 16dp / つまみ 48dp / 当たり判定 56dp。
-         splitTrack=false にしないと、つまみの下でトラックが途切れる。 -->
+    <!-- 太いスライダ(Material Slider)。つまみ大 / ラベル非表示(値は別 TextView で表示)。 -->
     <style name="BigSlider">
         <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginHorizontal">12dp</item>
-        <item name="android:progressDrawable">@drawable/seekbar_track</item>
-        <item name="android:thumb">@drawable/seekbar_thumb</item>
-        <item name="android:splitTrack">false</item>
-        <item name="android:thumbOffset">0dp</item>
-        <item name="android:paddingHorizontal">24dp</item>
-        <item name="android:maxHeight">16dp</item>
-        <item name="android:minHeight">16dp</item>
+        <item name="android:layout_marginHorizontal">4dp</item>
+        <item name="android:valueFrom">-1200</item>
+        <item name="android:valueTo">1200</item>
+        <item name="android:stepSize">1</item>
+        <item name="labelBehavior">gone</item>
+        <item name="thumbRadius">16dp</item>
+        <item name="trackHeight">16dp</item>
+        <item name="trackColorActive">@color/primary</item>
+        <item name="trackColorInactive">@color/track</item>
+        <item name="thumbColor">@color/primary</item>
+        <item name="haloColor">@color/primary</item>
     </style>
 
+    <!-- 48dp 以上の − / + (Dry/Wet・なめらかさ・音量の詳細調整)。44dp 以上の要件を満たす。 -->
     <style name="MiniStep">
         <item name="android:layout_width">48dp</item>
         <item name="android:layout_height">48dp</item>
         <item name="android:background">@drawable/bg_ministep</item>
-        <item name="android:gravity">center</item>
-        <item name="android:includeFontPadding">false</item>
-        <item name="android:textColor">@color/step_text</item>
-        <item name="android:textSize">22sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:padding">13dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">@color/step_text</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
     </style>
 
     <style name="MiniSlider">
         <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:layout_marginHorizontal">10dp</item>
-        <item name="android:progressDrawable">@drawable/seekbar_track_mini</item>
-        <item name="android:thumb">@drawable/seekbar_thumb_mini</item>
-        <item name="android:splitTrack">false</item>
-        <item name="android:thumbOffset">0dp</item>
-        <item name="android:paddingHorizontal">20dp</item>
-        <item name="android:maxHeight">12dp</item>
-        <item name="android:minHeight">12dp</item>
+        <item name="android:layout_marginHorizontal">4dp</item>
+        <item name="labelBehavior">gone</item>
+        <item name="thumbRadius">12dp</item>
+        <item name="trackHeight">12dp</item>
+        <item name="trackColorActive">@color/primary</item>
+        <item name="trackColorInactive">@color/track</item>
+        <item name="thumbColor">@color/primary</item>
+        <item name="haloColor">@color/primary</item>
+    </style>
+
+    <!-- 44dp のⓘ情報ボタン。枠なし・リップルのみ(触っても圧迫感を出さない)。 -->
+    <style name="InfoButton">
+        <item name="android:layout_width">44dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">@color/muted</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
     </style>
 
     <style name="Fine">
@@ -89,5 +101,14 @@
         <item name="android:textColor">@color/muted</item>
         <item name="android:textSize">12sp</item>
         <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <!-- コントロール下の 1 行サブラベル(例:「低く ← → 高く」)。 -->
+    <style name="SubLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textAlignment">center</item>
     </style>
 </resources>

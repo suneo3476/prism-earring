@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⓘ ボタンで開く BottomSheetDialog の中身。項目ごとにタイトルと
+     「どう変えるとどう聞こえるか」を書いた本文を表示するだけの単純な構成。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="32dp">
+
+    <TextView
+        android:id="@+id/sheetTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/fg"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        tools:text="音の高さ(シフト量)" />
+
+    <TextView
+        android:id="@+id/sheetBody"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:lineSpacingExtra="4dp"
+        android:textColor="@color/muted"
+        android:textSize="16sp"
+        tools:text="入ってきた音を、どれだけ高く / 低くして聞くかです。" />
+
+</LinearLayout>

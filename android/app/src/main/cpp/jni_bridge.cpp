@@ -106,6 +106,16 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetCrossfadeMs(JNIEnv* /*env*/, jc
     }
 }
 
+// gain は倍率(0.5〜4.0)。dB <-> 倍率の変換は Kotlin 側(Params)で行う。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeSetOutputGain(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                            jlong handle, jfloat gain) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine != nullptr) {
+        engine->setOutputGain(static_cast<float>(gain));
+    }
+}
+
 // [0]=入力 ms, [1]=出力 ms, [2]=DSP ms, [3]=合計 ms, [4]=有効なら 1
 JNIEXPORT jdoubleArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*clazz*/,

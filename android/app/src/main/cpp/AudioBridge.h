@@ -19,6 +19,7 @@
 #define PRISM_AUDIOBRIDGE_H
 
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -39,6 +40,17 @@ public:
     //          ジッタで入力が空になり(underrun)途切れるのを防ぐ余裕。
     static constexpr int kDrainCallbacks = 8;
     static constexpr int kInputBurstsCushion = 1;
+
+    // 出力ゲイン(倍率)。0.5〜4.0 = -6dB〜+12dB。既定 1.0(0dB)。
+    // dB <-> 倍率の変換は UI 側(Params.kt)の責務で、ここは倍率だけを受け取る。
+    static constexpr float kOutputGainMin = 0.5f;
+    static constexpr float kOutputGainMax = 4.0f;
+    static constexpr float kOutputGainDefault = 1.0f;
+
+    // ソフトクリップの折れ点。|x| <= threshold はそのまま通し、それを超える分だけ
+    // tanh で ±1.0 に漸近させる(3 次多項式ではなく tanh を採用: 単調で飽和が
+    // 滑らかで、ゲインをどれだけ上げても発散せず ±1.0 未満に収まる)。
+    static constexpr float kSoftClipThreshold = 0.9f;
 
     // オーディオコールバックが今回やるべきこと。
     enum class Step {
@@ -98,7 +110,25 @@ public:
         cushionRemaining_ = kInputBurstsCushion;
         underrunCount_.store(0, std::memory_order_relaxed);
         synced_.store(false, std::memory_order_relaxed);
+        // outputGain_ はユーザー設定なので reset() では触らない(ストリーム再起動を
+        // 挟んでも音量が既定値へ戻らないようにする)。
     }
+
+    // ---- 出力ゲイン(制御スレッドから。動作中に呼んでよい) --------------------
+    // gain は倍率(0.5〜4.0)。範囲外・非有限値は clamp/既定値に丸める。
+    void setOutputGain(float gain) noexcept {
+        if (!std::isfinite(gain)) {
+            gain = kOutputGainDefault;
+        }
+        if (gain < kOutputGainMin) {
+            gain = kOutputGainMin;
+        } else if (gain > kOutputGainMax) {
+            gain = kOutputGainMax;
+        }
+        outputGain_.store(gain, std::memory_order_relaxed);
+    }
+
+    float outputGain() const noexcept { return outputGain_.load(std::memory_order_relaxed); }
 
     // ---- 状態機械(RT 安全) ------------------------------------------------
     // 出力コールバックの先頭で 1 回だけ呼ぶ。
@@ -166,6 +196,7 @@ public:
             }
             deinterleaveChunk(input, pad, done, chunk);
             shifter_.process(inPlanar_, outPlanar_, chunk);
+            applyOutputGain(chunk);
             interleaveChunk(output, done, chunk);
             done += chunk;
         }
@@ -238,6 +269,29 @@ private:
         }
     }
 
+    // |x| <= kSoftClipThreshold はそのまま、それを超える分は tanh で ±1.0 に
+    // 漸近させる。ゲイン適用後にここを通すので、出力が ±1.0 を超えることはない。
+    static float softClip(float x) noexcept {
+        const float ax = x < 0.0f ? -x : x;
+        if (ax <= kSoftClipThreshold) {
+            return x;
+        }
+        const float sign = x < 0.0f ? -1.0f : 1.0f;
+        const float excess = (ax - kSoftClipThreshold) / (1.0f - kSoftClipThreshold);
+        const float compressed = kSoftClipThreshold + (1.0f - kSoftClipThreshold) * std::tanh(excess);
+        return sign * compressed;
+    }
+
+    // shifter_.process() の直後、outPlanar_ の先頭 chunk フレームにゲインと
+    // ソフトクリップを適用する(RT 安全: 確保・ロック・I/O 一切なし)。
+    void applyOutputGain(int chunk) noexcept {
+        const float gain = outputGain_.load(std::memory_order_relaxed);
+        for (int i = 0; i < chunk; ++i) {
+            outPlanar_[0][i] = softClip(outPlanar_[0][i] * gain);
+            outPlanar_[1][i] = softClip(outPlanar_[1][i] * gain);
+        }
+    }
+
     void fillSilence(float* output, int numFrames) const noexcept {
         const std::size_t n = static_cast<std::size_t>(numFrames) *
                               static_cast<std::size_t>(outputChannels_ > 0 ? outputChannels_ : 1);
@@ -261,6 +315,7 @@ private:
 
     std::atomic<int> underrunCount_{0};
     std::atomic<bool> synced_{false};
+    std::atomic<float> outputGain_{kOutputGainDefault};
 
     bool prepared_ = false;
 };

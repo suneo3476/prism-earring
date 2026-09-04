@@ -6,28 +6,33 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.View
-import android.widget.SeekBar
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import dev.saku.prismearring.databinding.ActivityMainBinding
+import dev.saku.prismearring.databinding.SheetInfoBinding
 import kotlin.math.roundToInt
 
 /**
  * 画面。エンジンは持たず、[PrismService] に bind して状態を読み、
  * パラメータの変更を Service 経由で流し込むだけ。
  *
- * 意匠は web/index.html + web/styles.css を踏襲する(ダーク / 大きな数値 /
- * 太いスライダ / 72dp の −+ / セグメント / 固定フッタ)。
+ * 意匠は web/index.html + web/styles.css を踏襲する(ライト/ダーク両対応 /
+ * 大きな数値 / 太いスライダ / 72dp の −+ / セグメント / 固定フッタ)。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -79,11 +84,22 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 任意 */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // テーマは setContentView より前に確定させる必要がある。SharedPreferences は
+        // Context さえあれば super.onCreate() 前でも読める(attachBaseContext は
+        // performCreate の中で onCreate より先に走る)。
+        AppCompatDelegate.setDefaultNightMode(nightModeFor(Params.load(this).themeMode))
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+
+        // Edge-to-edge。fitsSystemWindows には頼らず、inset は自分で配る。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applySystemBarInsets()
+        applyStatusBarAppearance()
+
+        // 端末の音量キーが出力(音声ストリーム)に効くようにする。
+        setVolumeControlStream(AudioManager.STREAM_MUSIC)
 
         params = Params.load(this)
         setUpSliders()
@@ -92,6 +108,7 @@ class MainActivity : AppCompatActivity() {
         setUpSplitSwitch()
         setUpAdvancedToggle()
         setUpDock()
+        setUpInfoButtons()
 
         suppressListeners = true
         bindParamsToViews()
@@ -118,38 +135,77 @@ class MainActivity : AppCompatActivity() {
 
     // ---- レイアウト --------------------------------------------------------
 
-    /** ジェスチャバー / ノッチの下に操作要素が潜り込まないようにする。 */
+    /**
+     * ジェスチャバー / ノッチ / ディスプレイカットアウトの下にコントロールが
+     * 潜り込まないようにする。fitsSystemWindows には頼らず、上端の inset は
+     * ヘッダの paddingTop に、下端の inset は固定フッタの paddingBottom に、
+     * それぞれ既存の余白へ加算する形で適用する。左右は画面全体(root)へ。
+     */
     private fun applySystemBarInsets() {
+        val header = binding.headerRow
+        val footer = binding.footer
+        val headerInitialTop = header.paddingTop
+        val footerInitialBottom = footer.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.updatePadding(left = bars.left, right = bars.right, bottom = bars.bottom)
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.updatePadding(left = bars.left, right = bars.right)
+            header.updatePadding(top = headerInitialTop + bars.top)
+            footer.updatePadding(bottom = footerInitialBottom + bars.bottom)
             insets
         }
+        ViewCompat.requestApplyInsets(binding.root)
+    }
+
+    /** ステータスバー / ナビゲーションバーのアイコン色を、現在解決されているテーマに合わせる。 */
+    private fun applyStatusBarAppearance() {
+        val isNight = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = !isNight
+        controller.isAppearanceLightNavigationBars = !isNight
+    }
+
+    private fun nightModeFor(themeMode: Int): Int = when (themeMode) {
+        Params.THEME_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+        Params.THEME_DARK -> AppCompatDelegate.MODE_NIGHT_YES
+        else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
     }
 
     // ---- 入力ハンドラ ------------------------------------------------------
 
     private fun setUpSliders() {
-        // SeekBar は 0 始まりの整数しか扱えないので、値 = 実効下限 + progress で写像する。
-        binding.shiftLSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(shiftCentsL = params.sliderMin + progress))
-        })
-        binding.shiftRSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(shiftCentsR = params.sliderMin + progress))
-        })
-        binding.dryWetSlider.max = 100
-        binding.dryWetSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(dryWet = progress / 100.0f))
-        })
-        binding.crossfadeSlider.max = Params.CROSSFADE_MS_MAX - Params.CROSSFADE_MS_MIN
-        binding.crossfadeSlider.setOnSeekBarChangeListener(simpleListener { progress ->
-            updateParams(params.copy(crossfadeMs = Params.CROSSFADE_MS_MIN + progress))
-        })
+        // Slider は Float。値は Params の型(Int/Float)に応じて丸めて反映する。
+        binding.shiftLSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(shiftCentsL = value.roundToInt()))
+            }
+        }
+        binding.shiftRSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(shiftCentsR = value.roundToInt()))
+            }
+        }
+        binding.dryWetSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(dryWet = value))
+            }
+        }
+        binding.crossfadeSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(crossfadeMs = value.roundToInt()))
+            }
+        }
+        binding.volumeSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(outputGainDb = value))
+            }
+        }
     }
 
     private fun setUpSteppers() {
-        // sign は方向だけ(-1/+1)。実際の刻み幅は現在の範囲プリセットから毎回引く
-        // (オクターブ範囲だけ 10 セント刻み。web の shiftStepButtons と同じ)。
+        // sign は方向だけ(-1/+1)。実際の刻み幅は現在の刻み幅プリセットから毎回引く。
         binding.stepLDown.setOnClickListener { nudgeLeft(-1) }
         binding.stepLUp.setOnClickListener { nudgeLeft(1) }
         binding.stepRDown.setOnClickListener { nudgeRight(-1) }
@@ -159,6 +215,10 @@ class MainActivity : AppCompatActivity() {
         binding.dryWetUp.setOnClickListener { nudgeDryWet(0.05f) }
         binding.crossfadeDown.setOnClickListener { nudgeCrossfade(-1) }
         binding.crossfadeUp.setOnClickListener { nudgeCrossfade(1) }
+        binding.volumeDown.setOnClickListener { nudgeVolume(-1.0f) }
+        binding.volumeUp.setOnClickListener { nudgeVolume(1.0f) }
+
+        binding.resetShiftButton.setOnClickListener { resetShift() }
     }
 
     private fun nudgeLeft(sign: Int) = updateParams(
@@ -188,6 +248,21 @@ class MainActivity : AppCompatActivity() {
         )
     )
 
+    private fun nudgeVolume(delta: Float) = updateParams(
+        params.copy(
+            outputGainDb = (params.outputGainDb + delta)
+                .coerceIn(Params.OUTPUT_GAIN_DB_MIN, Params.OUTPUT_GAIN_DB_MAX)
+        )
+    )
+
+    /** シフト量だけを既定値(−89)へ戻す。左右独立が ON でも両方戻す。 */
+    private fun resetShift() = updateParams(
+        params.copy(
+            shiftCentsL = Params.DEFAULT_SHIFT_CENTS,
+            shiftCentsR = Params.DEFAULT_SHIFT_CENTS,
+        )
+    )
+
     private fun setUpSegments() {
         val presets = listOf(binding.preset0, binding.preset1, binding.preset2)
         presets.forEachIndexed { index, view ->
@@ -196,14 +271,28 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val ranges = listOf(binding.range0, binding.range1, binding.range2, binding.range3)
-        ranges.forEachIndexed { index, view ->
+        val steps = listOf(binding.step0, binding.step1, binding.step2, binding.step3)
+        steps.forEachIndexed { index, view ->
             view.setOnClickListener {
-                // 現在値はクランプしない —— 範囲外にいるときは sliderMin/sliderMax の
-                // ほうが現在値まで自動的に広がる(Params.sliderMin/sliderMax、web 版と同じ挙動)。
-                updateParams(params.copy(sliderHalfRange = Params.SLIDER_HALF_RANGES[index]))
+                updateParams(params.copy(stepCents = Params.STEP_PRESETS[index]))
             }
         }
+
+        val themeViews = listOf(
+            Params.THEME_SYSTEM to binding.themeSystem,
+            Params.THEME_LIGHT to binding.themeLight,
+            Params.THEME_DARK to binding.themeDark,
+        )
+        themeViews.forEach { (mode, view) ->
+            view.setOnClickListener { setThemeMode(mode) }
+        }
+    }
+
+    /** 保存してから夜間モードを切り替える。実際に値が変わればアクティビティが再生成される。 */
+    private fun setThemeMode(mode: Int) {
+        if (params.themeMode == mode) return
+        updateParams(params.copy(themeMode = mode))
+        AppCompatDelegate.setDefaultNightMode(nightModeFor(mode))
     }
 
     private fun setUpSplitSwitch() {
@@ -223,13 +312,44 @@ class MainActivity : AppCompatActivity() {
         binding.advToggle.setOnClickListener {
             val opening = binding.advBody.visibility != View.VISIBLE
             binding.advBody.visibility = if (opening) View.VISIBLE else View.GONE
-            binding.advToggle.setText(if (opening) R.string.adv_close else R.string.adv_open)
+            binding.advChevron.setImageResource(
+                if (opening) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down
+            )
         }
     }
 
     private fun setUpDock() {
         binding.toggleButton.setOnClickListener {
             if (service?.isRunning() == true) stopProcessing() else requestStart()
+        }
+    }
+
+    private fun setUpInfoButtons() {
+        infoButton(binding.presetInfoButton, R.string.info_presets_title, R.string.info_presets_body)
+        infoButton(binding.shiftInfoButton, R.string.info_shift_title, R.string.info_shift_body)
+        infoButton(binding.stepInfoButton, R.string.info_step_title, R.string.info_step_body)
+        infoButton(binding.splitInfoButton, R.string.info_split_title, R.string.info_split_body)
+        infoButton(binding.volumeInfoButton, R.string.info_volume_title, R.string.info_volume_body)
+        infoButton(binding.dryWetInfoButton, R.string.info_drywet_title, R.string.info_drywet_body)
+        infoButton(
+            binding.crossfadeInfoButton, R.string.info_crossfade_title, R.string.info_crossfade_body
+        )
+        infoButton(binding.latencyInfoButton, R.string.info_latency_title, R.string.info_latency_body)
+    }
+
+    private fun infoButton(view: ImageView, titleRes: Int, bodyRes: Int) {
+        view.contentDescription = getString(R.string.info_button_desc_format, getString(titleRes))
+        view.setOnClickListener { showInfoSheet(titleRes, bodyRes) }
+    }
+
+    /** 「どう変えるとどう聞こえるか」を書いた説明を BottomSheetDialog で見せる。 */
+    private fun showInfoSheet(titleRes: Int, bodyRes: Int) {
+        val sheet = SheetInfoBinding.inflate(layoutInflater)
+        sheet.sheetTitle.text = getString(titleRes)
+        sheet.sheetBody.text = getString(bodyRes)
+        BottomSheetDialog(this).apply {
+            setContentView(sheet.root)
+            show()
         }
     }
 
@@ -288,16 +408,15 @@ class MainActivity : AppCompatActivity() {
 
     /** params -> View。リスナーを止めた状態でのみ呼ぶこと。 */
     private fun bindParamsToViews() {
-        val min = params.sliderMin
-        val span = params.sliderMax - min
-
-        binding.shiftLSlider.max = span
-        binding.shiftLSlider.progress = params.shiftCentsL - min
+        binding.shiftLSlider.value = params.shiftCentsL.toFloat()
         binding.shiftLValue.text = formatCents(params.shiftCentsL)
 
-        binding.shiftRSlider.max = span
-        binding.shiftRSlider.progress = params.effectiveRight - min
+        binding.shiftRSlider.value = params.effectiveRight.toFloat()
         binding.shiftRValue.text = formatCents(params.effectiveRight)
+
+        val hint = stepHintText(params.stepCents)
+        binding.shiftStepHintL.text = hint
+        binding.shiftStepHintR.text = hint
 
         binding.splitSwitch.isChecked = params.splitChannels
         binding.chanR.visibility = if (params.splitChannels) View.VISIBLE else View.GONE
@@ -305,24 +424,48 @@ class MainActivity : AppCompatActivity() {
         // L/R 独立時は 2 段になるので数値を縮める(web の .hero[data-split="on"])。
         binding.shiftLValue.textSize = if (params.splitChannels) 40f else 56f
 
-        binding.dryWetSlider.progress = (params.dryWet * 100f).roundToInt()
+        binding.dryWetSlider.value = params.dryWet.coerceIn(Params.DRY_WET_MIN, Params.DRY_WET_MAX)
         binding.dryWetValue.text = String.format("%.2f", params.dryWet)
 
-        binding.crossfadeSlider.progress = params.crossfadeMs - Params.CROSSFADE_MS_MIN
+        binding.crossfadeSlider.value =
+            params.crossfadeMs.toFloat().coerceIn(Params.CROSSFADE_MS_MIN.toFloat(), Params.CROSSFADE_MS_MAX.toFloat())
         binding.crossfadeValue.text = getString(R.string.crossfade_format, params.crossfadeMs)
+
+        binding.volumeSlider.value =
+            params.outputGainDb.coerceIn(Params.OUTPUT_GAIN_DB_MIN, Params.OUTPUT_GAIN_DB_MAX)
+        binding.volumeValue.text = getString(R.string.volume_format, params.outputGainDb)
 
         selectSegment(
             listOf(binding.preset0, binding.preset1, binding.preset2),
             Params.CROSSFADE_PRESETS.indexOf(params.crossfadeMs),
         )
         selectSegment(
-            listOf(binding.range0, binding.range1, binding.range2, binding.range3),
-            Params.SLIDER_HALF_RANGES.indexOf(params.sliderHalfRange),
+            listOf(binding.step0, binding.step1, binding.step2, binding.step3),
+            Params.STEP_PRESETS.indexOf(params.stepCents),
+        )
+        selectSegment(
+            listOf(binding.themeSystem, binding.themeLight, binding.themeDark),
+            params.themeMode,
         )
     }
 
     private fun selectSegment(views: List<TextView>, selectedIndex: Int) {
         views.forEachIndexed { index, view -> view.isSelected = index == selectedIndex }
+    }
+
+    private fun stepName(stepCents: Int): String = when (stepCents) {
+        Params.STEP_WHOLE_TONE -> getString(R.string.step_name_whole_tone)
+        Params.STEP_SEMITONE -> getString(R.string.step_name_semitone)
+        Params.STEP_QUARTER_TONE -> getString(R.string.step_name_quarter_tone)
+        else -> getString(R.string.step_name_eighth_tone)
+    }
+
+    /** 「半音 下げる / 上げる」のように、現在の刻み幅を −/+ ボタン付近に表示する文言。 */
+    private fun stepHintText(stepCents: Int): String {
+        val name = stepName(stepCents)
+        val down = getString(R.string.step_hint_down_format, name)
+        val up = getString(R.string.step_hint_up_format, name)
+        return "$down / $up"
     }
 
     /**
@@ -339,9 +482,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderState(state: PrismService.State) {
         val running = state.running
-        binding.toggleButton.setText(if (running) R.string.action_stop else R.string.action_start)
+        binding.toggleButton.text = getString(if (running) R.string.action_stop else R.string.action_start)
+        binding.toggleButton.setIconResource(if (running) R.drawable.ic_stop_icon else R.drawable.ic_play)
+        binding.toggleButton.contentDescription =
+            getString(if (running) R.string.desc_toggle_stop else R.string.desc_toggle_start)
         binding.toggleButton.backgroundTintList =
             ContextCompat.getColorStateList(this, if (running) R.color.stop else R.color.primary)
+
+        binding.usageText.text = getString(if (running) R.string.usage_running else R.string.usage_stopped)
 
         val statusRes = when {
             !running -> R.string.status_stopped
@@ -394,15 +542,4 @@ class MainActivity : AppCompatActivity() {
     private fun hideError() {
         binding.errorBox.visibility = View.GONE
     }
-
-    /** ユーザー操作(fromUser)のときだけ発火する SeekBar リスナー。 */
-    private fun simpleListener(onChange: (Int) -> Unit) =
-        object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser && !suppressListeners) onChange(progress)
-            }
-
-            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(bar: SeekBar?) = Unit
-        }
 }

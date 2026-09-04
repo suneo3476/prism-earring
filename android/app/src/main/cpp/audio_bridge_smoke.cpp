@@ -50,12 +50,14 @@ float peak(const std::vector<float>& v, std::size_t stride, std::size_t offset) 
     return m;
 }
 
-// numFrames フレーム分の正弦波をインタリーブで作る。
-std::vector<float> makeSine(int frames, int channels, double freq, double fs, double phase0) {
+// numFrames フレーム分の正弦波をインタリーブで作る。amplitude は既定 0.5(呼び出し側の
+// 大半はこれまでどおり半振幅の正弦波を使う。テスト [8] だけ明示的に振幅を変える)。
+std::vector<float> makeSine(int frames, int channels, double freq, double fs, double phase0,
+                            double amplitude = 0.5) {
     std::vector<float> buf(static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels));
     for (int i = 0; i < frames; ++i) {
         const double t = (phase0 + static_cast<double>(i)) / fs;
-        const float s = static_cast<float>(0.5 * std::sin(2.0 * M_PI * freq * t));
+        const float s = static_cast<float>(amplitude * std::sin(2.0 * M_PI * freq * t));
         for (int c = 0; c < channels; ++c) {
             buf[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) +
                 static_cast<std::size_t>(c)] = s;
@@ -271,6 +273,77 @@ void testParameterClamping() {
     check(bridge.shifter().getWindowSamples() >= 2, "窓長が下限で clamp されている");
 }
 
+// ---- 8. 出力ゲインとソフトクリップ ------------------------------------------
+void testOutputGainAndSoftClip() {
+    std::printf("[8] 出力ゲインとソフトクリップ\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    check(bridge.outputGain() == 1.0f, "既定ゲインは 1.0(0dB)");
+    runToSteadyState(bridge);
+    bridge.shifter().setShiftCentsL(0.0f);
+    bridge.shifter().setShiftCentsR(0.0f);
+    bridge.shifter().setDryWet(1.0f);
+
+    // ゲイン 1.0: 小振幅(0.1)入力はソフトクリップの折れ点(0.9)より十分下なので
+    // ほぼそのまま通る。
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u);
+    double phase = 0.0;
+    float peakUnity = 0.0f;
+    for (int block = 0; block < 100; ++block) {
+        const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, phase, 0.1);
+        phase += kFrames;
+        bridge.render(in.data(), kFrames, out.data(), kFrames);
+        peakUnity = peak(out, 2, 0);
+    }
+    check(allFinite(out), "ゲイン 1.0 で NaN / Inf が出ない");
+    check(peakUnity > 0.05f && peakUnity < 0.15f, "ゲイン 1.0 では振幅がほぼそのまま");
+
+    // ゲイン 2.0: 折れ点より十分下の振幅は線形にほぼ 2 倍になる。
+    bridge.setOutputGain(2.0f);
+    check(bridge.outputGain() == 2.0f, "ゲイン 2.0 が反映される");
+    float peakDoubled = 0.0f;
+    phase = 0.0;
+    for (int block = 0; block < 100; ++block) {
+        const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, phase, 0.1);
+        phase += kFrames;
+        bridge.render(in.data(), kFrames, out.data(), kFrames);
+        peakDoubled = peak(out, 2, 0);
+    }
+    check(allFinite(out), "ゲイン 2.0 で NaN / Inf が出ない");
+    check(peakDoubled > peakUnity * 1.6f, "ゲイン 2.0 で振幅がおおむね倍になる");
+
+    // 範囲外のゲインは clamp される(上限 4.0)。
+    bridge.setOutputGain(999.0f);
+    check(bridge.outputGain() == prism::AudioBridge::kOutputGainMax,
+          "範囲外の大きすぎるゲインは上限 4.0 に clamp される");
+    bridge.setOutputGain(-1.0f);
+    check(bridge.outputGain() == prism::AudioBridge::kOutputGainMin,
+          "範囲外の小さすぎるゲインは下限 0.5 に clamp される");
+    bridge.setOutputGain(std::nanf(""));
+    check(bridge.outputGain() == prism::AudioBridge::kOutputGainDefault,
+          "非有限なゲインは既定値 1.0 に丸められる");
+
+    // ゲイン最大 + フルスケール入力(振幅 0.5)でもソフトクリップにより
+    // 出力が ±1.0 を超えない。
+    bridge.setOutputGain(prism::AudioBridge::kOutputGainMax);
+    float peakClipped = 0.0f;
+    phase = 0.0;
+    for (int block = 0; block < 100; ++block) {
+        const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, phase, 0.5);
+        phase += kFrames;
+        bridge.render(in.data(), kFrames, out.data(), kFrames);
+        peakClipped = peak(out, 2, 0);
+    }
+    check(allFinite(out), "最大ゲイン + フルスケール入力でも NaN / Inf が出ない");
+    // tanh は数学的に ±1.0 未満だが、float32 では極端な引数で丸めにより厳密に
+    // 1.0 になりうる(1.0 を超えることはない)。「超えない」ことだけを確認する。
+    check(peakClipped <= 1.0f, "ソフトクリップにより出力が ±1.0 を超えない(NFR: 出力保護)");
+    check(peakClipped > 0.9f, "折れ点(0.9)を超える入力はきちんと持ち上がる");
+}
+
 }  // namespace
 
 int main() {
@@ -282,6 +355,7 @@ int main() {
     testUnpreparedAndBadArguments();
     testOversizedCallbackAndMonoOutput();
     testParameterClamping();
+    testOutputGainAndSoftClip();
 
     std::printf("\n");
     if (g_failures == 0) {

@@ -57,6 +57,11 @@ class NativeEngine private constructor(private var handle: Long) {
         if (handle != 0L) nativeSetCrossfadeMs(handle, ms)
     }
 
+    /** [gain] は倍率(0.5〜4.0)。dB からの変換は [Params] 側の責務。 */
+    fun setOutputGain(gain: Float) {
+        if (handle != 0L) nativeSetOutputGain(handle, gain)
+    }
+
     fun latency(): Latency {
         if (handle == 0L) return Latency(0.0, 0.0, 0.0, 0.0, false)
         val v = nativeGetLatency(handle) ?: return Latency(0.0, 0.0, 0.0, 0.0, false)
@@ -127,6 +132,7 @@ class NativeEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeSetShiftCents(handle: Long, channel: Int, cents: Float)
         @JvmStatic private external fun nativeSetDryWet(handle: Long, mix: Float)
         @JvmStatic private external fun nativeSetCrossfadeMs(handle: Long, ms: Float)
+        @JvmStatic private external fun nativeSetOutputGain(handle: Long, gain: Float)
         @JvmStatic private external fun nativeGetLatency(handle: Long): DoubleArray?
         @JvmStatic private external fun nativeGetStreamInfo(handle: Long): IntArray?
         @JvmStatic private external fun nativeGetLastError(handle: Long): String?

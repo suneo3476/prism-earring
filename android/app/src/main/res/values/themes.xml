@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- ダーク固定。web デモと同じ見え方にするため、ライトテーマは用意しない。 -->
-    <style name="Theme.PrismEarring" parent="Theme.Material3.Dark.NoActionBar">
+    <!-- Material3 DayNight: ライト/ダークは values/colors.xml と values-night/colors.xml の
+         トークンが自動で切り替わる。ステータスバーのアイコン色は固定せず、
+         MainActivity が WindowInsetsControllerCompat.isAppearanceLightStatusBars で
+         実行時に(システム/ライト/ダークの選択に応じて)設定する。 -->
+    <style name="Theme.PrismEarring" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:colorBackground">@color/bg</item>
         <item name="colorPrimary">@color/primary</item>
@@ -10,8 +13,6 @@
         <item name="android:textColorSecondary">@color/muted</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
 </resources>

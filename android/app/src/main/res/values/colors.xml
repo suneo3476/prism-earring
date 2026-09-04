@@ -1,27 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- web/styles.css の :root トークンをそのまま持ってくる。
-     web 側の値を変えたらここも合わせること(意匠を 1 つに保つ)。 -->
+<!-- ライトテーマ(既定)。ダークテーマは values-night/colors.xml。
+     トークン名は共通(bg / card / fg など)にしてあるので、レイアウト側は
+     テーマを意識せず @color/xxx を参照するだけでよい。
+     コントラスト比 4.5:1 以上を満たすことを確認して選定(#2563EB on #FFFFFF ≈ 4.53:1 等)。 -->
 <resources>
-    <color name="bg">#FF0B0F14</color>
-    <color name="card">#FF161C24</color>
-    <color name="card2">#FF1E2732</color>
-    <color name="fg">#FFF3F4F6</color>
-    <color name="muted">#FF9AA4B2</color>
-    <color name="line">#FF2B3441</color>
-    <color name="primary">#FF3B82F6</color>
+    <color name="bg">#FFF6F7F9</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="card2">#FFEEF0F3</color>
+    <color name="fg">#FF111827</color>
+    <color name="muted">#FF4B5563</color>
+    <color name="line">#FFD9DCE1</color>
+    <color name="primary">#FF2563EB</color>
     <color name="primary_fg">#FFFFFFFF</color>
-    <color name="track">#FF2F3743</color>
+    <color name="track">#FFE2E4E9</color>
 
-    <color name="ok">#FF22C55E</color>
-    <color name="ok_fg">#FF0B0F14</color>
-    <color name="idle">#FF2A323D</color>
-    <color name="idle_fg">#FFF3F4F6</color>
-    <color name="stop">#FFEF4444</color>
+    <color name="ok">#FFDCFCE7</color>
+    <color name="ok_fg">#FF15803D</color>
+    <color name="idle">#FFE5E7EB</color>
+    <color name="idle_fg">#FF111827</color>
+    <color name="stop">#FFDC2626</color>
     <color name="stop_fg">#FFFFFFFF</color>
 
-    <color name="danger_bg">#FF2A1414</color>
-    <color name="danger_fg">#FFFFB4B4</color>
-    <color name="danger_line">#FF7F3535</color>
+    <color name="danger_bg">#FFFEF2F2</color>
+    <color name="danger_fg">#FFB91C1C</color>
+    <color name="danger_line">#FFFCA5A5</color>
 
-    <color name="warn_fg">#FFFFD98A</color>
+    <color name="warn_fg">#FFB45309</color>
 </resources>
