@@ -128,6 +128,51 @@ section {
     flex: 1 1 auto;
 }
 
+#sourceFields {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+#sourceFields legend {
+    padding: 0;
+    font-weight: 600;
+}
+
+#sourceFields .row {
+    margin: 0.35rem 0;
+}
+
+#sourceFields label {
+    flex: 1 1 auto;
+}
+
+#source[aria-disabled="true"] {
+    opacity: 0.55;
+}
+
+#fileRow {
+    margin-top: 0.6rem;
+}
+
+/* .row の display:flex(著者スタイル)は hidden 属性の UA スタイルに勝ってしまうため、
+   同じ著者オリジンでより高い詳細度の規則で打ち消す。 */
+#fileRow[hidden] {
+    display: none;
+}
+
+#fileRow input[type="file"] {
+    flex: 1 1 12rem;
+    min-width: 8rem;
+    font: inherit;
+}
+
+.hint {
+    margin: 0.5rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
 #latency p {
     margin: 0.25rem 0;
 }

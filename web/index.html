@@ -19,6 +19,26 @@
 
     <p class="status" id="status" role="status" aria-live="polite">状態: 停止中</p>
 
+    <section id="source" aria-label="入力ソース">
+        <fieldset id="sourceFields">
+            <legend>入力</legend>
+            <div class="row check">
+                <label for="srcMic"><input id="srcMic" type="radio" name="inputSource" value="mic" checked> マイク</label>
+            </div>
+            <div class="row check">
+                <label for="srcTab"><input id="srcTab" type="radio" name="inputSource" value="tab"> ブラウザのタブ音声</label>
+            </div>
+            <div class="row check">
+                <label for="srcFile"><input id="srcFile" type="radio" name="inputSource" value="file"> 音声ファイル</label>
+            </div>
+        </fieldset>
+        <div class="row" id="fileRow" hidden>
+            <label for="audioFile">ファイル</label>
+            <input id="audioFile" type="file" accept="audio/*">
+        </div>
+        <p class="hint" id="sourceHint" aria-live="polite"></p>
+    </section>
+
     <button id="toggle" type="button">▶ 開始</button>
 
     <section id="controls" aria-label="パラメータ">
@@ -62,7 +82,7 @@
     <footer>
         <p class="fine">
             音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
-            マイクは開始を押したときだけ使用します。
+            マイク・タブ音声・音声ファイルのいずれも、開始を押したときだけ読み込みます。
         </p>
     </footer>
 </main>

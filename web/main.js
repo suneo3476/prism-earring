@@ -24,6 +24,20 @@ const State = {
     UNSUPPORTED: 'unsupported'
 };
 
+/** 入力ソース(WF-1 の取得経路だけが分岐する。以降の経路は共通)。 */
+const Source = {
+    MIC: 'mic',
+    TAB: 'tab',
+    FILE: 'file'
+};
+
+/** タブ音声の共有手順。取得失敗のたびに同じ案内を出すため定数化する。 */
+const TAB_SHARE_HOWTO = [
+    '共有ダイアログで「Chrome のタブ」(Edge/Vivaldi も同様)を選び、',
+    '同じブラウザ内のタブをクリックしてから、左下の「タブの音声を共有」にチェックを入れてください。',
+    '画面全体・ウィンドウを選んだ場合、音声は取得できません。'
+];
+
 /** レンダ量子。遅延内訳の「ブロック」計算に使う。 */
 const RENDER_QUANTUM = 128;
 
@@ -40,6 +54,11 @@ const el = {
     status: document.getElementById('status'),
     toggle: document.getElementById('toggle'),
     controls: document.getElementById('controls'),
+    sourceSection: document.getElementById('source'),
+    sourceRadios: Array.from(document.querySelectorAll('input[name="inputSource"]')),
+    fileRow: document.getElementById('fileRow'),
+    audioFile: document.getElementById('audioFile'),
+    sourceHint: document.getElementById('sourceHint'),
     shiftL: document.getElementById('shiftL'),
     shiftR: document.getElementById('shiftR'),
     shiftLOut: document.getElementById('shiftLOut'),
@@ -62,6 +81,8 @@ const el = {
 const ui = {
     state: State.STOPPED,
     linkLR: el.link.checked,
+    /** 現在選択中の入力ソース(Source のいずれか)。 */
+    source: Source.MIC,
     /** 'wasm'(本番)/ 'js'(フォールバック)/ null(停止中)。契約 3 の ready・latency から。 */
     engine: null,
     engineNote: '',
@@ -107,8 +128,41 @@ function render() {
     for (const input of [el.shiftL, el.shiftR, el.link, el.dryWet, el.xfade]) {
         input.disabled = !controlsEnabled;
     }
+
+    // ソース切替は停止中のみ。動作中に切り替えられると経路の整合が取れない
+    const sourceEnabled = ui.state === State.STOPPED || ui.state === State.DENIED;
+    el.sourceSection.setAttribute('aria-disabled', String(!sourceEnabled));
+    for (const radio of el.sourceRadios) {
+        radio.disabled = !sourceEnabled;
+    }
+    el.audioFile.disabled = !sourceEnabled;
+
     renderLatency();
     renderEngine();
+}
+
+const SOURCE_HINT = {
+    [Source.MIC]: 'マイクで拾った外界の音を処理します。イヤホンを使ってください。',
+    [Source.TAB]:
+        '共有ダイアログで同じブラウザ内のタブを選び、「タブの音声を共有」にチェックを入れてください。' +
+        '共有元タブをミュートすると、処理音だけが聞こえて聞き比べやすくなります。',
+    [Source.FILE]: '選んだ音声ファイルをループ再生して処理します(ファイルは端末外へ出ません)。'
+};
+
+/** 選択中ソースに応じて、ヒント文とファイル選択欄の出し入れを行う。 */
+function renderSource() {
+    el.sourceHint.textContent = SOURCE_HINT[ui.source];
+    el.fileRow.hidden = ui.source !== Source.FILE;
+}
+
+/** ラジオの現在値を読む(未選択はあり得ないが、その場合はマイク扱い)。 */
+function selectedSource() {
+    for (const radio of el.sourceRadios) {
+        if (radio.checked) {
+            return radio.value;
+        }
+    }
+    return Source.MIC;
 }
 
 /** 実際に動いている DSP エンジンを表示する(wasm が本番、js はフォールバック)。 */
@@ -283,24 +337,108 @@ async function loadWasmBytes() {
     }
 }
 
+/**
+ * 案内文を自分で持つ取得エラー。DOMException と区別して扱う。
+ */
+class InputSourceError extends Error {
+    constructor(lines) {
+        super(lines[0]);
+        this.name = 'InputSourceError';
+        this.lines = lines;
+    }
+}
+
+/** マイク(既定)。生の外界音を通すため加工系は全て無効(FR-4.3)。 */
+function acquireMicStream() {
+    return navigator.mediaDevices.getUserMedia({
+        audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            // 低遅延ヒント(非対応ブラウザでは無視される)
+            latency: 0
+        },
+        video: false
+    });
+}
+
+/**
+ * ブラウザのタブ音声。
+ *
+ * Chromium は `video: true` を指定しないと共有ダイアログを出さないため映像も要求するが、
+ * 映像は一切使わないので取得直後に停止して MediaStream から外す。
+ * 「タブの音声を共有」が未チェック、あるいは画面/ウィンドウを選んだ場合は音声トラックが
+ * 付いてこないので、手順を案内して中止する。
+ */
+async function acquireTabStream() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+        throw new InputSourceError([
+            'このブラウザはタブ音声の取得(getDisplayMedia)に対応していません。',
+            'Chrome / Edge / Vivaldi の最新安定版でお試しください。'
+        ]);
+    }
+
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+        }
+    });
+
+    for (const track of stream.getVideoTracks()) {
+        track.stop(); // 画面キャプチャのインジケータを最小限にする
+        if (typeof stream.removeTrack === 'function') {
+            stream.removeTrack(track);
+        }
+    }
+
+    if (stream.getAudioTracks().length === 0) {
+        for (const track of stream.getTracks()) {
+            track.stop();
+        }
+        throw new InputSourceError(['タブの音声が共有されませんでした。'].concat(TAB_SHARE_HOWTO));
+    }
+    return stream;
+}
+
+/** 音声ファイル。decodeAudioData は AudioContext 生成後に行うのでここでは読むだけ。 */
+async function readSelectedFile() {
+    const file = el.audioFile.files && el.audioFile.files[0];
+    if (!file) {
+        throw new InputSourceError([
+            '音声ファイルが選ばれていません。',
+            '「ファイル」から音声ファイルを選んでから開始してください。'
+        ]);
+    }
+    try {
+        return await file.arrayBuffer();
+    } catch (err) {
+        throw new InputSourceError([
+            '音声ファイルを読み込めませんでした。',
+            String((err && err.message) || err)
+        ]);
+    }
+}
+
 async function start() {
     clearError();
 
-    let stream;
+    ui.source = selectedSource();
+
+    let stream = null;
+    let fileBytes = null;
     try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                // 生の外界音を通す。加工系は全て無効(FR-4.3)
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-                // 低遅延ヒント(非対応ブラウザでは無視される)
-                latency: 0
-            },
-            video: false
-        });
+        if (ui.source === Source.TAB) {
+            stream = await acquireTabStream();
+        } else if (ui.source === Source.FILE) {
+            fileBytes = await readSelectedFile();
+        } else {
+            stream = await acquireMicStream();
+        }
     } catch (err) {
-        handleGetUserMediaError(err);
+        handleAcquireError(err);
         return;
     }
 
@@ -342,13 +480,24 @@ async function start() {
             });
         };
 
-        const source = ctx.createMediaStreamSource(stream);
+        const source = stream
+            ? ctx.createMediaStreamSource(stream)
+            : await createFileSource(ctx, fileBytes);
         audio.source = source;
         source.connect(node);
         node.connect(ctx.destination);
 
         if (ctx.state === 'suspended') {
             await ctx.resume();
+        }
+
+        // AudioBufferSourceNode のときだけ再生を始める(MediaStream 側は常時流れている)
+        if (typeof source.start === 'function') {
+            source.start();
+        }
+
+        if (ui.source === Source.TAB) {
+            watchShareEnd(stream);
         }
 
         pushAllParams();
@@ -408,6 +557,84 @@ function waitForReady(node) {
     });
 }
 
+/**
+ * 音声ファイルをデコードして、ループ再生するソースノードを作る。
+ * decodeAudioData は ArrayBuffer を切り離すため、再開時は毎回読み直す。
+ */
+async function createFileSource(ctx, fileBytes) {
+    let buffer;
+    try {
+        buffer = await ctx.decodeAudioData(fileBytes);
+    } catch (err) {
+        throw new Error('音声ファイルをデコードできませんでした(未対応の形式かもしれません)');
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    return source;
+}
+
+/**
+ * 共有元タブでの「共有を停止」を検知して後始末する。
+ * `track.stop()`(こちらからの停止)では ended は発火しないので、
+ * ここに来るのはユーザーが共有を終了したときだけ。
+ */
+function watchShareEnd(stream) {
+    for (const track of stream.getAudioTracks()) {
+        track.addEventListener('ended', async () => {
+            if (ui.state !== State.RUNNING) {
+                return;
+            }
+            await stop();
+            showError(['タブ音声の共有が終了したため、処理を停止しました。']);
+        });
+    }
+}
+
+/** 取得段のエラーをソース別に案内へ落とす。 */
+function handleAcquireError(err) {
+    if (err instanceof InputSourceError) {
+        ui.state = State.STOPPED;
+        render();
+        showError(err.lines);
+        return;
+    }
+    if (ui.source === Source.TAB) {
+        handleGetDisplayMediaError(err);
+        return;
+    }
+    if (ui.source === Source.FILE) {
+        ui.state = State.STOPPED;
+        render();
+        showError(['音声ファイルを読み込めませんでした。', String((err && err.message) || err)]);
+        return;
+    }
+    handleGetUserMediaError(err);
+}
+
+function handleGetDisplayMediaError(err) {
+    const name = (err && err.name) || '';
+    ui.state = State.STOPPED;
+    render();
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        // 共有ダイアログのキャンセルもここに来る(拒否と区別できない)
+        showError(['タブ音声の共有がキャンセル、または拒否されました。'].concat(TAB_SHARE_HOWTO));
+        return;
+    }
+    if (name === 'NotFoundError' || name === 'NotSupportedError' || name === 'TypeError') {
+        showError([
+            'このブラウザ・OS ではタブ音声を取得できません。',
+            'macOS では画面全体・ウィンドウの音声は取得できず、タブ音声のみ対応しています。'
+        ]);
+        return;
+    }
+    if (name === 'NotReadableError') {
+        showError(['共有元の取得に失敗しました。対象のタブを開き直してから再試行してください。']);
+        return;
+    }
+    showError(['タブ音声を取得できませんでした。', String((err && err.message) || err)]);
+}
+
 function handleGetUserMediaError(err) {
     const name = (err && err.name) || '';
     if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
@@ -445,6 +672,13 @@ async function teardown() {
         }
     }
     if (audio.source) {
+        if (typeof audio.source.stop === 'function') {
+            try {
+                audio.source.stop(); // AudioBufferSourceNode(ファイル再生)を止める
+            } catch (err) {
+                // 未開始・停止済み。停止処理は続行する
+            }
+        }
         try {
             audio.source.disconnect();
         } catch (err) {
@@ -492,6 +726,21 @@ el.toggle.addEventListener('click', async () => {
             el.toggle.disabled = ui.state === State.UNSUPPORTED;
         }
     }
+});
+
+for (const radio of el.sourceRadios) {
+    radio.addEventListener('change', () => {
+        if (!radio.checked) {
+            return;
+        }
+        ui.source = radio.value;
+        clearError();
+        renderSource();
+    });
+}
+
+el.audioFile.addEventListener('change', () => {
+    clearError();
 });
 
 el.shiftL.addEventListener('input', () => {
@@ -547,6 +796,8 @@ window.addEventListener('pagehide', () => {
 
 function init() {
     updateOutputs();
+    ui.source = selectedSource();
+    renderSource();
     const missing = detectSupport();
     if (missing.length > 0) {
         ui.state = State.UNSUPPORTED;
