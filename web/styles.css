@@ -1,33 +1,55 @@
 /*
  * styles.css — PrismEarring Web デモ
- * システムフォント + 単一カラム。prefers-color-scheme でライト/ダーク自動。
- * 200% 拡大でも横スクロールが出ないよう max-width と可変幅で組む。
+ *
+ * モバイルファースト。Pixel / Chrome での親指操作を基準に組み、
+ * PC では最大 560px で中央寄せする(レイアウトは 1 カラムのまま)。
+ * ダークテーマ既定。prefers-color-scheme: light のときだけ明色へ切り替える。
+ * 外部依存なし。inline style 属性は使わず、すべてこのファイルで完結する。
  */
 
 :root {
-    color-scheme: light dark;
-    --bg: #ffffff;
-    --fg: #16181d;
-    --muted: #5a6068;
-    --line: #c9ced6;
-    --accent: #0b5cab;      /* 白背景に対し 7.0:1(WCAG AAA) */
-    --accent-fg: #ffffff;
-    --danger-bg: #fff2f2;
-    --danger-fg: #8a1010;   /* 上記背景に対し 8.4:1 */
-    --danger-line: #d98c8c;
+    color-scheme: dark light;
+
+    --bg: #0f1216;
+    --surface: #171b22;
+    --surface-2: #1f242c;
+    --fg: #e9ecf1;
+    --muted: #a8b0bc;
+    --line: #2d343d;
+    --accent: #6aa9ff;      /* --bg に対し 8.1:1 */
+    --accent-fg: #08111d;
+    --track: #333b45;
+    --running-bg: #ff8a7a;
+    --running-fg: #24100c;
+    --danger-bg: #2a1717;
+    --danger-fg: #ffb4b4;
+    --danger-line: #7a3a3a;
+
+    /* 端末の安全域 + 最低余白。左右は横向き時のノッチを避ける。 */
+    --pad-x: max(1rem, env(safe-area-inset-left), env(safe-area-inset-right));
+    --pad-top: max(1.25rem, env(safe-area-inset-top));
+    --pad-bottom: env(safe-area-inset-bottom);
+
+    /* タッチターゲットの下限(WCAG 2.5.5 の 44px を満たす)。 */
+    --tap: 48px;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
     :root {
-        --bg: #14161a;
-        --fg: #e8eaed;
-        --muted: #a7aeb8;
-        --line: #3a4048;
-        --accent: #63a9ff;  /* 暗背景に対し 7.4:1 */
-        --accent-fg: #10141a;
-        --danger-bg: #2a1717;
-        --danger-fg: #ffb4b4;
-        --danger-line: #7a3a3a;
+        --bg: #ffffff;
+        --surface: #f3f5f8;
+        --surface-2: #e9edf2;
+        --fg: #16181d;
+        --muted: #545b65;
+        --line: #c9ced6;
+        --accent: #0b5cab;  /* 白背景に対し 7.0:1 */
+        --accent-fg: #ffffff;
+        --track: #c9ced6;
+        --running-bg: #a41f14;
+        --running-fg: #ffffff;
+        --danger-bg: #fff2f2;
+        --danger-fg: #8a1010;
+        --danger-line: #d98c8c;
     }
 }
 
@@ -35,47 +57,500 @@
     box-sizing: border-box;
 }
 
+html {
+    /* iOS/Android で文字が勝手に拡大されるのを防ぐ */
+    -webkit-text-size-adjust: 100%;
+}
+
 body {
     margin: 0;
     background: var(--bg);
     color: var(--fg);
     font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
-    font-size: 16px;
+    font-size: 17px;    /* スマホ基準。16px 未満にしない */
     line-height: 1.6;
 }
 
-main {
-    max-width: 40rem;
+.app {
+    max-width: 560px;
     margin: 0 auto;
-    padding: 1.5rem 1rem 3rem;
+    padding: var(--pad-top) var(--pad-x) 0;
+    /* sticky な操作バーは .app の内側で完結するので、下端余白はバー側で持つ */
+}
+
+.app-header {
+    margin-bottom: 1.25rem;
 }
 
 h1 {
-    font-size: 1.35rem;
-    margin: 0 0 0.25rem;
+    font-size: 1.25rem;
+    line-height: 1.35;
+    margin: 0 0 0.35rem;
 }
 
 .note {
-    margin: 0 0 1rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ------------------------- 状態パネル ------------------------- */
+
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+}
+
+.status {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin: 0.4rem 0 0;
+}
+
+.metric-label {
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.metric-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.disclosure {
+    margin-top: 0.6rem;
+    border-top: 1px solid var(--line);
+}
+
+.disclosure > summary {
+    /* 親指で押せる高さを確保する */
+    display: flex;
+    align-items: center;
+    min-height: var(--tap);
+    margin: 0 -0.25rem;
+    padding: 0 0.25rem;
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.disclosure-body > * {
+    margin: 0 0 0.5rem;
+}
+
+.disclosure-body > :last-child {
+    margin-bottom: 0.35rem;
+}
+
+.breakdown {
     color: var(--muted);
     font-size: 0.9rem;
 }
 
-.status {
-    margin: 0 0 0.75rem;
+.breakdown span {
+    font-variant-numeric: tabular-nums;
+}
+
+.fine {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+/* ------------------------- セクション ------------------------- */
+
+section {
+    margin-top: 1.5rem;
+}
+
+#controls[aria-disabled="true"],
+#source[aria-disabled="true"] {
+    opacity: 0.55;
+}
+
+/* --------------------- 入力ソース(セグメント) --------------------- */
+
+#sourceFields {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.segmented {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+}
+
+/* ラジオ本体は視覚的に隠すがフォーカスは受ける(position:absolute でグリッドからも外す) */
+.seg-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--tap);
+    padding: 0.5rem 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.seg-input:checked + .seg {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+}
+
+.seg-input:disabled + .seg {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.seg-input:focus-visible + .seg {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.filerow {
+    margin-top: 0.9rem;
+}
+
+/* hidden 属性より詳細度の高い規則で確実に隠す */
+.filerow[hidden] {
+    display: none;
+}
+
+.filerow input[type="file"] {
+    display: block;
+    width: 100%;
+    margin-top: 0.4rem;
+    padding: 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.95rem;
+}
+
+.hint {
+    margin: 0.7rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.hint[hidden] {
+    display: none;
+}
+
+/* --------------------------- コントロール --------------------------- */
+
+.control {
+    padding: 0.75rem 0.9rem 0.9rem;
+    margin-bottom: 0.75rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+}
+
+.control-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+}
+
+.control-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 1rem;
     font-weight: 600;
 }
 
-#toggle {
+.control-value {
+    flex: 0 0 auto;
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+}
+
+.stepper {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.4rem;
+    margin-left: 0.25rem;
+}
+
+.step {
+    width: var(--tap);
+    height: var(--tap);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--fg);
     font: inherit;
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    /* ダブルタップズームを抑止する(touch-action:none は使わない) */
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.step:active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+}
+
+.step:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ----------------------------- スライダ ----------------------------- */
+
+.slider {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: var(--tap);      /* 見た目より広い当たり判定を確保 */
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    /* 横方向のドラッグはスライダが、縦方向のスワイプはページが受け取る。
+       touch-action: none にするとページを縦スクロールできなくなる。 */
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.slider::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--track);
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 30px;
+    height: 30px;
+    margin-top: -10px;   /* (track 10px - thumb 30px) / 2 */
+    border: 2px solid var(--bg);
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.slider::-moz-range-track {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--track);
+}
+
+.slider::-moz-range-thumb {
+    width: 30px;
+    height: 30px;
+    border: 2px solid var(--bg);
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.slider:disabled {
+    cursor: not-allowed;
+}
+
+.slider:disabled::-webkit-slider-thumb {
+    background: var(--muted);
+}
+
+.slider:disabled::-moz-range-thumb {
+    background: var(--muted);
+}
+
+.slider:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: 12px;
+}
+
+/* --------------------------- L/R 連動トグル --------------------------- */
+
+.control-switch {
+    padding: 0;
+}
+
+.switch {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 60px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.switch-text {
+    flex: 1 1 auto;
+    font-size: 1rem;
     font-weight: 600;
-    padding: 0.7rem 1.4rem;
-    min-width: 9rem;
+}
+
+.switch input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.switch-track {
+    flex: 0 0 auto;
+    position: relative;
+    width: 64px;
+    height: 36px;
+    border-radius: 999px;
+    background: var(--track);
+    border: 1px solid var(--line);
+    transition: background-color 0.15s ease;
+}
+
+.switch-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--fg);
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.switch input:checked + .switch-track {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.switch input:checked + .switch-track .switch-thumb {
+    background: var(--accent-fg);
+    transform: translateX(28px);
+}
+
+.switch input:disabled + .switch-track {
+    opacity: 0.4;
+}
+
+.switch input:focus-visible + .switch-track {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .switch-track,
+    .switch-thumb {
+        transition: none;
+    }
+}
+
+/* ------------------------ 開始/停止(固定バー) ------------------------ */
+
+.actionbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    margin-top: 1.5rem;
+    padding: 0.75rem 0 calc(0.75rem + var(--pad-bottom));
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+}
+
+#toggle {
+    display: block;
+    width: 100%;
+    min-height: 56px;
+    padding: 0.85rem 1rem;
     border: 1px solid transparent;
-    border-radius: 0.5rem;
+    border-radius: 14px;
     background: var(--accent);
     color: var(--accent-fg);
+    font: inherit;
+    font-size: 1.15rem;
+    font-weight: 700;
     cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 動作中は色でも状態が分かるようにする(文言だけに頼らない) */
+#toggle[data-state="running"] {
+    background: var(--running-bg);
+    color: var(--running-fg);
+}
+
+#toggle[data-state="denied"] {
+    background: var(--surface-2);
+    color: var(--fg);
+    border-color: var(--danger-line);
 }
 
 #toggle:disabled {
@@ -86,124 +561,29 @@ h1 {
 }
 
 #toggle:focus-visible,
-input:focus-visible {
+.step:focus-visible,
+.disclosure > summary:focus-visible,
+.filerow input[type="file"]:focus-visible {
     outline: 3px solid var(--accent);
     outline-offset: 2px;
 }
 
-section {
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--line);
-}
-
-#controls[aria-disabled="true"] {
-    opacity: 0.55;
-}
-
-.row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.75rem;
-    margin: 0.6rem 0;
-}
-
-.row label {
-    flex: 0 0 6.5rem;
-}
-
-.row input[type="range"] {
-    flex: 1 1 12rem;
-    min-width: 8rem;
-}
-
-.row output {
-    flex: 0 0 5.5rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-.row.check label {
-    flex: 1 1 auto;
-}
-
-#sourceFields {
-    margin: 0;
-    padding: 0;
-    border: 0;
-}
-
-#sourceFields legend {
-    padding: 0;
-    font-weight: 600;
-}
-
-#sourceFields .row {
-    margin: 0.35rem 0;
-}
-
-#sourceFields label {
-    flex: 1 1 auto;
-}
-
-#source[aria-disabled="true"] {
-    opacity: 0.55;
-}
-
-#fileRow {
-    margin-top: 0.6rem;
-}
-
-/* .row の display:flex(著者スタイル)は hidden 属性の UA スタイルに勝ってしまうため、
-   同じ著者オリジンでより高い詳細度の規則で打ち消す。 */
-#fileRow[hidden] {
-    display: none;
-}
-
-#fileRow input[type="file"] {
-    flex: 1 1 12rem;
-    min-width: 8rem;
-    font: inherit;
-}
-
-.hint {
-    margin: 0.5rem 0 0;
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-
-#latency p {
-    margin: 0.25rem 0;
-}
-
-#latency .breakdown {
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-
-#latency span {
-    font-variant-numeric: tabular-nums;
-}
+/* ------------------------------ エラー ------------------------------ */
 
 #error {
     margin-top: 1.25rem;
     padding: 0.9rem 1rem;
     border: 1px solid var(--danger-line);
-    border-radius: 0.5rem;
+    border-radius: 14px;
     background: var(--danger-bg);
     color: var(--danger-fg);
 }
 
+#error[hidden] {
+    display: none;
+}
+
 #error p {
     margin: 0.25rem 0;
-}
-
-footer {
-    margin-top: 2rem;
-}
-
-.fine {
-    color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.95rem;
 }

@@ -73,7 +73,12 @@ const el = {
     latBlock: document.getElementById('latBlock'),
     latDsp: document.getElementById('latDsp'),
     engine: document.getElementById('engine'),
-    error: document.getElementById('error')
+    error: document.getElementById('error'),
+    srcMic: document.getElementById('srcMic'),
+    srcTab: document.getElementById('srcTab'),
+    tabNote: document.getElementById('tabNote'),
+    // スライダ横の微調整ボタン。data-target / data-delta をマークアップから読む
+    stepButtons: Array.from(document.querySelectorAll('.step'))
 };
 
 /* ---------------------------- UIState ---------------------------- */
@@ -83,6 +88,8 @@ const ui = {
     linkLR: el.link.checked,
     /** 現在選択中の入力ソース(Source のいずれか)。 */
     source: Source.MIC,
+    /** getDisplayMedia が使えるか。スマホの Chrome は非対応なのでタブ音声を出せない。 */
+    tabSupported: true,
     /** 'wasm'(本番)/ 'js'(フォールバック)/ null(停止中)。契約 3 の ready・latency から。 */
     engine: null,
     engineNote: '',
@@ -122,11 +129,16 @@ function render() {
     el.status.textContent = STATUS_TEXT[ui.state];
     el.toggle.textContent = TOGGLE_TEXT[ui.state];
     el.toggle.disabled = ui.state === State.UNSUPPORTED;
+    // 文言だけでなく色でも状態が分かるようにする(CSS の [data-state] が拾う)
+    el.toggle.dataset.state = ui.state;
 
     const controlsEnabled = ui.state === State.RUNNING;
     el.controls.setAttribute('aria-disabled', String(!controlsEnabled));
     for (const input of [el.shiftL, el.shiftR, el.link, el.dryWet, el.xfade]) {
         input.disabled = !controlsEnabled;
+    }
+    for (const button of el.stepButtons) {
+        button.disabled = !controlsEnabled;
     }
 
     // ソース切替は停止中のみ。動作中に切り替えられると経路の整合が取れない
@@ -134,6 +146,10 @@ function render() {
     el.sourceSection.setAttribute('aria-disabled', String(!sourceEnabled));
     for (const radio of el.sourceRadios) {
         radio.disabled = !sourceEnabled;
+    }
+    if (!ui.tabSupported) {
+        // 非対応端末では停止中でもタブ音声を選ばせない(理由は #tabNote に出す)
+        el.srcTab.disabled = true;
     }
     el.audioFile.disabled = !sourceEnabled;
 
@@ -787,6 +803,46 @@ el.xfade.addEventListener('input', () => {
     updateOutputs();
 });
 
+/** step 属性の小数桁数。0.05 刻みの加算で浮動小数の端数が出るのを丸めるために使う。 */
+function decimalsOf(step) {
+    const text = String(step);
+    const dot = text.indexOf('.');
+    return dot < 0 ? 0 : text.length - dot - 1;
+}
+
+/**
+ * スライダの値を delta だけ動かす。値の反映は input イベントを合成して
+ * 既存の更新経路(input リスナ → postParam → Worklet)へ流す。
+ * ここで postParam を直接呼ばないのは、連動 L/R の扱いを二重に持たないため。
+ */
+function nudge(input, delta) {
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const step = Number(input.step) || 1;
+    const before = Number(input.value);
+    let next = Math.round((before + delta) / step) * step;
+    next = Math.min(max, Math.max(min, next));
+    const text = next.toFixed(decimalsOf(input.step || '1'));
+    if (Number(text) === before) {
+        return; // 端に達している。無駄な postMessage を出さない
+    }
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+for (const button of el.stepButtons) {
+    button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.target);
+        const delta = Number(button.dataset.delta);
+        if (!input || !Number.isFinite(delta)) {
+            // マークアップ側の指定漏れ。黙って無視せず開発者に見えるようにする
+            console.error('prism: 微調整ボタンの data-target / data-delta が不正です', button);
+            return;
+        }
+        nudge(input, delta);
+    });
+}
+
 window.addEventListener('pagehide', () => {
     // タブを閉じる/離れるときにマイクを確実に解放する
     teardown();
@@ -794,8 +850,29 @@ window.addEventListener('pagehide', () => {
 
 /* ------------------------------ 起動 ------------------------------ */
 
+/**
+ * タブ音声(getDisplayMedia)の可否を判定する。Android/iOS のブラウザは非対応なので、
+ * 選択肢を無効化して理由を短く出す。判定は起動時の 1 回だけで足りる。
+ */
+function detectTabSupport() {
+    ui.tabSupported = Boolean(
+        navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function'
+    );
+    if (ui.tabSupported) {
+        return;
+    }
+    el.srcTab.disabled = true;
+    el.tabNote.textContent = 'この端末では「タブ音声」を使えません(タブ音声の共有に非対応)。';
+    el.tabNote.hidden = false;
+    if (el.srcTab.checked) {
+        // 復元(bfcache 等)でタブが選ばれていた場合はマイクへ戻す
+        el.srcMic.checked = true;
+    }
+}
+
 function init() {
     updateOutputs();
+    detectTabSupport();
     ui.source = selectedSource();
     renderSource();
     const missing = detectSupport();

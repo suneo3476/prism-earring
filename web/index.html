@@ -2,7 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- モバイルファースト。viewport-fit=cover でノッチ/ジェスチャバー領域まで塗り、
+     安全域は CSS の env(safe-area-inset-*) で確保する。 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
 <!-- SR-2.2: 外部オリジンへの接続を宣言的に遮断する。
      connect-src は 'self' —— 同一オリジンの prism.wasm を fetch するため('none' だと
      WASM を取得できず JS フォールバックに落ちる)。外部オリジンは引き続き不許可。
@@ -13,78 +16,127 @@
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-<main>
-    <h1>prism — PrismEarring demo</h1>
-    <p class="note">※イヤホン推奨(スピーカーはハウリングします)</p>
+<main class="app">
+    <header class="app-header">
+        <h1>prism — PrismEarring demo</h1>
+        <p class="note">※イヤホン推奨(スピーカーはハウリングします)</p>
+    </header>
 
-    <p class="status" id="status" role="status" aria-live="polite">状態: 停止中</p>
+    <!-- 状態表示は 1 か所に集約する。長文の案内は details に畳む。 -->
+    <section class="panel" aria-label="状態">
+        <p class="status" id="status" role="status" aria-live="polite">状態: 停止中</p>
+        <p class="metric"><span class="metric-label">往復遅延</span><span class="metric-value" id="latTotal">-- ms</span></p>
+        <details class="disclosure">
+            <summary>詳細と注意事項</summary>
+            <div class="disclosure-body">
+                <p class="breakdown">
+                    内訳: 出力 <span id="latOut">--</span>
+                    / ブロック <span id="latBlock">--</span>
+                    / DSP <span id="latDsp">--</span>
+                </p>
+                <p class="breakdown" id="engine">engine: --</p>
+                <p class="fine">
+                    音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
+                    マイク・タブ音声・音声ファイルのいずれも、開始を押したときだけ読み込みます。
+                </p>
+                <p class="fine">
+                    パラメータは動作中のみ操作できます。スライダは指でドラッグ、
+                    細かい調整は各行の − / + ボタンを使ってください。
+                </p>
+                <p class="fine">
+                    スマートフォンではタブ音声の共有(getDisplayMedia)を使えません。
+                    マイクか音声ファイルを選んでください。
+                </p>
+            </div>
+        </details>
+    </section>
+
+    <div id="error" hidden role="alert"></div>
 
     <section id="source" aria-label="入力ソース">
+        <h2 class="section-title">入力</h2>
         <fieldset id="sourceFields">
-            <legend>入力</legend>
-            <div class="row check">
-                <label for="srcMic"><input id="srcMic" type="radio" name="inputSource" value="mic" checked> マイク</label>
-            </div>
-            <div class="row check">
-                <label for="srcTab"><input id="srcTab" type="radio" name="inputSource" value="tab"> ブラウザのタブ音声</label>
-            </div>
-            <div class="row check">
-                <label for="srcFile"><input id="srcFile" type="radio" name="inputSource" value="file"> 音声ファイル</label>
+            <legend class="sr-only">入力ソースを選択</legend>
+            <div class="segmented">
+                <input class="seg-input" id="srcMic" type="radio" name="inputSource" value="mic" checked>
+                <label class="seg" for="srcMic">マイク</label>
+                <input class="seg-input" id="srcTab" type="radio" name="inputSource" value="tab">
+                <label class="seg" for="srcTab">タブ音声</label>
+                <input class="seg-input" id="srcFile" type="radio" name="inputSource" value="file">
+                <label class="seg" for="srcFile">ファイル</label>
             </div>
         </fieldset>
-        <div class="row" id="fileRow" hidden>
-            <label for="audioFile">ファイル</label>
+        <p class="hint" id="tabNote" hidden></p>
+        <div class="filerow" id="fileRow" hidden>
+            <label class="control-label" for="audioFile">音声ファイル</label>
             <input id="audioFile" type="file" accept="audio/*">
         </div>
         <p class="hint" id="sourceHint" aria-live="polite"></p>
     </section>
 
-    <button id="toggle" type="button">▶ 開始</button>
-
     <section id="controls" aria-label="パラメータ">
-        <div class="row">
-            <label for="shiftL">シフト量 L</label>
-            <input id="shiftL" type="range" min="-150" max="0" step="1" value="-89">
-            <output id="shiftLOut" for="shiftL">-89 cent</output>
+        <h2 class="section-title">パラメータ</h2>
+
+        <div class="control">
+            <div class="control-head">
+                <label class="control-label" for="shiftL">シフト量 L</label>
+                <output class="control-value" id="shiftLOut" for="shiftL">-89 cent</output>
+                <div class="stepper">
+                    <button class="step" type="button" data-target="shiftL" data-delta="-1" aria-label="シフト量 L を 1 セント下げる">−</button>
+                    <button class="step" type="button" data-target="shiftL" data-delta="1" aria-label="シフト量 L を 1 セント上げる">+</button>
+                </div>
+            </div>
+            <input class="slider" id="shiftL" type="range" min="-150" max="0" step="1" value="-89">
         </div>
-        <div class="row">
-            <label for="shiftR">シフト量 R</label>
-            <input id="shiftR" type="range" min="-150" max="0" step="1" value="-89">
-            <output id="shiftROut" for="shiftR">-89 cent</output>
+
+        <div class="control">
+            <div class="control-head">
+                <label class="control-label" for="shiftR">シフト量 R</label>
+                <output class="control-value" id="shiftROut" for="shiftR">-89 cent</output>
+                <div class="stepper">
+                    <button class="step" type="button" data-target="shiftR" data-delta="-1" aria-label="シフト量 R を 1 セント下げる">−</button>
+                    <button class="step" type="button" data-target="shiftR" data-delta="1" aria-label="シフト量 R を 1 セント上げる">+</button>
+                </div>
+            </div>
+            <input class="slider" id="shiftR" type="range" min="-150" max="0" step="1" value="-89">
         </div>
-        <div class="row check">
-            <label for="link"><input id="link" type="checkbox" checked> 左右連動</label>
+
+        <div class="control control-switch">
+            <label class="switch" for="link">
+                <span class="switch-text">左右連動</span>
+                <input id="link" type="checkbox" checked>
+                <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            </label>
         </div>
-        <div class="row">
-            <label for="dryWet">Dry/Wet</label>
-            <input id="dryWet" type="range" min="0" max="1" step="0.01" value="1">
-            <output id="dryWetOut" for="dryWet">1.00</output>
+
+        <div class="control">
+            <div class="control-head">
+                <label class="control-label" for="dryWet">Dry/Wet</label>
+                <output class="control-value" id="dryWetOut" for="dryWet">1.00</output>
+                <div class="stepper">
+                    <button class="step" type="button" data-target="dryWet" data-delta="-0.05" aria-label="Dry/Wet を 0.05 下げる">−</button>
+                    <button class="step" type="button" data-target="dryWet" data-delta="0.05" aria-label="Dry/Wet を 0.05 上げる">+</button>
+                </div>
+            </div>
+            <input class="slider" id="dryWet" type="range" min="0" max="1" step="0.01" value="1">
         </div>
-        <div class="row">
-            <label for="xfade">窓長</label>
-            <input id="xfade" type="range" min="10" max="100" step="1" value="50">
-            <output id="xfadeOut" for="xfade">50 ms</output>
+
+        <div class="control">
+            <div class="control-head">
+                <label class="control-label" for="xfade">窓長</label>
+                <output class="control-value" id="xfadeOut" for="xfade">50 ms</output>
+                <div class="stepper">
+                    <button class="step" type="button" data-target="xfade" data-delta="-1" aria-label="窓長を 1 ミリ秒短くする">−</button>
+                    <button class="step" type="button" data-target="xfade" data-delta="1" aria-label="窓長を 1 ミリ秒長くする">+</button>
+                </div>
+            </div>
+            <input class="slider" id="xfade" type="range" min="10" max="100" step="1" value="50">
         </div>
     </section>
 
-    <section id="latency" aria-label="遅延">
-        <p>実測往復遅延: <span id="latTotal">-- ms</span></p>
-        <p class="breakdown">
-            内訳: 出力 <span id="latOut">--</span>
-            / ブロック <span id="latBlock">--</span>
-            / DSP <span id="latDsp">--</span>
-        </p>
-        <p class="breakdown" id="engine">engine: --</p>
-    </section>
-
-    <div id="error" hidden role="alert"></div>
-
-    <footer>
-        <p class="fine">
-            音声はこの端末の外へ出ません(外部送信・録音・解析なし)。
-            マイク・タブ音声・音声ファイルのいずれも、開始を押したときだけ読み込みます。
-        </p>
-    </footer>
+    <div class="actionbar">
+        <button id="toggle" type="button" data-state="stopped">▶ 開始</button>
+    </div>
 </main>
 <script type="module" src="./main.js"></script>
 </body>
