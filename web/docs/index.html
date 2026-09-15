@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>prism 開発者向け解説 — アプリ構造とピッチシフト処理</title>
+<meta name="description" content="prism-earring(配布名「カツオ」)の実装解説。DSPコア/接着層/UIの3層構成、Androidの呼び出しフロー、ディレイライン型ピッチシフタのアルゴリズム、数値検証、設計からの逸脱をソースコードに基づいて説明する。">
+<link rel="icon" href="../favicon.svg">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<a class="skip-link" href="#main">本文へスキップ</a>
+
+<header class="site-header">
+  <a class="brand" href="../index.html">
+    <img class="brand-mark" src="../assets/icon.svg" alt="">
+    <span>
+      <span class="brand-title">prism 開発者向け解説</span><br>
+      <span class="brand-sub">アプリ構造とピッチシフト処理</span>
+    </span>
+  </a>
+  <button class="toc-toggle" id="tocToggle" type="button" aria-expanded="false" aria-controls="toc">
+    目次
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="目次">
+    <p class="toc-heading">目次</p>
+    <ul class="toc-list">
+      <li><a href="#overview"><span class="toc-num">1</span>全体構成</a></li>
+      <li><a href="#android-flow"><span class="toc-num">2</span>Android の呼び出しフロー</a></li>
+      <li><a href="#algorithm"><span class="toc-num">3</span>ピッチシフトのアルゴリズム</a></li>
+      <li><a href="#verification"><span class="toc-num">4</span>数値検証</a></li>
+      <li><a href="#deviations"><span class="toc-num">5</span>設計文書からの逸脱</a></li>
+    </ul>
+  </nav>
+
+  <main class="content" id="main">
+    <div class="doc-intro">
+      <p>このドキュメントは、prism(コードネーム。配布名は「カツオ」)の実装を、Unity/UE 向けオーディオプラグイン開発の経験を持つ読者向けに解説するものである。ソースコードの大部分は AI が生成したため、開発者自身も構造を把握し切れていない部分が残っている。そこで本書は、実際のソースファイルと関数名を根拠に、アプリの全体構成・呼び出しフロー・ピッチシフトのアルゴリズム・数値検証・設計からの逸脱を順に説明する。</p>
+      <p>読み終えたときに、オーディオコールバックのどの行が何をしているかをソースへ戻って追えるようになることを目標にする。参照した主なファイルは <code>dsp/include/prism/PitchShifter.h</code>、<code>android/app/src/main/cpp/*</code>、<code>android/app/src/main/java/dev/saku/prismearring/*.kt</code>、<code>web/wasm/prism_bridge.cpp</code>、<code>web/prism-worklet.js</code>、<code>verify/verify.cpp</code>、リポジトリ直下の <code>README.md</code> である。</p>
+    </div>
+
+    <!-- ============================================================ -->
+    <section class="chapter" id="overview">
+      <p class="chapter-kicker">Chapter 1</p>
+      <h2>全体構成</h2>
+      <p class="lead">prism が DSP コア・接着層・UI の3層に分かれており、Android と Web の両方が同じ DSP コアを呼び出す構成になっていることが分かる。</p>
+
+      <p>prism の目的は、マイクで拾った音を約 -89 セント(<dfn>セント</dfn>とは音高の単位で、半音を100等分した値を指す。-89セントは半音よりわずかに狭い下方シフトに当たる)ピッチシフトし、イヤホンからほぼ遅延なく聴かせることにある。この目的を Android アプリと Web デモの両方で実現するため、prism はアルゴリズム本体を1箇所に集約し、そこへ薄い接着層を被せるという構成を取っている。</p>
+
+      <p>制約は2つある。第一に、DSP コアはプラットフォームに依存してはならない。Android と Web で同じ計算結果を再現する必要があるためである。第二に、接着層はプラットフォーム固有の API(Oboe、AudioWorklet)を持つが、アルゴリズムそのものには手を入れてはならない。手を入れてしまうと2つの実装が少しずつ乖離していくためである。</p>
+
+      <p>この制約を満たすため、prism は図1のような3層構造を取っている。最下層の DSP コアは <code>dsp/include/prism/PitchShifter.h</code> 1ファイルに実装された <code>namespace prism</code> の <code>class PitchShifter</code> であり、C++17 標準ライブラリ以外に依存しない。中間層の接着層は、Android では <code>AudioBridge.h</code>・<code>PrismEngine.{h,cpp}</code>・<code>jni_bridge.cpp</code> が、Web では <code>prism_bridge.cpp</code>(Emscripten でビルドして <code>prism.wasm</code> にする)と <code>prism-worklet.js</code> が担う。最上層の UI 層は、Android では <code>MainActivity.kt</code>・<code>PrismService.kt</code>・<code>Params.kt</code> などの Kotlin 群が、Web では <code>index.html</code> と <code>main.js</code> が担う。図中の矢印は依存の向きを表しており、UI 層は接着層を、接着層は DSP コアを呼び出すという一方向の依存になっている。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 860 380" role="img" aria-labelledby="dg1Title dg1Desc">
+          <title id="dg1Title">層構成図</title>
+          <desc id="dg1Desc">UI層(Android/Web)が接着層(Android/Web)を呼び出し、接着層が共通のDSPコアprism::PitchShifterを呼び出す3層構造を示す図。矢印は依存の向きを表す。</desc>
+          <defs>
+            <marker id="mk1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <rect class="d-box" x="30" y="20" width="380" height="66" rx="8"/>
+          <text class="d-title" x="46" y="42">UI(Android)</text>
+          <text class="d-mono" x="46" y="60">MainActivity.kt / PrismService.kt</text>
+          <text class="d-mono" x="46" y="74">Params.kt / CaptureController.kt</text>
+
+          <rect class="d-box" x="450" y="20" width="380" height="66" rx="8"/>
+          <text class="d-title" x="466" y="42">UI(Web)</text>
+          <text class="d-mono" x="466" y="60">index.html / main.js</text>
+          <text class="d-small d-muted" x="466" y="74">画面・パラメータ操作・AudioWorklet起動</text>
+
+          <rect class="d-box-accent" x="30" y="150" width="380" height="80" rx="8"/>
+          <text class="d-title" x="46" y="172">接着層(Android)</text>
+          <text class="d-mono" x="46" y="190">AudioBridge.h / PrismEngine.{h,cpp}</text>
+          <text class="d-mono" x="46" y="204">jni_bridge.cpp</text>
+          <text class="d-small d-muted" x="46" y="220">Oboeストリーム管理・JNI境界</text>
+
+          <rect class="d-box-accent" x="450" y="150" width="380" height="80" rx="8"/>
+          <text class="d-title" x="466" y="172">接着層(Web)</text>
+          <text class="d-mono" x="466" y="190">prism_bridge.cpp(→prism.wasm)</text>
+          <text class="d-mono" x="466" y="204">prism-worklet.js</text>
+          <text class="d-small d-muted" x="466" y="220">extern &quot;C&quot; API・AudioWorklet境界</text>
+
+          <rect class="d-box" x="30" y="300" width="800" height="66" rx="8" style="stroke:var(--primary);stroke-width:1.6"/>
+          <text class="d-title" x="46" y="324">DSPコア(共有・プラットフォーム非依存)</text>
+          <text class="d-mono" x="46" y="342">dsp/include/prism/PitchShifter.h — namespace prism, class PitchShifter</text>
+          <text class="d-small d-muted" x="46" y="358">純C++17・外部依存ゼロ・音声経路にFFTなし・ヒープ確保はprepare()のみ</text>
+
+          <line class="d-arrow" x1="220" y1="86" x2="220" y2="146" marker-end="url(#mk1)"/>
+          <line class="d-arrow" x1="640" y1="86" x2="640" y2="146" marker-end="url(#mk1)"/>
+          <line class="d-arrow" x1="220" y1="230" x2="220" y2="296" marker-end="url(#mk1)"/>
+          <line class="d-arrow" x1="640" y1="230" x2="640" y2="296" marker-end="url(#mk1)"/>
+        </svg>
+        <figcaption><span class="fig-num">図1.</span> prism の3層構成。UI 層は接着層を、接着層は DSP コアを呼び出す一方向の依存になっている。</figcaption>
+      </figure>
+
+      <p>なお Web 版には、WASM のロードに失敗した環境向けに <code>PitchShifterJS</code> という JavaScript 実装が <code>prism-worklet.js</code> 内に同梱されている。これは <code>PitchShifter.h</code> の算術を1対1で書き写したフォールバックであり、本番経路は常に WASM 側である。</p>
+
+      <p>この構成が崩れていないかどうかは、DSP コア側では検証プログラム(<code>verify/verify.cpp</code>。4章で詳しく述べる)がソースコード中に FFT やロックが混入していないことを機械的に確認する形で担保している。接着層側は Android・Web それぞれのビルドとテストで確認する。</p>
+
+      <div class="takeaway">
+        <p>prism は DSP コアを1つだけ持ち、Android と Web はそれぞれ別の接着層からそれを呼び出す。接着層を変えてもアルゴリズムは変わらないため、Android と Web で聴こえ方が一致する。</p>
+        <p>この構造により、次章以降で Android の呼び出しフローと DSP コアのアルゴリズムを別々に読み進めることができる。</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="chapter" id="android-flow">
+      <p class="chapter-kicker">Chapter 2</p>
+      <h2>Android の呼び出しフロー</h2>
+      <p class="lead">prism-earring が起動してから定常的に音を処理するまでの流れ、パラメータをスライダーで変えたときに何が起きるか、そして他アプリの音を拾う捕獲経路がどうマイク経路と混ざるかが分かる。</p>
+
+      <p>Android 版の目的は、画面を閉じても、他のアプリに切り替えても、常駐して処理を続けることにある。</p>
+
+      <p>この目的のため、エンジンの所有者は Activity ではなく <dfn>ForegroundService</dfn>(バックグラウンドでも OS に殺されにくい Android の常駐サービス形態を指す)である <code>PrismService</code> に置かれている。<code>MainActivity</code> は <code>PrismService</code> に bind して状態を読み、パラメータの変更を Service 経由で流し込むだけであり、エンジンを直接持たない。もう1つの制約は、<code>CLAUDE.md</code> が定める「オーディオコールバック内でヒープ確保・ロック・I/O・例外を行わない」というリアルタイムオーディオの鉄則である。この鉄則により、パラメータの受け渡しは <code>std::atomic</code> 越しにしか行えず、UI スレッドとオーディオスレッドの間にロックは一切現れない。</p>
+
+      <h3>起動〜定常状態のフロー</h3>
+
+      <div class="legend">
+        <span class="legend-item"><i class="legend-dot blue"></i>UI(MainActivity ほか, Kotlin)</span>
+        <span class="legend-item"><i class="legend-dot purple"></i>PrismService(常駐サービス)</span>
+        <span class="legend-item"><i class="legend-dot orange"></i>ネイティブ層(PrismEngine / AudioBridge / JNI)</span>
+        <span class="legend-item"><i class="legend-dot green"></i>Oboe / OS(オーディオストリーム)</span>
+        <span class="legend-item"><i class="legend-dot red"></i>DSPコア(PitchShifter, 3章で詳説)</span>
+      </div>
+
+      <p>ユーザーが開始ボタンをタップすると、<code>MainActivity.requestStart()</code> が RECORD_AUDIO 権限を確認したのち、<code>ContextCompat.startForegroundService(ACTION_START)</code> で <code>PrismService</code> を常駐化する。<code>PrismService.startProcessing()</code> は前景化(<code>startForegroundCompat()</code>)を先に済ませてから、<code>Params.applyTo(engine)</code> で保存済みのパラメータをエンジンへ流し込み、<code>NativeEngine.start()</code> を呼ぶ。ここから先は <dfn>JNI</dfn>(Java Native Interface の略で、Kotlin から C++ の関数を呼ぶための Android の橋渡し機構を指す)を1回だけ越えて <code>nativeStart(handle)</code> が呼ばれ、ネイティブ側の <code>PrismEngine::start()</code>(実体は <code>startLocked()</code>)へ入る。</p>
+
+      <p><code>startLocked()</code> はまず出力ストリームを1度試し開きしてサンプルレートとバースト長(Oboe が1回のコールバックで受け渡す最小フレーム数の単位を指す)を取得し、それを使って出力ストリームを本開きする。デバイスは Exclusive(占有)から Shared(共有)へ、指定デバイスから自動デバイスへの順に条件を緩めながら <code>openOutput()</code> が試行する。入力ストリームは <code>configureInput()</code> が Unprocessed(AGC・ノイズ抑制・AEC をすべて無効化する入力プリセットで、ピッチを最も素直に通す)から VoiceRecognition、Generic の順に試す。両方のストリームが開いたら、<code>AudioBridge::prepare()</code> が唯一のヒープ確保区間として <code>PitchShifter</code> を2本(マイク経路用と捕獲経路用)確保する。最後に <code>inputStream_-&gt;requestStart()</code> と <code>outputStream_-&gt;requestStart()</code> が呼ばれ、入力を先に走らせてから出力を開始する。</p>
+
+      <p>prism-earring は<dfn>出力コールバック駆動の全二重</dfn>(全二重とは送信と受信を同時に行える通信形態を指し、ここではマイク入力とイヤホン出力を1つのコールバックで同時に処理することを意味する)という構成を取っている。入力ストリームは自分のコールバックを持たず、出力ストリームのコールバックである <code>onAudioReady(outputStream, data, numFrames)</code> の中から <code>input-&gt;read(scratch, numFrames, 0)</code> を呼んで読み出す。これは Oboe の LiveEffect サンプルと同じ構成であり、入力と出力それぞれにコールバックスレッドを立てて同期を取るよりずっと単純になる。</p>
+
+      <p><code>onAudioReady()</code> は毎回 <code>AudioBridge::nextStep()</code> を呼んで今回やることを決める。起動直後は DrainInput(たまっていた古い入力を8コールバック連続で捨て切る)、続いて BuildCushion(逆に数バースト分読まずに入力をためる)を経て、ようやく Render に入る。Render では読み込んだ入力を <code>AudioBridge::render()</code> に渡し、内部で非インタリーブ形式(左右チャンネルを別々の配列に分けた形式を指す。Oboe から来るインタリーブ = LRLRLR... 形式と対比される)へ変換したのち、<code>PitchShifter::process(inPlanar_, outPlanar_, chunk)</code> が呼ばれる。ここが DSP コア本体の呼び出しであり、詳しい中身は3章で説明する。処理結果は <code>mixChunk()</code> でゲインとソフトクリップ(信号が一定振幅を超えた分だけ tanh で滑らかに丸め、±1.0を超えさせない処理を指す)を経てからインタリーブに戻され、出力バッファへ書き込まれる。このループが起動同期を終えると <code>synced_</code> が true になり、<code>PrismService</code> の1秒ごとの poller がそれを <code>isSynced()</code> 経由で読み取って画面の「稼働中」表示を更新する。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 1320" role="img" aria-labelledby="dg2Title dg2Desc">
+          <title id="dg2Title">起動〜定常状態のシーケンス図</title>
+          <desc id="dg2Desc">ユーザーの開始タップからMainActivity、PrismService、PrismEngine、AudioBridge、Oboe、PitchShifterへと処理が渡り、出力コールバックのループに入って定常状態(synced_=true)に至るまでの手順を示す。</desc>
+          <defs>
+            <marker id="mk2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <!-- box1 -->
+          <rect class="d-box" x="40" y="110" width="740" height="64" rx="10" style="stroke:var(--c-blue)"/>
+          <circle cx="58" cy="130" r="4" style="fill:var(--c-blue)"/>
+          <text x="70" y="134" class="d-small" style="fill:var(--c-blue)">ユーザー</text>
+          <text x="58" y="152" class="d-mono">タップ(開始) → MainActivity.requestStart()</text>
+          <text x="58" y="168" class="d-small d-muted">RECORD_AUDIO 権限が無ければ先に許可ダイアログを出す</text>
+          <line class="d-arrow" x1="410" y1="174" x2="410" y2="194" marker-end="url(#mk2)"/>
+          <!-- box2 -->
+          <rect class="d-box" x="40" y="194" width="740" height="64" rx="10" style="stroke:var(--c-blue)"/>
+          <circle cx="58" cy="214" r="4" style="fill:var(--c-blue)"/>
+          <text x="70" y="218" class="d-small" style="fill:var(--c-blue)">MainActivity</text>
+          <text x="58" y="236" class="d-mono">startForegroundService(ACTION_START) → s.startProcessing()</text>
+          <text x="58" y="252" class="d-small d-muted">bindとは別経路で常駐用にServiceを起こしてから呼ぶ</text>
+          <line class="d-arrow" x1="410" y1="258" x2="410" y2="278" marker-end="url(#mk2)"/>
+          <!-- box3 -->
+          <rect class="d-box" x="40" y="278" width="740" height="64" rx="10" style="stroke:var(--c-purple)"/>
+          <circle cx="58" cy="298" r="4" style="fill:var(--c-purple)"/>
+          <text x="70" y="302" class="d-small" style="fill:var(--c-purple)">PrismService</text>
+          <text x="58" y="320" class="d-mono">startForegroundCompat(); params.applyTo(e); e.start()</text>
+          <text x="58" y="336" class="d-small d-muted">e=NativeEngine。e.start()はJNI経由でnativeStart(handle)を呼ぶ</text>
+          <line class="d-arrow" x1="410" y1="342" x2="410" y2="362" marker-end="url(#mk2)"/>
+          <!-- box4 -->
+          <rect class="d-box" x="40" y="362" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="382" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="386" class="d-small" style="fill:var(--c-orange)">PrismEngine(C++)</text>
+          <text x="58" y="404" class="d-mono">startLocked(): openOutput()で出力探査→本開き / configureInput()</text>
+          <text x="58" y="420" class="d-small d-muted">Exclusive→Shared、指定デバイス→自動の順に条件を緩める</text>
+          <line class="d-arrow" x1="410" y1="426" x2="410" y2="446" marker-end="url(#mk2)"/>
+          <!-- box5 -->
+          <rect class="d-box" x="40" y="446" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="466" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="470" class="d-small" style="fill:var(--c-orange)">AudioBridge</text>
+          <text x="58" y="488" class="d-mono">bridge_.prepare(sampleRate, inCh, outCh, micSweepMs, captureSweepMs)</text>
+          <text x="58" y="504" class="d-small d-muted">唯一のヒープ確保区間。PitchShifterを2本確保する</text>
+          <line class="d-arrow" x1="410" y1="510" x2="410" y2="530" marker-end="url(#mk2)"/>
+          <!-- box6 -->
+          <rect class="d-box" x="40" y="530" width="740" height="64" rx="10" style="stroke:var(--c-green)"/>
+          <circle cx="58" cy="550" r="4" style="fill:var(--c-green)"/>
+          <text x="70" y="554" class="d-small" style="fill:var(--c-green)">Oboe</text>
+          <text x="58" y="572" class="d-mono">inputStream_→requestStart(); outputStream_→requestStart()</text>
+          <text x="58" y="588" class="d-small d-muted">入力を先に走らせてから出力を開始する</text>
+          <line class="d-arrow" x1="410" y1="594" x2="410" y2="614" marker-end="url(#mk2)"/>
+
+          <rect x="30" y="598" width="760" height="516" rx="10" class="d-line" style="stroke-dasharray:5 4"/>
+          <text x="46" y="616" class="d-small d-muted">loop: 出力コールバックのたびに(周期 ≈ 1バースト、48kHzで数ms)</text>
+
+          <!-- box7 -->
+          <rect class="d-box" x="40" y="630" width="740" height="64" rx="10" style="stroke:var(--c-green)"/>
+          <circle cx="58" cy="650" r="4" style="fill:var(--c-green)"/>
+          <text x="70" y="654" class="d-small" style="fill:var(--c-green)">Oboe(出力コールバックスレッド)</text>
+          <text x="58" y="672" class="d-mono">onAudioReady(outputStream, data, numFrames)</text>
+          <text x="58" y="688" class="d-small d-muted">出力ストリームだけがコールバックを持つ(全二重を1本で駆動)</text>
+          <line class="d-arrow" x1="410" y1="694" x2="410" y2="714" marker-end="url(#mk2)"/>
+          <!-- box8 -->
+          <rect class="d-box" x="40" y="714" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="734" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="738" class="d-small" style="fill:var(--c-orange)">AudioBridge</text>
+          <text x="58" y="756" class="d-mono">nextStep(): DrainInput×8 → BuildCushion → Render</text>
+          <text x="58" y="772" class="d-small d-muted">起動直後の古い入力を捨ててからクッションを積む</text>
+          <line class="d-arrow" x1="410" y1="778" x2="410" y2="798" marker-end="url(#mk2)"/>
+          <!-- box9 -->
+          <rect class="d-box" x="40" y="798" width="740" height="64" rx="10" style="stroke:var(--c-green)"/>
+          <circle cx="58" cy="818" r="4" style="fill:var(--c-green)"/>
+          <text x="70" y="822" class="d-small" style="fill:var(--c-green)">Oboe(入力ストリーム)</text>
+          <text x="58" y="840" class="d-mono">input→read(scratch, numFrames, 0)</text>
+          <text x="58" y="856" class="d-small d-muted">出力コールバックの中から入力を読む(timeoutNanos=0)</text>
+          <line class="d-arrow" x1="410" y1="862" x2="410" y2="882" marker-end="url(#mk2)"/>
+          <!-- box10 -->
+          <rect class="d-box" x="40" y="882" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="902" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="906" class="d-small" style="fill:var(--c-orange)">AudioBridge</text>
+          <text x="58" y="924" class="d-mono">render(scratch, framesRead, output, numFrames)</text>
+          <text x="58" y="940" class="d-small d-muted">非インタリーブへ変換しchunk単位で分割処理する</text>
+          <line class="d-arrow" x1="410" y1="946" x2="410" y2="966" marker-end="url(#mk2)"/>
+          <!-- box11 -->
+          <rect class="d-box" x="40" y="966" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="986" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="990" class="d-small" style="fill:var(--c-red)">PitchShifter(DSPコア)</text>
+          <text x="58" y="1008" class="d-mono">shifter_.process(inPlanar_, outPlanar_, chunk)</text>
+          <text x="58" y="1024" class="d-small d-muted">アルゴリズム本体。仕組みは3章で詳しく説明する</text>
+          <line class="d-arrow" x1="410" y1="1030" x2="410" y2="1050" marker-end="url(#mk2)"/>
+          <!-- box12 -->
+          <rect class="d-box" x="40" y="1050" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="1070" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="1074" class="d-small" style="fill:var(--c-orange)">AudioBridge</text>
+          <text x="58" y="1092" class="d-mono">mixChunk() → interleaveChunk()</text>
+          <text x="58" y="1108" class="d-small d-muted">ゲインとソフトクリップの後、出力バッファへ書く</text>
+          <line class="d-arrow" x1="410" y1="1114" x2="410" y2="1134" marker-end="url(#mk2)"/>
+          <!-- box13 -->
+          <rect class="d-box" x="40" y="1134" width="740" height="64" rx="10" style="stroke:var(--c-purple)"/>
+          <circle cx="58" cy="1154" r="4" style="fill:var(--c-purple)"/>
+          <text x="70" y="1158" class="d-small" style="fill:var(--c-purple)">PrismService</text>
+          <text x="58" y="1176" class="d-mono">synced_=true → isSynced() で読み取る</text>
+          <text x="58" y="1192" class="d-small d-muted">起動同期が終わり、実際に音が通り始めた合図</text>
+          <line class="d-arrow" x1="410" y1="1198" x2="410" y2="1218" marker-end="url(#mk2)"/>
+          <!-- box14 -->
+          <rect class="d-box" x="40" y="1218" width="740" height="64" rx="10" style="stroke:var(--c-blue)"/>
+          <circle cx="58" cy="1238" r="4" style="fill:var(--c-blue)"/>
+          <text x="70" y="1242" class="d-small" style="fill:var(--c-blue)">MainActivity</text>
+          <text x="58" y="1260" class="d-mono">1秒毎: publishState() → StateListener.onState()</text>
+          <text x="58" y="1276" class="d-small d-muted">renderState()が画面の「稼働中」表示と数値を更新する</text>
+        </svg>
+        <figcaption><span class="fig-num">図2.</span> 起動〜定常状態のシーケンス図。色は上の凡例に対応する。破線枠は出力コールバックのたびに繰り返される区間を表す。</figcaption>
+      </figure>
+
+      <p>この一連の流れが崩れていないかどうかは、Android 側では実機での起動・停止の繰り返しと、<code>AudioBridge::underrunCount()</code> / <code>inputErrorCount()</code> などの診断カウンタで確認する。DSP コア呼び出し自体の正しさは4章のオフライン検証がソースコードから独立に保証する。</p>
+
+      <div class="takeaway">
+        <p>起動から定常状態までは <code>PrismService</code> が前景化とエンジン起動を仲介し、その先はネイティブ層の状態機械(Drain→Cushion→Render)が担う。</p>
+        <p>オーディオコールバックの中で実際に呼ばれる関数は <code>onAudioReady</code> → <code>nextStep</code> → <code>render</code> → <code>shifter_.process</code> という一直線であり、途中に確保やロックは現れない。</p>
+      </div>
+
+      <h3>パラメータ変更のフロー</h3>
+
+      <p>スライダーを操作すると、<code>MainActivity.updateParams(next)</code> が呼ばれる。ここでは変更後の値が再起動を要するもの(出力/入力デバイス・出力用途・走査幅。<code>Params.requiresRestart()</code> が判定する)かどうかも同時に見ているが、シフト量やドライ/ウェットのような大半のパラメータは動作中でも即座に反映できる。<code>updateParams()</code> は <code>service.updateParams(next)</code> を経由して <code>Params.applyTo(engine)</code> を呼び、<code>engine.setShiftCents(channel, cents)</code> のようなセッターへ振り分ける。セッターは <code>nativeSetShiftCents(handle, channel, cents)</code> として JNI を1回だけ越え、ネイティブ側の <code>PrismEngine::setShiftCents()</code> に届く。ここでシフト量はマイク経路と捕獲経路の両方の <code>PitchShifter</code> へ同じ値が流される(走査幅だけが経路ごとに異なるため)。最終的に <code>PitchShifter::setShiftCentsL()</code> が <code>storeClamped()</code> を通して非有限値を無視し、値を [-1200, 1200] セントへ丸め、<code>std::atomic&lt;float&gt;</code> へ <code>memory_order_relaxed</code> で書き込む。ここまでは全て制御スレッド上で完結し、オーディオスレッドを一切待たせない。</p>
+
+      <p>オーディオスレッド側では、<code>process()</code> がブロックの先頭で1回だけ <code>centsL_.target = shiftCentsL_.load(memory_order_relaxed)</code> のように読み出す(ブロック内で atomic を何度も読まない設計になっている)。読み出した目標値は <code>SmoothedParam::tick()</code> によって毎サンプル1次指数平滑され、時定数は20ミリ秒である。平滑後の値との差が十分小さくなると <code>current</code> を <code>target</code> へスナップし、それ以降は微小な直流分(<dfn>デノーマル</dfn>対策。デノーマルとは浮動小数点数が正規化できないほど0に近づいた状態を指し、CPU によっては通常の演算より大幅に遅くなることがある)を加算しない設計になっている。平滑された値から <code>rate = centsToRatio(cL) = 2^(cL/1200)</code> が毎サンプル再計算され、これが読み出しヘッドの走行速度になる。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 940" role="img" aria-labelledby="dg3Title dg3Desc">
+          <title id="dg3Title">パラメータ変更のシーケンス図</title>
+          <desc id="dg3Desc">スライダー操作からMainActivity、PrismService、NativeEngine経由のJNI境界、PrismEngine、PitchShifterのstd::atomicへの書き込みを経て、次のオーディオコールバックで音声スレッドが平滑化しながら反映するまでの手順を示す。</desc>
+          <defs>
+            <marker id="mk3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <!-- box1 -->
+          <rect class="d-box" x="40" y="110" width="740" height="64" rx="10" style="stroke:var(--c-blue)"/>
+          <circle cx="58" cy="130" r="4" style="fill:var(--c-blue)"/>
+          <text x="70" y="134" class="d-small" style="fill:var(--c-blue)">ユーザー</text>
+          <text x="58" y="152" class="d-mono">スライダーを操作(例: 左シフト量)</text>
+          <text x="58" y="168" class="d-small d-muted">MainActivity.setUpSliders() の addOnChangeListener が発火する</text>
+          <line class="d-arrow" x1="410" y1="174" x2="410" y2="194" marker-end="url(#mk3)"/>
+          <!-- box2 -->
+          <rect class="d-box" x="40" y="194" width="740" height="64" rx="10" style="stroke:var(--c-blue)"/>
+          <circle cx="58" cy="214" r="4" style="fill:var(--c-blue)"/>
+          <text x="70" y="218" class="d-small" style="fill:var(--c-blue)">MainActivity</text>
+          <text x="58" y="236" class="d-mono">updateParams(next) を呼ぶ</text>
+          <text x="58" y="252" class="d-small d-muted">prev/nextを比較し、再起動が要る設定かも判定する(requiresRestart)</text>
+          <line class="d-arrow" x1="410" y1="258" x2="410" y2="278" marker-end="url(#mk3)"/>
+          <!-- box3 -->
+          <rect class="d-box" x="40" y="278" width="740" height="64" rx="10" style="stroke:var(--c-purple)"/>
+          <circle cx="58" cy="298" r="4" style="fill:var(--c-purple)"/>
+          <text x="70" y="302" class="d-small" style="fill:var(--c-purple)">PrismService</text>
+          <text x="58" y="320" class="d-mono">params = next; next.applyTo(engine); next.save(this)</text>
+          <text x="58" y="336" class="d-small d-muted">動作中でも呼んでよい(内部はatomic経由)</text>
+          <line class="d-arrow" x1="410" y1="342" x2="410" y2="362" marker-end="url(#mk3)"/>
+          <!-- box4 -->
+          <rect class="d-box" x="40" y="362" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="382" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="386" class="d-small" style="fill:var(--c-orange)">NativeEngine / jni_bridge.cpp</text>
+          <text x="58" y="404" class="d-mono">engine.setShiftCents(CHANNEL_LEFT, cents) → nativeSetShiftCents()</text>
+          <text x="58" y="420" class="d-small d-muted">JNI境界を1回だけ越える</text>
+          <line class="d-arrow" x1="410" y1="426" x2="410" y2="446" marker-end="url(#mk3)"/>
+          <!-- box5 -->
+          <rect class="d-box" x="40" y="446" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="466" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="470" class="d-small" style="fill:var(--c-orange)">PrismEngine(C++)</text>
+          <text x="58" y="488" class="d-mono">setShiftCents(channel, cents)</text>
+          <text x="58" y="504" class="d-small d-muted">マイク経路と捕獲経路、両方のPitchShifterへ同じ値を流す</text>
+          <line class="d-arrow" x1="410" y1="510" x2="410" y2="530" marker-end="url(#mk3)"/>
+          <!-- box6 -->
+          <rect class="d-box" x="40" y="530" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="550" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="554" class="d-small" style="fill:var(--c-red)">PitchShifter::setShiftCentsL()</text>
+          <text x="58" y="572" class="d-mono">storeClamped(shiftCentsL_, cents, -1200, 1200)</text>
+          <text x="58" y="588" class="d-small d-muted">非有限値は無視→範囲へclamp→std::atomic&lt;float&gt;へrelaxed store</text>
+
+          <line x1="30" y1="624" x2="790" y2="624" class="d-line" style="stroke-dasharray:5 4"/>
+          <text x="410" y="618" text-anchor="middle" class="d-small d-muted">ここから先は次のオーディオコールバックから反映される(音声スレッド、ロックなし)</text>
+          <line class="d-arrow" x1="410" y1="594" x2="410" y2="654" marker-end="url(#mk3)"/>
+
+          <!-- box7 -->
+          <rect class="d-box" x="40" y="654" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="674" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="678" class="d-small" style="fill:var(--c-red)">PitchShifter::process()</text>
+          <text x="58" y="696" class="d-mono">ブロック先頭で1回だけ: centsL_.target = shiftCentsL_.load()</text>
+          <text x="58" y="712" class="d-small d-muted">音声スレッドが読むのはブロックにつき1回だけ</text>
+          <line class="d-arrow" x1="410" y1="718" x2="410" y2="738" marker-end="url(#mk3)"/>
+          <!-- box8 -->
+          <rect class="d-box" x="40" y="738" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="758" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="762" class="d-small" style="fill:var(--c-red)">SmoothedParam::tick()</text>
+          <text x="58" y="780" class="d-mono">毎サンプル: current = a・current + (1-a)・target</text>
+          <text x="58" y="796" class="d-small d-muted">時定数20msの1次指数平滑。到達したらスナップしてデノーマルを断つ</text>
+          <line class="d-arrow" x1="410" y1="802" x2="410" y2="822" marker-end="url(#mk3)"/>
+          <!-- box9 -->
+          <rect class="d-box" x="40" y="822" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="842" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="846" class="d-small" style="fill:var(--c-red)">PitchShifter::process()</text>
+          <text x="58" y="864" class="d-mono">rate = centsToRatio(cL) = 2^(cL/1200)</text>
+          <text x="58" y="880" class="d-small d-muted">半音=100セントの決め打ちはしない。毎サンプル再計算する</text>
+        </svg>
+        <figcaption><span class="fig-num">図3.</span> パラメータ変更のシーケンス図。制御スレッド側(青〜赤の上6段)は<code>std::atomic</code>への書き込みで完結し、音声スレッド側(下3段)がブロック先頭で読んで20ミリ秒かけて平滑化する。</figcaption>
+      </figure>
+
+      <p>この平滑化が正しく働いているかどうかは、シフト量を急変させたときに聴感上のクリックやジップノイズ(パラメータが不連続に変わることで生じる短いプチ音を指す)が出ないことで確認できる。数値的には <code>verify.cpp</code> のグリッチ系検査(4章)が、シフト量を固定した定常状態でのグリッチ検出を行っている。</p>
+
+      <div class="takeaway">
+        <p>パラメータの変更は制御スレッドから <code>std::atomic</code> への1回の書き込みで完結し、オーディオスレッドはそれをブロック先頭で読んでから20ミリ秒かけて滑らかに追従する。</p>
+        <p>ロックが介在しないため、スライダーの操作がオーディオコールバックを止めることはない。</p>
+      </div>
+
+      <h3>捕獲経路(他アプリの再生音)のフロー</h3>
+
+      <p>prism-earring は v0.4.0 以降、マイクだけでなく他アプリの再生音も拾える。これは <dfn>AudioPlaybackCapture</dfn>(Android が提供する、他アプリの再生音を合法的に横取りできる API を指す)を使うが、Oboe にはこの API が無いため、Java 側の <code>AudioRecord</code> で完結させている。ユーザーが捕獲を有効にすると、<code>MainActivity</code> は <dfn>MediaProjection</dfn>(画面/音声キャプチャの同意を管理する Android の仕組みを指す)の同意画面を出し、同意結果を <code>PrismService.startCapture(resultCode, data)</code> に渡す。Android 14 以降はこの同意結果を使って <code>startForegroundWithCaptureType()</code> で mediaProjection 型を含めて前景化し直してから <code>MediaProjectionManager.getMediaProjection()</code> を呼ぶ必要があり、順序を誤ると <code>SecurityException</code> になる。</p>
+
+      <p>実際の捕獲は <code>CaptureController</code> が受け持つ。<code>AudioRecord.Builder().setAudioPlaybackCaptureConfig(config)</code> でエンジンの出力サンプルレートに合わせたストリームを開き、専用スレッド(<code>Process.THREAD_PRIORITY_URGENT_AUDIO</code> で優先度を上げている)が約10ミリ秒ごとに <code>record.read()</code> で読み取る。読めたフレームは <code>engine.pushCapture(floatBuf, frames, channels)</code> に渡され、<code>nativePushCapture</code> が <code>GetPrimitiveArrayCritical</code>(配列をコピーせずネイティブ側から直接触れる JNI の機構を指す)でコピーなしにネイティブへ届ける。<code>AudioBridge::pushCapture()</code> はこれを <dfn>SPSC</dfn>(Single-Producer Single-Consumer の略で、書き手と読み手がそれぞれ1本のスレッドに限られるリングバッファの形態を指す)リングバッファへ書き込む。書き手は Java の録音スレッドだけであり、write インデックスだけを進めるためロックは要らない。</p>
+
+      <p>一方、オーディオコールバック側では <code>AudioBridge::fetchCaptureChunk()</code> がリングから読み出す。読み手はオーディオスレッドだけであり、read インデックスだけを進める。滞留が20ミリ秒(<code>kCaptureCushionMs</code>)に満たない間は無音で待ち、200ミリ秒(<code>kCaptureMaxFillMs</code>)を超えて滞留したら古い分を捨てて遅延が伸び続けないようにする。読み出した音は <code>captureShifter_.process(capInPlanar_, capOutPlanar_, chunk)</code> というマイク経路とは別インスタンスの <code>PitchShifter</code> に通される。走査幅は既定40ミリ秒であり、マイク経路の9.5ミリ秒より広い。この理由は3章末尾で述べる。最後に <code>mixChunk()</code> が「マイク経路 × micGain + 捕獲経路 × captureGain」を合成し、出力ゲインとソフトクリップを経て出力される。捕獲経路の dry/wet は常に1.0固定であり、UI のドライ/ウェット設定は流れない。捕獲経路には「イヤホンから漏れる生音」に相当するものが存在せず、dry 成分は原音そのものの二重再生になってしまうためである。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 1020" role="img" aria-labelledby="dg4Title dg4Desc">
+          <title id="dg4Title">捕獲経路のシーケンス図</title>
+          <desc id="dg4Desc">他アプリの再生音をAudioRecordの録音スレッドが読み取り、JNI経由でロックフリーのSPSCリングバッファへ書き込み、オーディオコールバック側が読み出して別インスタンスのPitchShifterで処理し、マイク経路とミックスするまでの手順を示す。</desc>
+          <defs>
+            <marker id="mk4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <!-- box1 -->
+          <rect class="d-box" x="40" y="110" width="740" height="64" rx="10" style="stroke:var(--c-green)"/>
+          <circle cx="58" cy="130" r="4" style="fill:var(--c-green)"/>
+          <text x="70" y="134" class="d-small" style="fill:var(--c-green)">他アプリ</text>
+          <text x="58" y="152" class="d-mono">再生音が Android のミキサーへ渡る</text>
+          <text x="58" y="168" class="d-small d-muted">AudioPlaybackCaptureの対象usage(Media/Game/Unknown)であること</text>
+          <line class="d-arrow" x1="410" y1="174" x2="410" y2="194" marker-end="url(#mk4)"/>
+          <!-- box2 -->
+          <rect class="d-box" x="40" y="194" width="740" height="64" rx="10" style="stroke:var(--c-purple)"/>
+          <circle cx="58" cy="214" r="4" style="fill:var(--c-purple)"/>
+          <text x="70" y="218" class="d-small" style="fill:var(--c-purple)">MainActivity → PrismService</text>
+          <text x="58" y="236" class="d-mono">startCapture(resultCode, data)</text>
+          <text x="58" y="252" class="d-small d-muted">直前にlaunchProjectionConsent()で得たMediaProjectionの同意結果を渡す</text>
+          <line class="d-arrow" x1="410" y1="258" x2="410" y2="278" marker-end="url(#mk4)"/>
+          <!-- box3 -->
+          <rect class="d-box" x="40" y="278" width="740" height="64" rx="10" style="stroke:var(--c-purple)"/>
+          <circle cx="58" cy="298" r="4" style="fill:var(--c-purple)"/>
+          <text x="70" y="302" class="d-small" style="fill:var(--c-purple)">PrismService</text>
+          <text x="58" y="320" class="d-mono">startForegroundWithCaptureType()</text>
+          <text x="58" y="336" class="d-small d-muted">mediaProjection型を含めて前景化し直す(Android14+はこの順序が必須)</text>
+          <line class="d-arrow" x1="410" y1="342" x2="410" y2="362" marker-end="url(#mk4)"/>
+          <!-- box4 -->
+          <rect class="d-box" x="40" y="362" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="382" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="386" class="d-small" style="fill:var(--c-orange)">CaptureController.start()</text>
+          <text x="58" y="404" class="d-mono">AudioRecord.Builder().setAudioPlaybackCaptureConfig(config).build()</text>
+          <text x="58" y="420" class="d-small d-muted">エンジンの出力サンプルレートに合わせて開く</text>
+          <line class="d-arrow" x1="410" y1="426" x2="410" y2="446" marker-end="url(#mk4)"/>
+          <!-- box5 -->
+          <rect class="d-box" x="40" y="446" width="740" height="64" rx="10" style="stroke:var(--c-green)"/>
+          <circle cx="58" cy="466" r="4" style="fill:var(--c-green)"/>
+          <text x="70" y="470" class="d-small" style="fill:var(--c-green)">録音スレッド(runLoop)</text>
+          <text x="58" y="488" class="d-mono">record.read(floatBuf, ...) を約10msごとに</text>
+          <text x="58" y="504" class="d-small d-muted">Process.THREAD_PRIORITY_URGENT_AUDIOで走る専用スレッド</text>
+          <line class="d-arrow" x1="410" y1="510" x2="410" y2="530" marker-end="url(#mk4)"/>
+          <!-- box6 -->
+          <rect class="d-box" x="40" y="530" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="550" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="554" class="d-small" style="fill:var(--c-orange)">NativeEngine / jni_bridge.cpp</text>
+          <text x="58" y="572" class="d-mono">engine.pushCapture(floatBuf, frames, channels)</text>
+          <text x="58" y="588" class="d-small d-muted">nativePushCaptureはGetPrimitiveArrayCriticalでコピーなしに渡す</text>
+          <line class="d-arrow" x1="410" y1="594" x2="410" y2="614" marker-end="url(#mk4)"/>
+          <!-- box7 -->
+          <rect class="d-box" x="40" y="614" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="634" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="638" class="d-small" style="fill:var(--c-orange)">AudioBridge::pushCapture()</text>
+          <text x="58" y="656" class="d-mono">SPSCリングへ書き込み(captureWrite_のみ進める)</text>
+          <text x="58" y="672" class="d-small d-muted">書き手はJavaの録音スレッド1本だけ(ロックフリー)</text>
+
+          <line x1="30" y1="708" x2="790" y2="708" class="d-line" style="stroke-dasharray:5 4"/>
+          <text x="410" y="702" text-anchor="middle" class="d-small d-muted">並行して、出力コールバック側(音声スレッド)が読み出す</text>
+          <line class="d-arrow" x1="410" y1="678" x2="410" y2="738" marker-end="url(#mk4)"/>
+
+          <!-- box8 -->
+          <rect class="d-box" x="40" y="738" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="758" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="762" class="d-small" style="fill:var(--c-red)">AudioBridge::fetchCaptureChunk()</text>
+          <text x="58" y="780" class="d-mono">リングから読み出す(captureRead_のみ進める)</text>
+          <text x="58" y="796" class="d-small d-muted">クッション20msがたまるまで待ち、滞留200ms超で古い分を破棄する</text>
+          <line class="d-arrow" x1="410" y1="802" x2="410" y2="822" marker-end="url(#mk4)"/>
+          <!-- box9 -->
+          <rect class="d-box" x="40" y="822" width="740" height="64" rx="10" style="stroke:var(--c-red)"/>
+          <circle cx="58" cy="842" r="4" style="fill:var(--c-red)"/>
+          <text x="70" y="846" class="d-small" style="fill:var(--c-red)">PitchShifter(捕獲経路用)</text>
+          <text x="58" y="864" class="d-mono">captureShifter_.process(capInPlanar_, capOutPlanar_, chunk)</text>
+          <text x="58" y="880" class="d-small d-muted">マイク経路とは別インスタンス。走査幅は既定40ms</text>
+          <line class="d-arrow" x1="410" y1="886" x2="410" y2="906" marker-end="url(#mk4)"/>
+          <!-- box10 -->
+          <rect class="d-box" x="40" y="906" width="740" height="64" rx="10" style="stroke:var(--c-orange)"/>
+          <circle cx="58" cy="926" r="4" style="fill:var(--c-orange)"/>
+          <text x="70" y="930" class="d-small" style="fill:var(--c-orange)">AudioBridge::mixChunk()</text>
+          <text x="58" y="948" class="d-mono">マイク経路×micGain + 捕獲経路×captureGain → ソフトクリップ</text>
+          <text x="58" y="964" class="d-small d-muted">捕獲経路のdry/wetは常に1.0固定(原音の二重再生を避けるため)</text>
+        </svg>
+        <figcaption><span class="fig-num">図4.</span> 捕獲経路(他アプリの再生音)のシーケンス図。書き手(録音スレッド)と読み手(音声スレッド)はロックフリーのSPSCリングでつながる。</figcaption>
+      </figure>
+
+      <p>この経路の健全性は <code>captureUnderruns()</code> / <code>captureOverruns()</code> / <code>captureFillFrames()</code> という診断カウンタで実機確認する。DSP 部分(捕獲用シフタの走査幅40ミリ秒でのピッチ精度)は <code>verify.cpp</code> の <code>testCaptureSweep()</code> が数値的に検証している(4章)。</p>
+
+      <div class="takeaway">
+        <p>捕獲経路はマイク経路と完全に独立した <code>PitchShifter</code> を持ち、ロックフリーな SPSC リングバッファで書き手(録音スレッド)と読み手(オーディオスレッド)をつなぐ。</p>
+        <p>2つの経路は <code>mixChunk()</code> で初めて合流し、そこでゲインとソフトクリップが適用される。</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="chapter" id="algorithm">
+      <p class="chapter-kicker">Chapter 3</p>
+      <h2>ピッチシフトのアルゴリズム</h2>
+      <p class="lead"><code>prism::PitchShifter</code> がリングバッファと2本の読み出しヘッドだけで、FFT を使わずにピッチシフトを実現する仕組みが分かる。</p>
+
+      <p>目的は、入力音の周波数成分をおよそ <code>rate = 2^(cents/1200)</code> 倍にシフトすることである。半音は100セントだが、prism の既定値は-89セントであり、半音ぴったりではない。そのため実装は半音=100セントを決め打ちにせず、任意のセント値から比を計算する <code>centsToRatio()</code> を持つ(BR1.1)。</p>
+
+      <pre><code>// BR1.1: セント -&gt; 速度比。半音=100 セントの決め打ちは行わない。
+static double centsToRatio(float cents) noexcept {
+    return std::exp2(static_cast&lt;double&gt;(cents) / 1200.0);
+}</code></pre>
+
+      <p>最重要の制約は <code>CLAUDE.md</code> が定める遅延要件である。イヤホンは外界音を完全に遮断しないため、処理音に生音が漏れ込む。この漏れ込みと処理音がずれると唸りや会話の破綻が起きるため、処理部の遅延を10ミリ秒以下に収める必要がある。<dfn>位相ボコーダ</dfn>(入力を短時間フーリエ変換して周波数領域でピッチを操作し、逆変換で戻す手法を指す)は音質面では優れるが、一般的な窓長2048サンプル@44.1kHzだけで46ミリ秒かかり、この時点で要件を満たさない。そのため prism は音声経路に FFT を一切使わず、時間領域でリサンプリングする<dfn>ディレイライン型ピッチシフタ</dfn>(テープヘッド回転方式とも呼ばれる)を採用している。</p>
+
+      <p>仕組みの土台は<dfn>リングバッファ</dfn>(先頭と末尾がつながった環状の配列を指し、書き込み位置が末尾に達すると先頭へ折り返す)である。<code>process()</code> は毎サンプル、入力を <code>channel_[ch][writeIndex_]</code> へ書き込んでから <code>writeIndex_</code> を1つ進める(<code>wrapIndex()</code> が容量を超えたら折り返す)。読み出しは書き込み位置から一定サンプル遅れた場所を、<dfn>線形補間</dfn>(隣り合う2サンプルの値を実数位置の小数部で按分して滑らかな値を作る手法を指す)を使う <code>readAt()</code> で行う。この「遅れ」を <code>lag</code> と呼び、読み出しヘッドは <code>lag</code> を毎サンプル <code>drift = 1 - rate</code> だけ進める。<code>rate</code> が1未満(下げ方向)のときは <code>drift</code> が正になり、<code>lag</code> は徐々に増える。これは読み出し位置が書き込み位置に対して相対的にゆっくり進むことを意味し、結果として入力を引き伸ばして読むことになり、ピッチが下がる。図5に、既定の-89セント・48kHz でのある瞬間の位置関係を示す。<code>baseOffset</code>(8サンプル、線形補間で前後2サンプルを常に参照できるようにする安全マージン)から始まり、走査幅 <code>sweep</code>(既定9.5ミリ秒、456サンプル@48kHz)ぶん先まで <code>lag</code> が動ける範囲になっている。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 260" role="img" aria-labelledby="dg5Title dg5Desc">
+          <title id="dg5Title">定常状態でのリングバッファ読み書き位置</title>
+          <desc id="dg5Desc">書き込み位置writeIndexから左へlagサンプルだけ遅れた場所を読み出しヘッドが読む。下げ方向ではlagはbaseOffset(8サンプル)からdownTriggerLag(464サンプル)の範囲を走査する。</desc>
+          <defs>
+            <marker id="mk5" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <text x="410" y="24" text-anchor="middle" class="d-title">下げ方向(既定-89セント、fs=48kHz)の読み書き位置(ある瞬間のスナップショット)</text>
+          <text x="60" y="50" class="d-small d-muted">← 古い(過去のサンプル)</text>
+          <text x="760" y="50" text-anchor="end" class="d-small d-muted">新しい(最新) →</text>
+
+          <rect class="d-box" x="40" y="150" width="740" height="36" rx="6"/>
+          <rect class="d-fill-blue" x="93.3" y="150" width="674.9" height="36"/>
+
+          <line x1="93.3" y1="150" x2="93.3" y2="200" class="d-line"/>
+          <text x="93.3" y="216" text-anchor="middle" class="d-small">downTriggerLag</text>
+          <text x="93.3" y="230" text-anchor="middle" class="d-mono">=464 (9.67ms)</text>
+
+          <line x1="768.2" y1="150" x2="768.2" y2="200" class="d-line"/>
+          <text x="768.2" y="216" text-anchor="middle" class="d-small">baseOffset</text>
+          <text x="768.2" y="230" text-anchor="middle" class="d-mono">=8 (0.17ms)</text>
+
+          <line x1="780" y1="118" x2="780" y2="150" class="d-arrow" marker-end="url(#mk5)"/>
+          <text x="780" y="108" text-anchor="end" class="d-title">writeIndex_(最新の書き込み位置)</text>
+
+          <line x1="430.7" y1="150" x2="430.7" y2="236" class="d-arrow-muted"/>
+          <circle cx="430.7" cy="168" r="6" style="fill:var(--c-blue)"/>
+          <text x="430.7" y="252" text-anchor="middle" class="d-small" style="fill:var(--c-blue)">読み出し位置 lag=236(4.92ms、設計値の目安)</text>
+
+          <line x1="430.7" y1="168" x2="390" y2="168" class="d-arrow" marker-end="url(#mk5)"/>
+          <text x="410" y="110" text-anchor="middle" class="d-small d-muted">lag は毎サンプル drift=(1-rate)≈0.050 ずつ増える(下げ方向)</text>
+        </svg>
+        <figcaption><span class="fig-num">図5.</span> 定常状態の読み書き位置関係。読み出し位置 = <code>writeIndex_ - lag</code> の前後2サンプルを線形補間する(<code>readAt()</code>)。</figcaption>
+      </figure>
+
+      <p><code>lag</code> が走査域の端(下げ方向では <code>baseOffset + sweep = downTriggerLag_</code>)に達すると、そのままでは読み出し位置が未来へ突き抜けてしまうため、跳躍(ヘッドを手前に戻す操作)が起きる。跳躍量が固定だと、戻った先の波形が元の波形と位相的にずれ、出力スペクトルにノイズが乗る。これを避けるため prism は跳躍のたびに<dfn>正規化相互相関</dfn>(2つの信号波形がどれだけ似た形をしているかを、大きさの違いを正規化した上で数値化する手法を指す。<dfn>WSOLA</dfn> という時間領域ピッチ/タイムストレッチ手法で使われる考え方と同じである)を計算し、直近512サンプル(<code>kCorrelationLength</code>)と最もよく一致する跳躍量を [0.35×最大跳躍量, 最大跳躍量] の範囲で探す <code>startJump()</code> を実装している。最良の跳躍量が見つかると、新しい読み出しヘッドがそこに置かれ、旧ヘッドから新ヘッドへ定振幅(等パワーではなく単純な線形補間で混ぜる方式を指す)のクロスフェードが始まる。等パワーではなく定振幅を選んだ理由は、相関で選んだ2本のヘッドはほぼ相関した波形を読んでいるため、等パワー合成だと振幅が最大3dB膨らんでしまうためである。図6に、下げ方向での <code>lag</code> の時間変化(のこぎり波状に増加しては跳躍で戻る様子)とクロスフェード区間を示す。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 300" role="img" aria-labelledby="dg6Title dg6Desc">
+          <title id="dg6Title">跳躍とクロスフェード(下げ方向)の模式図</title>
+          <desc id="dg6Desc">下げ方向ではlagが時間とともに直線的に増加し、downTriggerLagに達すると波形同期跳躍でbestJumpだけ減少する。跳躍直後はクロスフェード区間があり、旧ヘッドのlagはさらに増加を続けてから破棄される。</desc>
+          <defs>
+            <marker id="mk6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <text x="410" y="18" text-anchor="middle" class="d-title">下げ方向: lag(サンプル)の時間変化(模式図。既定-89セント、fs=48kHz)</text>
+
+          <rect class="d-fill-orange" x="678.2" y="30" width="101.8" height="190"/>
+          <text x="729" y="254" text-anchor="middle" class="d-small d-muted">クロスフェード</text>
+          <text x="729" y="268" text-anchor="middle" class="d-small d-muted">fadeLen ≈ 50ms(既定窓)</text>
+
+          <line x1="60" y1="217" x2="780" y2="217" class="d-line" style="stroke-dasharray:4 3"/>
+          <text x="64" y="211" class="d-small d-muted">baseOffset=8</text>
+          <line x1="60" y1="43.7" x2="780" y2="43.7" class="d-line" style="stroke-dasharray:4 3"/>
+          <text x="64" y="38" class="d-small d-muted">downTriggerLag=464</text>
+
+          <polyline points="60,217 678.2,43.7" class="d-blue" style="fill:none;stroke-width:2.4"/>
+          <polyline points="678.2,157.7 780,129.2" class="d-blue" style="fill:none;stroke-width:2.4"/>
+          <polyline points="678.2,43.7 727.5,30" class="d-orange" style="fill:none;stroke-width:2;stroke-dasharray:4 3"/>
+
+          <line x1="678.2" y1="43.7" x2="678.2" y2="157.7" class="d-arrow-muted"/>
+          <text x="664" y="100" text-anchor="end" class="d-small">跳躍: 正規化相互相関が</text>
+          <text x="664" y="114" text-anchor="end" class="d-small">最大のbestJumpだけ戻る</text>
+
+          <text x="60" y="238" class="d-small d-muted">0ms</text>
+          <text x="223.6" y="238" text-anchor="middle" class="d-small d-muted">50ms</text>
+          <text x="387.3" y="238" text-anchor="middle" class="d-small d-muted">100ms</text>
+          <text x="550.9" y="238" text-anchor="middle" class="d-small d-muted">150ms</text>
+          <text x="714.5" y="238" text-anchor="middle" class="d-small d-muted">200ms</text>
+          <text x="410" y="286" text-anchor="middle" class="d-small d-muted">時間(ms)。跳躍間隔 = sweep ÷ |1-rate| ≈ 190ms(既定-89セント)</text>
+
+          <text x="40" y="130" text-anchor="middle" class="d-small d-muted" transform="rotate(-90 40 130)">lag(サンプル)</text>
+        </svg>
+        <figcaption><span class="fig-num">図6.</span> 下げ方向の跳躍とクロスフェード(模式図。比率は実データに基づくが時間軸は分かりやすさのため誇張してある)。青の実線が現在アクティブな読み出しヘッド、橙の破線が跳躍直後もクロスフェード終了まで読まれ続ける旧ヘッドを表す。</figcaption>
+      </figure>
+
+      <p>シフト範囲は当初の契約(下げ専用、-150〜0セント)から±1200セント(上下1オクターブ)へ拡張されている(D-G、5章で詳述)。<code>rate</code> が1を超える上げ方向では <code>drift</code> が負になり、<code>lag</code> は逆に減っていく。走査の向き・跳躍の向き・相関探索の向きはすべて下げ方向と反転する。加えて上げ方向だけの制約がある。クロスフェード中は旧ヘッドも <code>lag</code> を進め続けるため、上げ方向では旧ヘッドの <code>lag</code> がどんどん小さくなり、<code>baseOffset</code> を割り込んで「まだ書き込んでいない未来」を読みにいく危険がある。これを避けるため、上げ方向の走査域全体を <code>guard</code>(<code>sweep/4</code>)だけ持ち上げてあり、その帯が旧ヘッドの走行余地になる。図7に上げ方向での <code>lag</code> の時間変化とガード帯を示す。上げ方向の設計値遅延は <code>baseOffset + guard + sweep/2</code> となり、下げ方向の <code>baseOffset + sweep/2</code> より長くなる(既定条件・48kHzでそれぞれ7.29ミリ秒と4.92ミリ秒であり、README の実測ではしきい値検出込みで5.17ミリ秒である)。いずれも10ミリ秒予算には収まっている。</p>
+
+      <figure class="diagram">
+        <svg viewBox="0 0 820 300" role="img" aria-labelledby="dg7Title dg7Desc">
+          <title id="dg7Title">跳躍とクロスフェード(上げ方向)の模式図</title>
+          <desc id="dg7Desc">上げ方向ではlagが時間とともに減少し、upTriggerLagに達すると波形同期跳躍でbestJumpだけ増加する。旧ヘッドはガード帯(baseOffsetとupTriggerLagの間)を使ってさらに減少を続けてから破棄される。</desc>
+          <defs>
+            <marker id="mk7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" style="fill:var(--diagram-fg)"/>
+            </marker>
+          </defs>
+          <text x="410" y="18" text-anchor="middle" class="d-title">上げ方向: lag(サンプル)の時間変化(模式図。例: +200セント、fs=48kHz)</text>
+
+          <rect class="d-fill-purple" x="60" y="181" width="720" height="37"/>
+          <text x="66" y="230" class="d-small d-muted">ガード帯 guardSamples=114(上げ方向専用の走行余地)</text>
+
+          <rect class="d-fill-orange" x="490" y="30" width="107.2" height="190"/>
+
+          <line x1="60" y1="37" x2="780" y2="37" class="d-line" style="stroke-dasharray:4 3"/>
+          <text x="64" y="31" class="d-small d-muted">upCeilingLag=578</text>
+          <line x1="60" y1="181" x2="780" y2="181" class="d-line" style="stroke-dasharray:4 3"/>
+          <text x="600" y="175" class="d-small d-muted">upTriggerLag=baseOffset+guard=122</text>
+          <line x1="60" y1="218" x2="780" y2="218" class="d-line" style="stroke-dasharray:4 3"/>
+
+          <polyline points="60,37 490,181" class="d-blue" style="fill:none;stroke-width:2.4"/>
+          <polyline points="490,86 780,184" class="d-blue" style="fill:none;stroke-width:2.4"/>
+          <polyline points="490,181 597.2,218" class="d-orange" style="fill:none;stroke-width:2;stroke-dasharray:4 3"/>
+
+          <line x1="490" y1="181" x2="490" y2="86" class="d-arrow-muted"/>
+          <text x="500" y="130" class="d-small">跳躍: +bestJump</text>
+          <text x="500" y="144" class="d-small">(遅れが増える側へ)</text>
+
+          <text x="60" y="238" class="d-small d-muted">0ms</text>
+          <text x="336.9" y="238" text-anchor="middle" class="d-small d-muted">50ms</text>
+          <text x="613.8" y="238" text-anchor="middle" class="d-small d-muted">100ms</text>
+          <text x="410" y="286" text-anchor="middle" class="d-small d-muted">時間(ms)。クロスフェードの実効長はガード帯で切り詰められ、既定窓50msでもここでは約19msになる</text>
+
+          <text x="40" y="130" text-anchor="middle" class="d-small d-muted" transform="rotate(-90 40 130)">lag(サンプル)</text>
+        </svg>
+        <figcaption><span class="fig-num">図7.</span> 上げ方向の跳躍とクロスフェード(模式図)。ガード帯(紫)が旧ヘッドの走行余地を確保し、跳躍(橙帯)はその予算ぶんで打ち切られる。</figcaption>
+      </figure>
+
+      <p><code>getLatencySamples()</code> が返す設計値遅延は、<code>lag</code> が走査区間を一様に走査するという前提のもとでの平均値であり、<code>baseOffset + sweep/2</code>(上げ方向は <code>+ guard</code>)という式になっている。これは3章冒頭で述べた10ミリ秒制約に対する実装側の答えであり、4章の数値検証で実測される。</p>
+
+      <pre><code>double getLatencySamples() const noexcept {
+    if (!prepared_) return 0.0;
+    const float cl = shiftCentsL_.load(std::memory_order_relaxed);
+    const float cr = shiftCentsR_.load(std::memory_order_relaxed);
+    const double base = (cl &gt; 0.0f || cr &gt; 0.0f) ? upTriggerLag_
+                                                 : static_cast&lt;double&gt;(kBaseOffsetSamples);
+    return base + 0.5 * static_cast&lt;double&gt;(sweepSamples_);
+}</code></pre>
+
+      <p>最後に、平滑化とデノーマル対策についても触れておく。<code>process()</code> はブロックの先頭で <code>shiftCentsL_</code> などの <code>std::atomic</code> を1回だけ読み、<code>SmoothedParam::tick()</code> が毎サンプル1次指数平滑(時定数20ミリ秒)をかける。目標値との差が閾値(<code>kSnapCents</code> や <code>kSnapUnit</code>)を下回ると <code>current</code> を <code>target</code> へスナップし、以後は加算をやめる。スナップしない通常時は微小な直流分 <code>kDenormalGuard</code>(1e-20)を加算し続けており、これは値がゼロへ収束していくときに CPU がデノーマル数を扱って処理が遅くなることを防ぐためのものである。</p>
+
+      <p>この仕組み全体が正しく動いているかどうかは4章の数値検証(FFT ピーク比によるピッチ精度、インパルス応答による遅延、隣接差分によるグリッチ検出)で確認しており、いずれもソースコードから独立したオフラインの検証プログラムで行われる。</p>
+
+      <div class="takeaway">
+        <p><code>prism::PitchShifter</code> は FFT を使わず、2本の読み出しヘッドと正規化相互相関による跳躍先選択、定振幅クロスフェードだけでピッチシフトを実現している。</p>
+        <p>この選択は音質より遅延を優先した結果であり、シフト量が-89セントと小さいために跳躍によるアーティファクトも目立ちにくい。上げ方向への拡張は走査域の向きと跳躍の向きをすべて反転させる形で後から追加された。</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="chapter" id="verification">
+      <p class="chapter-kicker">Chapter 4</p>
+      <h2>数値検証</h2>
+      <p class="lead"><code>verify/verify.cpp</code> がピッチ精度・遅延・グリッチ・ヒープ確保の4項目をどう測っているか、そして実測値がどうだったかが分かる。</p>
+
+      <p>目的は、耳で聴いて確認するだけでなく、DSP コアの振る舞いを数値で検証できる形にすることである。<code>team.md</code> が定める本プロジェクトのマージ条件は、この4つの数値検証がすべて緑であることである。</p>
+
+      <p>検証プログラム自身も <code>CLAUDE.md</code> の制約に従っており、外部ライブラリを使わない。ピッチ精度検証に必要な FFT のために、検証プログラム側だけに自前の radix-2 FFT(<code>fftRadix2()</code>)を実装している。これは DSP コア(音声経路)に FFT を持ち込まないという制約と矛盾しない。検証はオフライン(ファイル入出力なしでメモリ上のバッファに対して行う)で完結しており、<code>clang++</code> だけでビルドできる。</p>
+
+      <p>ピッチ精度は <code>testPitch()</code> / <code>testPitchAt()</code> が担う。110・440・3520 Hz の正弦波を入力し、ウォームアップ(0.6秒)を空けてから32768サンプル(<code>kFftSize</code>)をハン窓 + FFT + 放物線補間で解析し、支配的なピークの周波数を求める <code>dominantFrequency()</code> を使う。出力ピークと入力周波数の比が、期待比 <code>2^(cents/1200)</code> に対して ±0.5%(<code>kPitchRelTolerance</code>)以内であることを判定する。既定の-89セントだけでなく、<code>testShiftRange()</code> が-1200〜+1200セントの範囲を複数点で検査している。</p>
+
+      <p>遅延は <code>testLatency()</code> が担う。振幅1.0の単位インパルス(1サンプルだけ1.0で残りは0の信号を指す)を入力し、出力が閾値(<code>kLatencyThreshold</code> = 0.05、-26dBFS相当)を初めて超えるサンプル番号を数える。この実測値が10ミリ秒予算(<code>kLatencyBudgetMs</code>)以内であること、かつ <code>getLatencySamples()</code> が返す設計値との差が許容差以内であることの両方を判定する。</p>
+
+      <p>グリッチは <code>testGlitch()</code> / <code>testGlitchAt()</code> が担う。440Hz の正弦波を5秒間流し、隣接するサンプル間の差分が期待される最大スロープ(<code>2π・f・比・振幅/fs</code>)の3倍(<code>kGlitchSlopeFactor</code>)を超える箇所を数える。先頭250ミリ秒(<code>kGlitchWarmupSec</code>)はウォームアップとして除外し、それ以外で不連続点が0件であることを求める。</p>
+
+      <p>ヒープ確保はグローバルの <code>operator new</code> / <code>operator delete</code> を差し替えて呼び出し回数を数える方式(<code>g_allocCount</code>)で検証している。<code>runBlocks()</code> は計測区間の前後でこのカウンタの差分を取り、0でなければ <code>assert</code> で止める。README によれば、この確保検出は -O2 では対になった new/delete がコンパイラに省略されうるため -O0 ビルドが正となり、<code>build.sh</code> は両方のビルドを実行して全緑を要求する。</p>
+
+      <pre><code>constexpr double kExpectedRatio = 0.95;          // BR2.1: 418/440
+constexpr double kPitchRelTolerance = 0.005;     // BR2.1: ±0.5%
+constexpr double kLatencyBudgetMs = 10.0;        // BR2.2 / NFR-1
+constexpr double kGlitchSlopeFactor = 3.0;       // BR2.3: k = 3.0
+constexpr int kFftSize = 32768;                  // N=32768</code></pre>
+
+      <h3>実測値(Apple M2 / Apple clang 17 / -O2、README より)</h3>
+
+      <div class="table-scroll">
+        <table>
+          <caption>基本検査の実測値</caption>
+          <thead>
+            <tr><th>検査</th><th>fs=44100</th><th>fs=48000</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>pitch 110 Hz</td><td>ratio 0.950511(+0.93 cents)</td><td>0.949151(−1.55 cents)</td></tr>
+            <tr><td>pitch 440 Hz</td><td>ratio 0.949994(−0.01 cents)</td><td>0.949673(−0.60 cents)</td></tr>
+            <tr><td>pitch 3520 Hz</td><td>ratio 0.949884(−0.21 cents)</td><td>0.949906(−0.17 cents)</td></tr>
+            <tr><td>latency</td><td>228 サンプル = 5.17 ms(設計値 217.5)</td><td>248 サンプル = 5.17 ms(設計値 236.0)</td></tr>
+            <tr><td>glitch</td><td>0 件(max|Δy|=0.0298 / 閾値 0.0940)</td><td>0 件(max|Δy|=0.0274 / 閾値 0.0864)</td></tr>
+            <tr><td>cpu</td><td>0.3 %(実時間比)</td><td>0.5 %(実時間比)</td></tr>
+            <tr><td>alloc</td><td colspan="2">全ケース 0</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <caption>方向別の遅延と負荷(fs=48000、既定クロスフェード50ms)</caption>
+          <thead>
+            <tr><th>シフト</th><th>設計値遅延</th><th>cpu比 @44.1k / @48k</th><th>グリッチ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>−89(既定)</td><td>236 サンプル = 5.17 ms</td><td>0.26 % / 0.49 %</td><td>0 件</td></tr>
+            <tr><td>−1200</td><td>236 サンプル = 5.17 ms</td><td>1.99 % / 4.24 %</td><td>0 件</td></tr>
+            <tr><td>+100</td><td>350 サンプル = 7.29 ms</td><td>—</td><td>0 件</td></tr>
+            <tr><td>+1200</td><td>350 サンプル = 7.29 ms</td><td>3.91 % / 8.43 %</td><td>0 件</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>ピッチ精度は、シフト定義域 ±1200 セント(上下1オクターブ)の走査でも最悪1.64セント(0.095%)の誤差に収まっており、許容差 ±0.5%(= ±8.66セント)の1/5程度である。約105Hz未満で精度が落ちるのは3章で述べた「走査幅と最低周波数のトレードオフ」の物理的な帰結であり、90Hzでは−15.4セントの誤差になる。</p>
+
+      <p>この検証プログラム自体の信頼性は、<code>build.sh</code> が行う決定論検査(同一バイナリを2回実行して cpu 行を除き完全一致すること)と再現性検査(-O0 と -O2 で検出ピークの差が ±0.015 Hz 以内であること)によって担保されている。</p>
+
+      <div class="takeaway">
+        <p><code>verify.cpp</code> は FFT・インパルス応答・隣接差分・確保カウンタという4種類の数値検証を、外部依存ゼロのまま自動実行できる形にまとめている。</p>
+        <p>実測ではピッチ誤差が最悪でも1.64セント(許容差8.66セントの1/5)に収まっており、既定の-89セントでの遅延は5.17ミリ秒と10ミリ秒予算の半分程度である。</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="chapter" id="deviations">
+      <p class="chapter-kicker">Chapter 5</p>
+      <h2>設計文書からの逸脱</h2>
+      <p class="lead">承認済みの設計文書と実装が食い違っている箇所と、それぞれがなぜそうなったかが分かる。</p>
+
+      <p>目的は、AI が生成した実装のうち「意図的に設計を変えた箇所」を記録し、後から読む人(開発者自身を含む)が意図せぬ改変と区別できるようにすることである。すべて <code>README.md</code> の「設計からの逸脱」節に詳しい根拠とともに記載されている。</p>
+
+      <p>制約は、元の設計文書(<code>aidlc/</code> 配下)自体は編集しないというルールである。そのため逸脱は文書を書き換える形ではなく、README にログとして残す形を取っている。</p>
+
+      <h4>D-A(最重要)遅延スイープをクロスフェード窓長から分離した</h4>
+      <p>元の設計ではヘッドの遅れの振幅がクロスフェード窓長から決まる式(<code>D = (1-rate)×window</code>)になっていたが、この式のままだとピッチ精度検証が原理的に通らないことが判明した。ヘッドの跳躍は読み出し位相を入力位相へ再同期させてしまうため、出力スペクトルのピークが入力周波数の近くに戻ってしまう帯域が生じる。そこで遅れの振幅を独立した設計定数 <code>kSweepMs</code>(既定9.5ミリ秒)として持たせ、10ミリ秒の遅延予算の中で最も低い周波数まで正しくシフトできる値を選んでいる。</p>
+
+      <h4>D-A2 走査幅 sweep を prepare() の引数にした</h4>
+      <p>マイク経路は生音の漏れ込みがあるため10ミリ秒予算(既定9.5ミリ秒)を守る必要があるが、捕獲経路には比較対象になる生音が存在しないため、跳躍間隔(<code>sweep ÷ |1-比|</code>)を伸ばしてアーティファクトを減らせる40ミリ秒を採用している。</p>
+
+      <h4>D-B 跳躍量を波形同期(正規化相互相関)で選ぶようにした</h4>
+      <p>元の設計では跳躍量は蓄積した遅れの分だけ固定だったが、低い周波数では走査幅がちょうど1周期分しかなく、固定跳躍では位相が合わない。相関で最良の跳躍量を探すことで、110Hzから6kHzまで誤差1セント未満に収めている。</p>
+
+      <h4>D-C クロスフェードを等パワーから定振幅(線形)に変更した</h4>
+      <p>等パワー合成は2系統が無相関であることを前提にした式だが、D-B によって2本のヘッドは波形同期して相関するようになったため、等パワーのままだと振幅が最大3dB膨らんでトレモロ(周期的な音量の揺れを指す)が生じてしまう。</p>
+
+      <h4>D-D getLatencySamples() の式を変更した</h4>
+      <p>遅れがスイープ区間を一様に走査するという前提のもとでの平均値(<code>baseOffset + sweep/2</code>)に変更した。D-A で遅延スイープの定義が変わったことに伴う変更であり、判定式(許容差)自体は変えていない。</p>
+
+      <h4>D-E クロスフェード位相を左右チャンネル共有から独立に変更した</h4>
+      <p>左右のシフト量(<code>shiftCentsL/R</code>)が独立に設定できる仕様のため、遅れの蓄積速度もチャンネルごとに違ってよく、共有のままでは矛盾が生じるためである。</p>
+
+      <h4>D-G シフト範囲を ±1200セント(上下1オクターブ)へ拡張した</h4>
+      <p>契約の -150〜0セント(下げ専用)から拡張したもので、「上げ方向も使いたい」という利用者要望に応えている。読み出し速度が1を超える場合に走査・跳躍・相関探索の向きをすべて反転させ、上げ方向専用のガード帯を追加する必要が生じた(詳しくは3章)。</p>
+
+      <h4>D-H クロスフェード窓長の上限を200ミリ秒へ広げた</h4>
+      <p>契約の100ミリ秒から広げ、あわせて跳躍量の8倍という別の上限キャップ(<code>runLimit</code>)を撤廃した。このキャップが下げ方向では常により小さい制限として効いてしまい、窓長100ミリ秒を指定しても実効的には76ミリ秒程度に丸められていたことが分かったためであり、撤廃後は「最小と最大で違いが聞き分けられない」という利用者からの報告が解消した。</p>
+
+      <p>これらの逸脱はいずれも <code>README.md</code> に実測値つきで記録されており、たとえば D-A の主張(元設計ではピッチ精度検証が通らない)は「110Hzでratio=1.0006、440Hzで0.9090(いずれもFAIL)」という実測とともに示されている。</p>
+
+      <div class="takeaway">
+        <p>設計からの逸脱は、そのほとんどが「元の設計のままでは数値検証(4章)を通過できない」という実測に基づく修正であり、恣意的な変更ではない。</p>
+        <p>唯一 D-G(シフト範囲の拡張)だけは利用者要望による仕様追加であり、契約文書は未編集のままこの README がその記録を担っている。</p>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <p>この文書は <code>web/docs/index.html</code> として GitHub Pages で配信される。ソースは prism-earring リポジトリの <code>dsp/</code>・<code>android/</code>・<code>verify/</code>・<code>web/</code> 以下と、リポジトリ直下の <code>README.md</code> を参照した。</p>
+      <p><a href="../index.html">アプリ本体(Web デモ)に戻る</a></p>
+    </footer>
+  </main>
+</div>
+
+<script src="docs.js"></script>
+</body>
+</html>
