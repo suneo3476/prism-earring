@@ -11,7 +11,7 @@
     <string name="latency_format">往復 %1$.1f ms</string>
     <string name="latency_measuring">測定中</string>
     <string name="info_latency_title">遅延表示</string>
-    <string name="info_latency_body">マイクからイヤホンまでの往復時間です。20 ミリ秒以下なら生音とほぼ重なって聞こえます。Bluetooth イヤホンは 100 ミリ秒以上遅れるため、この用途では有線イヤホンを使ってください。</string>
+    <string name="info_latency_body">マイクからイヤホンまでの往復時間です。20 ミリ秒以下なら生音とほぼ重なって聞こえます。Bluetooth イヤホンは 100 ミリ秒以上遅れるため、この用途では有線イヤホンを使ってください。下の診断欄には出力/マイク入力の xrun 数と、コールバックが要求フレームを満たせなかった回数・不足フレーム数も表示します(ノイズの切り分け用)。</string>
 
     <!-- 使い方(状態カード) -->
     <string name="usage_stopped">1. 有線イヤホンをつなぐ\n2. 開始を押す\n3. 音の高さを合わせる</string>
@@ -211,15 +211,26 @@
     <string name="notes_title">注意事項</string>
     <string name="note_earphone">※イヤホンを使ってください。スピーカーではハウリングします。</string>
     <string name="note_wired">有線イヤホンを推奨します。Bluetooth は 100ms 以上遅れるため、この用途では実用になりません。</string>
-    <string name="note_privacy">音声はこの端末の外へ出ません(外部送信・録音・保存なし)。マイクは開始を押している間だけ開きます。</string>
+    <string name="note_privacy">音声はこの端末の外へ出ません(外部送信なし)。マイクは開始を押している間だけ開きます。診断区画の「10 秒録音」を押したときだけ、その場に限りローカルの Downloads/katsuo/ へ音声を保存します。</string>
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
     <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
     <string name="diag_placeholder">診断: --</string>
-    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms</string>
+    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms\nxrun: 出力 %22$d 回 / マイク入力 %23$d 回\n不足フレーム: マイク %10$d 回・計 %24$d フレーム / 捕獲 %13$d 回・計 %25$d フレーム</string>
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
     <string name="usage_media_short">メディア</string>
     <string name="usage_accessibility_short">ユーザー補助</string>
+
+    <!-- 診断: 10 秒録音(v0.5.2) -->
+    <string name="diag_record_title">診断</string>
+    <string name="diag_record_button">10 秒録音</string>
+    <string name="diag_record_status_idle">録音: 未実施(動作中のみ実行できます)</string>
+    <string name="diag_record_status_recording">録音中…(10 秒)</string>
+    <string name="diag_record_status_saved">保存しました: %1$s</string>
+    <string name="diag_record_error_stopped">処理が停止したため録音を完了できませんでした</string>
+    <string name="diag_record_error_save">保存に失敗しました: %1$s</string>
+    <string name="diag_record_error_no_data">録音データがありません</string>
+    <string name="diag_record_error_mediastore">ファイルを作成できません: %1$s</string>
 
     <!-- 情報ボタン -->
     <string name="info_button_desc_format">%1$s について説明を表示する</string>

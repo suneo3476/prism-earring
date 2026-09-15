@@ -191,16 +191,22 @@ void testInputUnderrun() {
     std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
     const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, 0.0);
 
+    check(bridge.micShortfallFrames() == 0, "開始直後の不足フレーム累計は 0");
+
     // 半分しか読めなかった場合。落ちず、出力バッファ全体が書き換わること。
     bridge.render(in.data(), kFrames / 2, out.data(), kFrames);
     check(allFinite(out), "半分しか読めなくても NaN / Inf を出さない");
     check(peak(out, 1, 0) < 1.0f, "書き残し(7.0)が出力に残っていない");
     check(bridge.underrunCount() == 1, "アンダーランが 1 回数えられる");
+    check(bridge.micShortfallFrames() == kFrames / 2,
+          "不足フレーム数(96)も一緒に積み上がる");
 
     // まったく読めなかった場合(framesRead = 0)。
     bridge.render(in.data(), 0, out.data(), kFrames);
     check(allFinite(out), "0 フレームでも NaN / Inf を出さない");
     check(bridge.underrunCount() == 2, "アンダーランが 2 回目も数えられる");
+    check(bridge.micShortfallFrames() == kFrames / 2 + kFrames,
+          "不足フレーム数は回数ではなく累積フレーム数(96+192)で増える");
 
     // 入力ポインタが null(ストリームが死んだ直後)でも落ちない。
     bridge.render(nullptr, kFrames, out.data(), kFrames);
@@ -552,13 +558,17 @@ void testCaptureOverrunUnderrun() {
         bridge.render(silence.data(), kFrames, out.data(), kFrames);
     }
     check(bridge.captureUnderruns() >= 1, "リングが空になるとアンダーランを数える");
+    check(bridge.captureShortfallFrames() >= 1, "不足フレーム数も一緒に積み上がる");
 
     // アンダーラン後はクッション待ちに戻るので、たまるまでは無音。
     const int before = bridge.captureUnderruns();
+    const int beforeFrames = bridge.captureShortfallFrames();
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
     check(peak(out, 1, 0) == 0.0f, "アンダーラン後はクッション待ちに戻って無音になる");
     check(bridge.captureUnderruns() == before,
           "クッション待ちのあいだはアンダーランを重ねて数えない");
+    check(bridge.captureShortfallFrames() == beforeFrames,
+          "クッション待ちのあいだは不足フレーム数も増えない");
 
     // 無効化すると経路が無音になり、再有効化ではリングが空から始まる。
     check(bridge.pushCapture(big.data(), 2000, 2) == 2000, "無音化の前に捕獲音を書いておく");
@@ -569,6 +579,77 @@ void testCaptureOverrunUnderrun() {
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
     check(bridge.captureFillFrames() == 0, "再有効化ではリングが空から始まる");
     check(peak(out, 1, 0) == 0.0f, "再有効化直後はクッションがたまるまで無音");
+}
+
+// ---- 13. 診断用の 10 秒録音のライフサイクル ----------------------------------
+void testDiagnosticRecording() {
+    std::printf("[13] 診断用の 10 秒録音\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    runToSteadyState(bridge);
+
+    check(!bridge.isDiagnosticRecordingActive(), "開始前は非アクティブ");
+    check(bridge.startDiagnosticRecording(), "startDiagnosticRecording が成功する");
+    check(bridge.isDiagnosticRecordingActive(), "開始直後はアクティブ");
+    check(!bridge.isDiagnosticRecordingDone(), "開始直後はまだ完了していない");
+    check(!bridge.startDiagnosticRecording(), "録音中の二重起動は失敗する(二重確保を防ぐ)");
+
+    const int totalFrames = bridge.diagnosticTotalFrames();
+    check(totalFrames == static_cast<int>(prism::AudioBridge::kDiagRecordSeconds * kFs + 0.5),
+          "総フレーム数が 10 秒ぶんになっている");
+
+    const std::vector<float> in = makeSine(kFrames, 2, 440.0, kFs, 0.0, 0.5);
+    std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+    int calls = 0;
+    const int maxCalls = totalFrames / kFrames + 4;
+    while (!bridge.isDiagnosticRecordingDone() && calls < maxCalls) {
+        bridge.render(in.data(), kFrames, out.data(), kFrames);
+        ++calls;
+    }
+    check(bridge.isDiagnosticRecordingDone(), "十分な回数コールバックすれば録音が完了する");
+    check(!bridge.isDiagnosticRecordingActive(), "完了すると非アクティブに戻る");
+
+    const float* micIn = bridge.diagnosticMicIn();
+    const float* micOut = bridge.diagnosticMicOut();
+    const float* capIn = bridge.diagnosticCaptureIn();
+    const float* capOut = bridge.diagnosticCaptureOut();
+    check(micIn != nullptr && micOut != nullptr && capIn != nullptr && capOut != nullptr,
+          "4 本すべてのバッファが取得できる");
+
+    // このテストは捕獲を有効化していないので capture-in/out は常に無音のはず。
+    bool allFiniteFlag = true;
+    bool captureSilent = true;
+    const int total2ch = totalFrames * 2;
+    for (int i = 0; i < total2ch; ++i) {
+        if (!std::isfinite(micIn[i]) || !std::isfinite(micOut[i]) || !std::isfinite(capIn[i]) ||
+            !std::isfinite(capOut[i])) {
+            allFiniteFlag = false;
+        }
+        if (capIn[i] != 0.0f || capOut[i] != 0.0f) {
+            captureSilent = false;
+        }
+    }
+    check(allFiniteFlag, "録音データに NaN / Inf が無い");
+    check(captureSilent, "捕獲を有効化していないので capture-in/out は無音のまま");
+
+    bridge.releaseDiagnosticRecording();
+    check(bridge.diagnosticCaptureIn() == nullptr, "release 後はバッファが解放される");
+    check(bridge.diagnosticTotalFrames() == 0, "release 後は総フレーム数も 0 に戻る");
+
+    // 中断: 開始直後に cancel すると、以後 render() を回しても完了しない。
+    check(bridge.startDiagnosticRecording(), "再度 startDiagnosticRecording が成功する");
+    bridge.cancelDiagnosticRecording();
+    check(!bridge.isDiagnosticRecordingActive(), "cancel 直後は非アクティブ");
+    bridge.render(in.data(), kFrames, out.data(), kFrames);
+    check(!bridge.isDiagnosticRecordingDone(), "cancel 後は render を回しても完了しない");
+
+    // prepare() のやり直し(= 次の start())で未開始状態へ戻る。
+    check(bridge.prepare(kFs, 2, 2), "prepare のやり直しが成功する");
+    check(!bridge.isDiagnosticRecordingActive(), "reset 後は非アクティブに戻る");
+    check(bridge.diagnosticTotalFrames() == 0, "reset 後は総フレーム数も 0 に戻る");
 }
 
 }  // namespace
@@ -587,6 +668,7 @@ int main() {
     testCaptureCushion();
     testMicMuteCaptureOnly();
     testCaptureOverrunUnderrun();
+    testDiagnosticRecording();
 
     std::printf("\n");
     if (g_failures == 0) {

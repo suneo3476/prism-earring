@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         setUpDeviceSpinners()
         setUpSweepSpinner()
         setUpOutputUsageSwitch()
+        setUpDiagnosticRecording()
 
         refreshDeviceLists()
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
@@ -608,6 +609,38 @@ class MainActivity : AppCompatActivity() {
             if (suppressListeners) return@setOnCheckedChangeListener
             val usage = if (checked) NativeEngine.USAGE_ACCESSIBILITY else NativeEngine.USAGE_MEDIA
             updateParams(params.copy(outputUsage = usage))
+        }
+    }
+
+    // ---- 診断(v0.5.2): 10 秒録音 ---------------------------------------------
+
+    private fun setUpDiagnosticRecording() {
+        binding.diagRecordButton.setOnClickListener { startDiagnosticRecording() }
+    }
+
+    /**
+     * 捕獲 in/out・マイク in/out の 4 本を同時刻に開始して 10 秒間 WAV へ保存する。
+     * 結果([DiagnosticRecorder.start] のコールバック)はメインスレッドへ届くので、
+     * ここでは直接ビューへ触ってよい。
+     */
+    private fun startDiagnosticRecording() {
+        val s = service ?: return
+        binding.diagRecordButton.isEnabled = false
+        binding.diagRecordStatus.text = getString(R.string.diag_record_status_recording)
+        val started = s.startDiagnosticRecording(
+            onSaved = { path ->
+                binding.diagRecordStatus.text = getString(R.string.diag_record_status_saved, path)
+                binding.diagRecordButton.isEnabled = service?.isRunning() == true
+            },
+            onError = { message ->
+                binding.diagRecordStatus.text = message
+                Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+                binding.diagRecordButton.isEnabled = service?.isRunning() == true
+            },
+        )
+        if (!started) {
+            binding.diagRecordButton.isEnabled = service?.isRunning() == true
+            binding.diagRecordStatus.text = getString(R.string.diag_record_status_idle)
         }
     }
 
@@ -1085,6 +1118,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 ),
                 state.latency.micSweepMs,
+                state.info.outputXRunCount,
+                state.info.inputXRunCount,
+                state.info.micShortfallFrames,
+                state.info.captureShortfallFrames,
             )
         }
 
@@ -1096,6 +1133,10 @@ class MainActivity : AppCompatActivity() {
         )
 
         updateDuckAvailability(running)
+
+        // 診断の「10 秒録音」は動作中のみ有効(録音中は startDiagnosticRecording() 側で
+        // 無効化済みなので、ここでは running と現在の録音状態だけ見ればよい)。
+        binding.diagRecordButton.isEnabled = running && service?.isDiagnosticRecording() != true
 
         if (state.error.isNotEmpty()) showError(state.error) else hideError()
     }

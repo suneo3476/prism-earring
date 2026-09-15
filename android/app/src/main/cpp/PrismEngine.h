@@ -95,6 +95,16 @@ public:
     int inputErrorCount() const noexcept {
         return inputErrors_.load(std::memory_order_relaxed);
     }
+    // マイク入力側で「要求フレーム数に足りなかった」不足フレームの累計(診断用)。
+    int micShortfallFrames() const noexcept { return bridge_.micShortfallFrames(); }
+    // 捕獲リング側で「要求フレーム数に足りなかった」不足フレームの累計(診断用)。
+    int captureShortfallFrames() const noexcept { return bridge_.captureShortfallFrames(); }
+    // Oboe の xRun カウント(制御スレッドから。ストリームが無ければ 0)。
+    // AudioPlaybackCapture(捕獲経路)は AudioRecord(Java)なので Oboe の
+    // AudioStream ではなく、対応する xRun カウントは存在しない
+    // (代わりに captureUnderruns()/captureOverruns() を使う)。
+    int outputXRunCount() const;
+    int inputXRunCount() const;
     bool usingExclusiveMode() const noexcept {
         return exclusiveMode_.load(std::memory_order_relaxed);
     }
@@ -151,6 +161,27 @@ public:
     int pushCapture(const float* interleaved, int frames, int channels) noexcept {
         return bridge_.pushCapture(interleaved, frames, channels);
     }
+
+    // ---- 診断用の 10 秒録音(制御スレッドから。動作中にだけ開始できる) ----------
+    // 捕獲 in/out・マイク in/out の 4 本を同時刻に開始して 10 秒間記録する。
+    // WAV エンコードや MediaStore 保存はここではなく Kotlin 側の責務
+    // (jni_bridge が生の float 配列を返し、そこから先は Java/Kotlin で行う)。
+    bool startDiagnosticRecording() noexcept {
+        return isRunning() && bridge_.startDiagnosticRecording();
+    }
+    void cancelDiagnosticRecording() noexcept { bridge_.cancelDiagnosticRecording(); }
+    // isDiagnosticRecordingDone() == true を確認した後にだけ呼ぶこと。
+    void releaseDiagnosticRecording() noexcept { bridge_.releaseDiagnosticRecording(); }
+    bool isDiagnosticRecordingActive() const noexcept {
+        return bridge_.isDiagnosticRecordingActive();
+    }
+    bool isDiagnosticRecordingDone() const noexcept { return bridge_.isDiagnosticRecordingDone(); }
+    int diagnosticTotalFrames() const noexcept { return bridge_.diagnosticTotalFrames(); }
+    int diagnosticInputChannels() const noexcept { return bridge_.inputChannels(); }
+    const float* diagnosticCaptureIn() const noexcept { return bridge_.diagnosticCaptureIn(); }
+    const float* diagnosticCaptureOut() const noexcept { return bridge_.diagnosticCaptureOut(); }
+    const float* diagnosticMicIn() const noexcept { return bridge_.diagnosticMicIn(); }
+    const float* diagnosticMicOut() const noexcept { return bridge_.diagnosticMicOut(); }
 
     // ---- 次の start() から効く設定(制御スレッドから) ------------------------
     // 0 = 自動。指定 ID で開けなければ自動で開き直し、*DeviceFallback() が立つ。

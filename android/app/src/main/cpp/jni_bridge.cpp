@@ -273,16 +273,22 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*c
 //   [13] 出力が指定デバイスで開けず自動に落ちたなら 1
 //   [14] 入力が指定デバイスで開けず自動に落ちたなら 1
 //   [15] 出力の用途(0 = Media, 1 = AssistanceAccessibility)
+//   [16] 出力ストリームの xRun 数(oboe::AudioStream::getXRunCount())
+//   [17] マイク入力ストリームの xRun 数(同上)
+//   [18] マイク入力側の不足フレーム累計(read が要求フレーム数に足りなかった合計)
+//   [19] 捕獲リング側の不足フレーム累計(同上。捕獲は AudioRecord のため
+//        Oboe の xRun 概念が無く、こちらと captureUnderruns()/captureOverruns()
+//        [8]/[9] を合わせて代用する)
 JNIEXPORT jintArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass /*clazz*/,
                                                             jlong handle) {
-    constexpr jsize kCount = 16;
+    constexpr jsize kCount = 20;
     jintArray out = env->NewIntArray(kCount);
     if (out == nullptr) {
         return nullptr;
     }
     prism::PrismEngine* engine = toEngine(handle);
-    jint values[kCount] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    jint values[kCount] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     if (engine != nullptr) {
         values[0] = engine->sampleRate();
         values[1] = engine->inputChannelCount();
@@ -300,9 +306,124 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass 
         values[13] = engine->outputDeviceFallback() ? 1 : 0;
         values[14] = engine->inputDeviceFallback() ? 1 : 0;
         values[15] = engine->outputUsage();
+        values[16] = engine->outputXRunCount();
+        values[17] = engine->inputXRunCount();
+        values[18] = engine->micShortfallFrames();
+        values[19] = engine->captureShortfallFrames();
     }
     env->SetIntArrayRegion(out, 0, kCount, values);
     return out;
+}
+
+// ---- 診断用の 10 秒録音 -----------------------------------------------------
+// 動作中にだけ開始できる。バッファの確保/解放はネイティブ側(制御スレッド)、
+// WAV エンコードと MediaStore への保存は呼び出し側(Kotlin)の責務。
+
+JNIEXPORT jboolean JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagStart(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                        jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    return (engine != nullptr && engine->startDiagnosticRecording()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagIsActive(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                           jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    return (engine != nullptr && engine->isDiagnosticRecordingActive()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagIsDone(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                         jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    return (engine != nullptr && engine->isDiagnosticRecordingDone()) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagTotalFrames(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                              jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    return engine != nullptr ? static_cast<jint>(engine->diagnosticTotalFrames()) : 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagInputChannels(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                                jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    return engine != nullptr ? static_cast<jint>(engine->diagnosticInputChannels()) : 0;
+}
+
+// atomic フラグを倒すだけなので、いつ呼んでも安全(音声スレッドの有無を問わない)。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagCancel(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                         jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine != nullptr) {
+        engine->cancelDiagnosticRecording();
+    }
+}
+
+namespace {
+
+// frames * channels 個の float を新しい jfloatArray へコピーして返す。
+// frames <= 0 または data == nullptr なら nullptr(Kotlin 側は null チェック必須)。
+jfloatArray copyDiagArray(JNIEnv* env, const float* data, int frames, int channels) {
+    if (data == nullptr || frames <= 0 || channels <= 0) {
+        return nullptr;
+    }
+    const jsize count = static_cast<jsize>(frames) * static_cast<jsize>(channels);
+    jfloatArray out = env->NewFloatArray(count);
+    if (out == nullptr) {
+        return nullptr;  // OutOfMemoryError は JNI が投げている
+    }
+    env->SetFloatArrayRegion(out, 0, count, data);
+    return out;
+}
+
+}  // namespace
+
+JNIEXPORT jfloatArray JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagFetchCaptureIn(JNIEnv* env, jclass /*clazz*/,
+                                                                 jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine == nullptr) return nullptr;
+    return copyDiagArray(env, engine->diagnosticCaptureIn(), engine->diagnosticTotalFrames(), 2);
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagFetchCaptureOut(JNIEnv* env, jclass /*clazz*/,
+                                                                  jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine == nullptr) return nullptr;
+    return copyDiagArray(env, engine->diagnosticCaptureOut(), engine->diagnosticTotalFrames(), 2);
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagFetchMicIn(JNIEnv* env, jclass /*clazz*/,
+                                                             jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine == nullptr) return nullptr;
+    return copyDiagArray(env, engine->diagnosticMicIn(), engine->diagnosticTotalFrames(),
+                         engine->diagnosticInputChannels());
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagFetchMicOut(JNIEnv* env, jclass /*clazz*/,
+                                                              jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine == nullptr) return nullptr;
+    return copyDiagArray(env, engine->diagnosticMicOut(), engine->diagnosticTotalFrames(), 2);
+}
+
+// isDiagnosticRecordingDone() == true を確認した後にだけ呼ぶこと(Kotlin 側の契約)。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeDiagRelease(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                          jlong handle) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine != nullptr) {
+        engine->releaseDiagnosticRecording();
+    }
 }
 
 JNIEXPORT jstring JNICALL

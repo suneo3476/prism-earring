@@ -53,6 +53,22 @@ class NativeEngine private constructor(private var handle: Long) {
         val inputDeviceFallback: Boolean = false,
         /** 出力の用途。[USAGE_MEDIA] または [USAGE_ACCESSIBILITY]。 */
         val outputUsage: Int = USAGE_MEDIA,
+        /** 出力ストリームの xRun 累計(`oboe::AudioStream::getXRunCount()`)。 */
+        val outputXRunCount: Int = 0,
+        /** マイク入力ストリームの xRun 累計(同上)。 */
+        val inputXRunCount: Int = 0,
+        /**
+         * マイク入力側で「要求フレーム数に足りなかった」不足フレームの累計。
+         * [underruns] は回数、こちらはフレーム数。
+         */
+        val micShortfallFrames: Int = 0,
+        /**
+         * 捕獲リング側で「要求フレーム数に足りなかった」不足フレームの累計。
+         * [captureUnderruns] は回数、こちらはフレーム数。捕獲は AudioRecord
+         * (Java)のため Oboe の xRun 概念が無く、[captureUnderruns] /
+         * [captureOverruns] と合わせて捕獲経路の「xrun」の代用とする。
+         */
+        val captureShortfallFrames: Int = 0,
     )
 
     val isValid: Boolean get() = handle != 0L
@@ -174,7 +190,7 @@ class NativeEngine private constructor(private var handle: Long) {
         val empty = StreamInfo(0, 0, 0, 0, 0, 0, false, false)
         if (handle == 0L) return empty
         val v = nativeGetStreamInfo(handle) ?: return empty
-        if (v.size < 16) return empty
+        if (v.size < 20) return empty
         return StreamInfo(
             sampleRate = v[0],
             inputChannels = v[1],
@@ -192,7 +208,48 @@ class NativeEngine private constructor(private var handle: Long) {
             outputDeviceFallback = v[13] != 0,
             inputDeviceFallback = v[14] != 0,
             outputUsage = v[15],
+            outputXRunCount = v[16],
+            inputXRunCount = v[17],
+            micShortfallFrames = v[18],
+            captureShortfallFrames = v[19],
         )
+    }
+
+    // ---- 診断用の 10 秒録音 --------------------------------------------------
+    // 動作中にだけ開始できる。ポーリングと WAV 保存は [DiagnosticRecorder] の責務。
+
+    /** 成功したら true(動作中でない、または既に録音中なら false)。 */
+    fun startDiagnosticRecording(): Boolean = handle != 0L && nativeDiagStart(handle)
+
+    fun isDiagnosticRecordingActive(): Boolean = handle != 0L && nativeDiagIsActive(handle)
+
+    /** 10 秒ぶん書き終わったら true。この後にだけ [fetchDiagnosticCaptureIn] 等を呼ぶこと。 */
+    fun isDiagnosticRecordingDone(): Boolean = handle != 0L && nativeDiagIsDone(handle)
+
+    fun diagnosticTotalFrames(): Int = if (handle == 0L) 0 else nativeDiagTotalFrames(handle)
+
+    /** マイク入出力の録音チャンネル数(捕獲は常に 2ch)。 */
+    fun diagnosticInputChannels(): Int = if (handle == 0L) 0 else nativeDiagInputChannels(handle)
+
+    /** 途中で打ち切る(atomic フラグを倒すだけ)。バッファは触らない。 */
+    fun cancelDiagnosticRecording() {
+        if (handle != 0L) nativeDiagCancel(handle)
+    }
+
+    /** インタリーブ float、2ch、[diagnosticTotalFrames] フレーム。 */
+    fun fetchDiagnosticCaptureIn(): FloatArray? = if (handle == 0L) null else nativeDiagFetchCaptureIn(handle)
+
+    fun fetchDiagnosticCaptureOut(): FloatArray? =
+        if (handle == 0L) null else nativeDiagFetchCaptureOut(handle)
+
+    /** インタリーブ float、[diagnosticInputChannels] ch、[diagnosticTotalFrames] フレーム。 */
+    fun fetchDiagnosticMicIn(): FloatArray? = if (handle == 0L) null else nativeDiagFetchMicIn(handle)
+
+    fun fetchDiagnosticMicOut(): FloatArray? = if (handle == 0L) null else nativeDiagFetchMicOut(handle)
+
+    /** [isDiagnosticRecordingDone] を確認した後にだけ呼ぶこと。ネイティブ側のバッファを解放する。 */
+    fun releaseDiagnosticRecording() {
+        if (handle != 0L) nativeDiagRelease(handle)
     }
 
     fun lastError(): String =
@@ -295,5 +352,16 @@ class NativeEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeGetLatency(handle: Long): DoubleArray?
         @JvmStatic private external fun nativeGetStreamInfo(handle: Long): IntArray?
         @JvmStatic private external fun nativeGetLastError(handle: Long): String?
+        @JvmStatic private external fun nativeDiagStart(handle: Long): Boolean
+        @JvmStatic private external fun nativeDiagIsActive(handle: Long): Boolean
+        @JvmStatic private external fun nativeDiagIsDone(handle: Long): Boolean
+        @JvmStatic private external fun nativeDiagTotalFrames(handle: Long): Int
+        @JvmStatic private external fun nativeDiagInputChannels(handle: Long): Int
+        @JvmStatic private external fun nativeDiagCancel(handle: Long)
+        @JvmStatic private external fun nativeDiagFetchCaptureIn(handle: Long): FloatArray?
+        @JvmStatic private external fun nativeDiagFetchCaptureOut(handle: Long): FloatArray?
+        @JvmStatic private external fun nativeDiagFetchMicIn(handle: Long): FloatArray?
+        @JvmStatic private external fun nativeDiagFetchMicOut(handle: Long): FloatArray?
+        @JvmStatic private external fun nativeDiagRelease(handle: Long)
     }
 }

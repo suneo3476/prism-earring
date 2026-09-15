@@ -370,6 +370,13 @@ void PrismEngine::stopLocked() {
     // running_ を先に落とす。onErrorAfterClose がこれを見て再起動を諦める。
     running_.store(false, std::memory_order_release);
     closeStreamsLocked();
+    // closeStreamsLocked() の requestStop() は音声スレッドのコールバック完了を
+    // 待ってから戻るため、ここに来た時点で音声スレッドはもう走っていない。
+    // 診断録音が途中だった場合、flag だけここで倒しておく(バッファの実解放は
+    // 次回の bridge_.prepare()/reset() が行う。音声スレッドが確実に止まった今なら
+    // ここで直接解放しても安全だが、cancelDiagnosticRecording() は atomic 1 個への
+    // 書き込みだけなので、そちらに合わせておく)。
+    bridge_.cancelDiagnosticRecording();
 }
 
 void PrismEngine::closeStreamsLocked() {
@@ -548,6 +555,24 @@ int PrismEngine::outputChannelCount() const {
 int PrismEngine::framesPerBurst() const {
     std::lock_guard<std::mutex> lock(controlMutex_);
     return outputStream_ ? outputStream_->getFramesPerBurst() : 0;
+}
+
+int PrismEngine::outputXRunCount() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    if (!outputStream_) {
+        return 0;
+    }
+    oboe::ResultWithValue<int32_t> r = outputStream_->getXRunCount();
+    return r ? r.value() : 0;
+}
+
+int PrismEngine::inputXRunCount() const {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    if (!inputStream_) {
+        return 0;
+    }
+    oboe::ResultWithValue<int32_t> r = inputStream_->getXRunCount();
+    return r ? r.value() : 0;
 }
 
 int32_t PrismEngine::actualOutputDeviceId() const {

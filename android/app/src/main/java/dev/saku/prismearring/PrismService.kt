@@ -73,6 +73,9 @@ class PrismService : Service() {
     /** 他アプリの音を拾う(AudioPlaybackCapture)係。null なら捕獲していない。 */
     private var captureController: CaptureController? = null
 
+    /** 診断用の 10 秒録音。null なら録音していない。1 回使い切りで、完了/失敗のたびに null へ戻す。 */
+    private var diagnosticRecorder: DiagnosticRecorder? = null
+
     private val audioManager: AudioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -181,6 +184,8 @@ class PrismService : Service() {
      * 「原音の抑え込み」で絞ったメディア音量は、どの経路で止まってもここで必ず復元する。
      */
     fun stopProcessing() {
+        diagnosticRecorder?.cancel()
+        diagnosticRecorder = null
         teardownCaptureRuntime()
         engine?.stop()
         stopPolling()
@@ -188,6 +193,64 @@ class PrismService : Service() {
         stopForegroundCompat()
         restoreDuckedVolume()
         publishState()
+    }
+
+    // ---- 診断用の 10 秒録音 ---------------------------------------------------
+    // 捕獲 in/out・マイク in/out を同時刻に開始して 10 秒間 WAV へ保存する。
+    // 実体は [DiagnosticRecorder]。ここは 1 回使い切りのインスタンスを生成して
+    // 開始するだけ(完了・失敗のどちらでも [diagnosticRecorder] を null へ戻す)。
+
+    fun isDiagnosticRecording(): Boolean = diagnosticRecorder?.isActive == true
+
+    /**
+     * 成功したら true(結果は [onSaved]/[onError] へ非同期に届く)。動作中でない・
+     * 既に録音中・ネイティブ側の確保に失敗、のいずれかなら false
+     * (この場合コールバックは呼ばれない)。
+     */
+    fun startDiagnosticRecording(onSaved: (String) -> Unit, onError: (String) -> Unit): Boolean {
+        val e = engine ?: return false
+        if (!e.isRunning()) return false
+        if (diagnosticRecorder?.isActive == true) return false
+
+        val info = e.streamInfo()
+        val latency = e.latency()
+        val meta = DiagnosticRecorder.Meta(
+            framesPerBurst = info.framesPerBurst,
+            outputDeviceId = info.outputDeviceId,
+            inputDeviceId = info.inputDeviceId,
+            inputPreset = params.inputPreset,
+            micSweepMs = latency.micSweepMs,
+            captureSweepMs = latency.captureSweepMs,
+            crossfadeMs = params.crossfadeMs,
+            shiftCentsL = params.shiftCentsL,
+            shiftCentsR = params.effectiveRight,
+            outputGainDb = params.outputGainDb,
+            micGainDb = params.micGainDb,
+            captureGainDb = params.captureGainDb,
+            captureEnabled = params.captureEnabled,
+            outputXRunCount = info.outputXRunCount,
+            inputXRunCount = info.inputXRunCount,
+            micShortfallCount = info.underruns,
+            micShortfallFrames = info.micShortfallFrames,
+            captureUnderrunCount = info.captureUnderruns,
+            captureOverrunCount = info.captureOverruns,
+            captureShortfallFrames = info.captureShortfallFrames,
+        )
+
+        val recorder = DiagnosticRecorder(this, e)
+        val started = recorder.start(
+            meta = meta,
+            onSaved = { path ->
+                diagnosticRecorder = null
+                onSaved(path)
+            },
+            onError = { message ->
+                diagnosticRecorder = null
+                onError(message)
+            },
+        )
+        if (started) diagnosticRecorder = recorder
+        return started
     }
 
     // ---- 捕獲(他アプリの再生音)----------------------------------------------

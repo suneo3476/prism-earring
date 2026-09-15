@@ -1344,6 +1344,31 @@
                     style="@style/Fine"
                     android:fontFeatureSettings="tnum"
                     android:text="@string/diag_placeholder" />
+
+                <!-- 診断(v0.5.2): 10 秒録音 -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/diag_record_title"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/diagRecordButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:enabled="false"
+                    android:text="@string/diag_record_button"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:id="@+id/diagRecordStatus"
+                    style="@style/Fine"
+                    android:text="@string/diag_record_status_idle" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

@@ -6,12 +6,15 @@
 //     → PrismEngine.{h,cpp}                     … Oboe のストリーム生存管理
 //       → jni_bridge.cpp                        … JNI
 //
-// ここが受け持つのは 4 つ:
+// ここが受け持つのは 5 つ:
 //   (1) 起動時の入出力同期の状態機械(Drain -> Cushion -> Render)
 //   (2) インタリーブ <-> 非インタリーブ変換とモノ複製、そして PitchShifter の駆動
 //   (3) 捕獲音(AudioPlaybackCapture で拾った他アプリの再生音)を受け取る
 //       ロックフリー SPSC リングと、その読み出し状態機械
 //   (4) マイク経路と捕獲経路のミックス
+//   (5) 診断用の 10 秒録音(4 本: 捕獲 in/out・マイク in/out)。固定バッファへの
+//       memcpy だけを音声スレッドで行い、WAV エンコードや MediaStore 保存は
+//       すべて制御スレッド側(Kotlin の DiagnosticRecorder)の責務にする。
 //
 // render() / nextStep() / reportDrain() はオーディオコールバックから呼ばれる。
 // したがってこの 3 つは リアルタイム安全: ヒープ確保/解放・ロック・I/O・ログ・
@@ -88,6 +91,12 @@ public:
     static constexpr float kCaptureGainMin = 0.0f;
     static constexpr float kCaptureGainMax = 4.0f;
     static constexpr float kCaptureGainDefault = 1.0f;
+
+    // ---- 診断用の 10 秒録音 --------------------------------------------------
+    // 4 本(捕獲 in / 捕獲 out / マイク in / マイク out)を同時刻に開始して
+    // この秒数ぶん記録する。開始(バッファ確保)は制御スレッドから
+    // (startDiagnosticRecording())、書き込みは音声スレッドから(render() 内)。
+    static constexpr double kDiagRecordSeconds = 10.0;
 
     // オーディオコールバックが今回やるべきこと。
     enum class Step {
@@ -192,7 +201,23 @@ public:
         drainRemaining_ = kDrainCallbacks;
         cushionRemaining_ = kInputBurstsCushion;
         underrunCount_.store(0, std::memory_order_relaxed);
+        micShortfallFrames_.store(0, std::memory_order_relaxed);
         synced_.store(false, std::memory_order_relaxed);
+
+        // 診断録音は毎回の start() で必ず未開始状態へ戻す。ベクタの解放も含めて
+        // ここで行ってよい(prepare() 経由でのみ呼ばれ、音声スレッドはまだ走っていない)。
+        diagActive_.store(false, std::memory_order_relaxed);
+        diagDone_.store(false, std::memory_order_relaxed);
+        diagWritten_.store(0, std::memory_order_relaxed);
+        diagTotalFrames_ = 0;
+        diagCaptureIn_.clear();
+        diagCaptureIn_.shrink_to_fit();
+        diagCaptureOut_.clear();
+        diagCaptureOut_.shrink_to_fit();
+        diagMicIn_.clear();
+        diagMicIn_.shrink_to_fit();
+        diagMicOut_.clear();
+        diagMicOut_.shrink_to_fit();
 
         // 捕獲リングは「読み手を書き手に追いつかせる」形で空にする。書き手
         // (Java の録音スレッド)が同時に走っていても壊れないよう、write 側は触らない。
@@ -202,6 +227,7 @@ public:
         captureActive_ = false;  // 次の render() で captureEnabled_ を見て組み直す
         captureUnderruns_.store(0, std::memory_order_relaxed);
         captureOverruns_.store(0, std::memory_order_relaxed);
+        captureShortfallFramesTotal_.store(0, std::memory_order_relaxed);
         // outputGain_ / micGain_ / captureGain_ / captureEnabled_ はユーザー設定なので
         // reset() では触らない(ストリーム再起動を挟んでも設定が既定値へ戻らないようにする)。
     }
@@ -274,6 +300,93 @@ public:
         return n;
     }
 
+    // ---- 診断用の 10 秒録音(制御スレッドから。ここだけがヒープ確保/解放を行う) ---
+    // 4 本(捕獲 in / 捕獲 out / マイク in / マイク out)を同時刻に開始して記録する。
+    // 書き込みは音声スレッド(render() 内)が行う。二重起動はしない。
+    // 成功したら true。prepared_ でない、またはヒープ確保に失敗したら false。
+    bool startDiagnosticRecording() {
+        if (!prepared_ || diagActive_.load(std::memory_order_relaxed)) {
+            return false;
+        }
+        const int totalFrames = static_cast<int>(kDiagRecordSeconds * sampleRate_ + 0.5);
+        if (totalFrames <= 0) {
+            return false;
+        }
+        const int micCh = inputChannels_ > 0 ? inputChannels_ : 1;
+        try {
+            diagCaptureIn_.assign(static_cast<std::size_t>(totalFrames) * 2u, 0.0f);
+            diagCaptureOut_.assign(static_cast<std::size_t>(totalFrames) * 2u, 0.0f);
+            diagMicIn_.assign(static_cast<std::size_t>(totalFrames) * static_cast<std::size_t>(micCh),
+                              0.0f);
+            diagMicOut_.assign(static_cast<std::size_t>(totalFrames) * 2u, 0.0f);
+        } catch (...) {
+            diagCaptureIn_.clear();
+            diagCaptureIn_.shrink_to_fit();
+            diagCaptureOut_.clear();
+            diagCaptureOut_.shrink_to_fit();
+            diagMicIn_.clear();
+            diagMicIn_.shrink_to_fit();
+            diagMicOut_.clear();
+            diagMicOut_.shrink_to_fit();
+            return false;
+        }
+        diagTotalFrames_ = totalFrames;
+        diagWritten_.store(0, std::memory_order_relaxed);
+        diagDone_.store(false, std::memory_order_relaxed);
+        // release: 上のベクタへの書き込みが、これを acquire で見る音声スレッドから
+        // 必ず見えるようにする(音声スレッドはこの flag 越しにしかポインタへ触れない)。
+        diagActive_.store(true, std::memory_order_release);
+        return true;
+    }
+
+    // 録音を打ち切る(atomic 1 個への書き込みだけなので、音声スレッドが走っていても
+    // 安全に呼べる)。バッファそのものは解放しない — 解放していいのは音声スレッドが
+    // 確実に止まっている状況に限られるため、実際の解放は releaseDiagnosticRecording()
+    // (完了検知後)または次の startDiagnosticRecording()/prepare() が行う。
+    void cancelDiagnosticRecording() noexcept {
+        diagActive_.store(false, std::memory_order_relaxed);
+    }
+
+    // 完了(isDiagnosticRecordingDone() == true)を確認した後にだけ呼ぶこと。
+    // その時点で音声スレッドはもうこのバッファに触れないと保証されているので、
+    // 制御スレッドから解放してよい。
+    void releaseDiagnosticRecording() noexcept {
+        diagCaptureIn_.clear();
+        diagCaptureIn_.shrink_to_fit();
+        diagCaptureOut_.clear();
+        diagCaptureOut_.shrink_to_fit();
+        diagMicIn_.clear();
+        diagMicIn_.shrink_to_fit();
+        diagMicOut_.clear();
+        diagMicOut_.shrink_to_fit();
+        diagWritten_.store(0, std::memory_order_relaxed);
+        diagDone_.store(false, std::memory_order_relaxed);
+        diagTotalFrames_ = 0;
+    }
+
+    bool isDiagnosticRecordingActive() const noexcept {
+        return diagActive_.load(std::memory_order_acquire);
+    }
+    // 10 秒ぶん書き終わり、音声スレッドがもう触れない状態になったら true。
+    bool isDiagnosticRecordingDone() const noexcept {
+        return diagDone_.load(std::memory_order_acquire);
+    }
+    int diagnosticTotalFrames() const noexcept { return diagTotalFrames_; }
+    // 以下はすべて isDiagnosticRecordingDone() == true の間にだけ読むこと。
+    // 空なら nullptr(startDiagnosticRecording() が一度も成功していない等)。
+    const float* diagnosticCaptureIn() const noexcept {
+        return diagCaptureIn_.empty() ? nullptr : diagCaptureIn_.data();
+    }
+    const float* diagnosticCaptureOut() const noexcept {
+        return diagCaptureOut_.empty() ? nullptr : diagCaptureOut_.data();
+    }
+    const float* diagnosticMicIn() const noexcept {
+        return diagMicIn_.empty() ? nullptr : diagMicIn_.data();
+    }
+    const float* diagnosticMicOut() const noexcept {
+        return diagMicOut_.empty() ? nullptr : diagMicOut_.data();
+    }
+
     // ---- 状態機械(RT 安全) ------------------------------------------------
     // 出力コールバックの先頭で 1 回だけ呼ぶ。
     Step nextStep() noexcept {
@@ -325,14 +438,19 @@ public:
         if (input == nullptr) {
             framesRead = 0;
         }
-        if (framesRead < numFrames) {
-            underrunCount_.fetch_add(1, std::memory_order_relaxed);
-        }
 
         const int pad = numFrames - framesRead;
+        if (pad > 0) {
+            underrunCount_.fetch_add(1, std::memory_order_relaxed);
+            micShortfallFrames_.fetch_add(pad, std::memory_order_relaxed);
+        }
 
         // 捕獲経路の有効/無効の切り替わりは、コールバックの先頭で 1 回だけ処理する。
         syncCaptureState();
+
+        // このコールバックの間だけ有効/無効を固定する(チャンクの途中で
+        // startDiagnosticRecording() が飛び込んできても、書き込み先の一貫性を保つ)。
+        const bool recording = diagActive_.load(std::memory_order_relaxed);
 
         // numFrames が上限を超えても破綻しないよう分割して処理する。
         int done = 0;
@@ -346,6 +464,9 @@ public:
             if (captureActive_) {
                 fetchCaptureChunk(chunk);
                 captureShifter_.process(capInPlanar_, capOutPlanar_, chunk);
+            }
+            if (recording) {
+                recordDiagnosticChunk(input, pad, done, chunk);
             }
             mixChunk(chunk);
             interleaveChunk(output, done, chunk);
@@ -376,6 +497,11 @@ public:
 
     // 入力アンダーランの累計。診断用(UI に出す)。RT 経路からは relaxed で加算のみ。
     int underrunCount() const noexcept { return underrunCount_.load(std::memory_order_relaxed); }
+    // マイク入力側で「要求フレーム数に足りなかった」不足フレームの累計
+    // (underrunCount() は回数、こちらはフレーム数)。start() のたびにリセットされる。
+    int micShortfallFrames() const noexcept {
+        return micShortfallFrames_.load(std::memory_order_relaxed);
+    }
 
     // ---- 捕獲経路の診断(制御スレッドから。すべて累計値) ---------------------
     // リングが空でコールバックを埋めきれなかった回数。
@@ -385,6 +511,11 @@ public:
     // リングが満杯で pushCapture() が取りこぼした呼び出しの回数。
     int captureOverruns() const noexcept {
         return captureOverruns_.load(std::memory_order_relaxed);
+    }
+    // 捕獲リング側で「要求フレーム数に足りなかった」不足フレームの累計
+    // (captureUnderruns() は回数、こちらはフレーム数)。start() のたびにリセットされる。
+    int captureShortfallFrames() const noexcept {
+        return captureShortfallFramesTotal_.load(std::memory_order_relaxed);
     }
     // 現在リングにたまっているフレーム数(遅延の目安 = これ / sampleRate)。
     int captureFillFrames() const noexcept {
@@ -463,6 +594,61 @@ private:
         const float excess = (ax - kSoftClipThreshold) / (1.0f - kSoftClipThreshold);
         const float compressed = kSoftClipThreshold + (1.0f - kSoftClipThreshold) * std::tanh(excess);
         return sign * compressed;
+    }
+
+    // ---- 診断録音(音声スレッドから。render() の recording==true のときだけ) -----
+    // mixChunk() が outPlanar_ / capOutPlanar_ を最終ミックスへ上書きする「前」に
+    // 呼ぶこと — ここで読むのは各経路単独(シフト後・ミックス前)の値。
+    //   mic-in      : シフト前のマイク入力(入力 ch 数のまま、pad 分は 0)
+    //   capture-in  : シフト前の捕獲入力(常に 2ch)
+    //   mic-out     : softClip(mic 単独 x micGain x outputGain)
+    //   capture-out : softClip(capture 単独 x captureGain x outputGain)
+    // mic-out / capture-out は「そのパス単体しか無かったら聞こえたはずの音」であり、
+    // 実際のミックス出力(2 パスの和にゲイン/ソフトクリップをかけたもの)そのものでは
+    // ない点に注意(2 パスは加算後に非線形(softClip)を通るため、各パスをここで
+    // 個別に softClip したものを単純に足しても実際のミックスとは一致しない)。
+    void recordDiagnosticChunk(const float* input, int pad, int done, int chunk) noexcept {
+        int w = diagWritten_.load(std::memory_order_relaxed);
+        int remaining = diagTotalFrames_ - w;
+        if (remaining <= 0) {
+            diagActive_.store(false, std::memory_order_release);
+            diagDone_.store(true, std::memory_order_release);
+            return;
+        }
+        const int n = (chunk < remaining) ? chunk : remaining;
+        const float outG = outputGain_.load(std::memory_order_relaxed);
+        const float micG = micGain_.load(std::memory_order_relaxed);
+        const float capG = captureActive_ ? captureGain_.load(std::memory_order_relaxed) : 0.0f;
+        const int nIn = inputChannels_;
+        for (int i = 0; i < n; ++i) {
+            const int frame = done + i;
+            const std::size_t micDst =
+                static_cast<std::size_t>(w + i) * static_cast<std::size_t>(nIn);
+            if (frame < pad) {
+                for (int c = 0; c < nIn; ++c) {
+                    diagMicIn_[micDst + c] = 0.0f;
+                }
+            } else {
+                const std::size_t src = static_cast<std::size_t>(frame - pad) *
+                                        static_cast<std::size_t>(nIn);
+                for (int c = 0; c < nIn; ++c) {
+                    diagMicIn_[micDst + c] = input[src + c];
+                }
+            }
+            const std::size_t stereoDst = static_cast<std::size_t>(w + i) * 2u;
+            diagCaptureIn_[stereoDst] = capInPlanar_[0][i];
+            diagCaptureIn_[stereoDst + 1] = capInPlanar_[1][i];
+            diagMicOut_[stereoDst] = softClip(outPlanar_[0][i] * micG * outG);
+            diagMicOut_[stereoDst + 1] = softClip(outPlanar_[1][i] * micG * outG);
+            diagCaptureOut_[stereoDst] = softClip(capOutPlanar_[0][i] * capG * outG);
+            diagCaptureOut_[stereoDst + 1] = softClip(capOutPlanar_[1][i] * capG * outG);
+        }
+        w += n;
+        diagWritten_.store(w, std::memory_order_relaxed);
+        if (w >= diagTotalFrames_) {
+            diagActive_.store(false, std::memory_order_release);
+            diagDone_.store(true, std::memory_order_release);
+        }
     }
 
     // 2 経路のミックス + 出力ゲイン + ソフトクリップ。結果は outPlanar_ に上書きする。
@@ -576,6 +762,7 @@ private:
 
         if (pad > 0) {
             captureUnderruns_.fetch_add(1, std::memory_order_relaxed);
+            captureShortfallFramesTotal_.fetch_add(pad, std::memory_order_relaxed);
             captureCushioning_ = true;  // たまり直すまで待つ
         }
     }
@@ -639,8 +826,24 @@ private:
     int cushionRemaining_ = kInputBurstsCushion;
 
     std::atomic<int> underrunCount_{0};
+    std::atomic<int> micShortfallFrames_{0};
     std::atomic<bool> synced_{false};
     std::atomic<float> outputGain_{kOutputGainDefault};
+    std::atomic<int> captureShortfallFramesTotal_{0};
+
+    // ---- 診断用の 10 秒録音 --------------------------------------------------
+    // 確保/解放は制御スレッドのみ(startDiagnosticRecording() /
+    // releaseDiagnosticRecording() / reset())。音声スレッドは diagActive_ 越しに
+    // しかこれらへ触らない(true を観測した時点でベクタは既に確保済みであることを
+    // diagActive_ の release ストアで保証する)。
+    std::vector<float> diagCaptureIn_;   // インタリーブ 2ch
+    std::vector<float> diagCaptureOut_;  // インタリーブ 2ch
+    std::vector<float> diagMicIn_;       // インタリーブ inputChannels_ ch
+    std::vector<float> diagMicOut_;      // インタリーブ 2ch
+    int diagTotalFrames_ = 0;
+    std::atomic<int> diagWritten_{0};
+    std::atomic<bool> diagActive_{false};
+    std::atomic<bool> diagDone_{false};
 
     bool prepared_ = false;
 };
