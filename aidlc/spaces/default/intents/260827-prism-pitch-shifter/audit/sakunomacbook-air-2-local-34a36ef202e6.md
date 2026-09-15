@@ -7201,3 +7201,156 @@
 **Session**: 654f7c99-9b96-52a9-b016-43612697d881
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-05T01:45:19Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-05T01:53:18Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-05T02:02:28Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-05T02:06:04Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-05T02:09:11Z
+**Event**: HUMAN_TURN
+**Session**: 654f7c99-9b96-52a9-b016-43612697d881
+
+---
+
+## Session End
+**Timestamp**: 2026-09-05T06:57:00Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session End
+**Timestamp**: 2026-09-05T18:57:03Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session End
+**Timestamp**: 2026-09-05T18:57:07Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session Resume
+**Timestamp**: 2026-09-05T18:57:14Z
+**Event**: SESSION_RESUMED
+**Source**: resume
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-05T18:57:15Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Session Start
+**Timestamp**: 2026-09-06T10:24:05Z
+**Event**: SESSION_STARTED
+**Source**: startup
+**Session**: 67373abd-d2d8-42f1-80fe-7dd4c0df9a73
+
+---
+
+## Session End
+**Timestamp**: 2026-09-06T10:24:05Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session Resume
+**Timestamp**: 2026-09-06T15:22:52Z
+**Event**: SESSION_RESUMED
+**Source**: resume
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-06T15:23:38Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-06T21:49:53Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Session End
+**Timestamp**: 2026-09-07T18:03:08Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session End
+**Timestamp**: 2026-09-09T08:18:11Z
+**Event**: SESSION_ENDED
+**Reason**: other
+
+---
+
+## Session Resume
+**Timestamp**: 2026-09-15T13:18:27Z
+**Event**: SESSION_RESUMED
+**Source**: resume
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-15T13:22:32Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-15T13:39:35Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-15T13:49:05Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: af8a82cd79b339081
+**Message**: 修正完了しました(コミット `51b042d`)。\n\n- 原因: `PrismService.startForegroundCompat()` が `Params.captureEnabled`(ユーザー意図)を見て mediaProjection 型を先取りしていたため、設定変更による自動再起動(stop→start)で「同意なしに mediaProjection 型で `startForegr
+
+---
