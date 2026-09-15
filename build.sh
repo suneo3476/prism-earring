@@ -27,14 +27,17 @@ if [ "$QUICK" -eq 0 ]; then
     printf 'source checks (SR-1.1 / SR-1.2 / SR-2.1)\n'
     fail=0
     for pat in '<fstream>' 'fopen' 'mmap' 'socket(' 'curl' '<random>' 'rand()' '<thread>' '<mutex>'; do
-        if grep -n -F "$pat" "$SRC" "$ROOT/dsp/include/prism/PitchShifter.h" >/dev/null 2>&1; then
+        if grep -n -F "$pat" "$SRC" "$ROOT/dsp/include/prism/PitchShifter.h" \
+                "$ROOT/dsp/include/prism/PhaseVocoderShifter.h" >/dev/null 2>&1; then
             printf '  FAIL forbidden token found: %s\n' "$pat"
             fail=1
         fi
     done
-    # 音声経路に FFT を置かないこと(検証側 verify.cpp のみ可)。コメント行は対象外。
+    # 既定のマイク経路(PitchShifter)に FFT を置かないこと。コメント行は対象外。
+    # 第 2 方式 PhaseVocoderShifter は CLAUDE.md の例外節(捕獲経路 / 遅延 50-100ms 許容)
+    # に基づく選択式の方式なので、この検査の対象外。既定は今までどおり PitchShifter。
     if sed -e 's,//.*,,' "$ROOT/dsp/include/prism/PitchShifter.h" | grep -n -i 'fft' >/dev/null 2>&1; then
-        printf '  FAIL FFT appears in the DSP core\n'
+        printf '  FAIL FFT appears in the default (delay-line) DSP core\n'
         fail=1
     fi
     [ "$fail" -eq 0 ] && printf '  PASS no forbidden dependency / no FFT in the audio path\n'
