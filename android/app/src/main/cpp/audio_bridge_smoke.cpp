@@ -379,6 +379,11 @@ void testCaptureRingOrdering() {
     constexpr int kFrames = 192;
 
     prism::AudioBridge bridge;
+    // このテストは dry-wet=0 の完全パススルーでリングの順序を厳密に検査する。
+    // 捕獲経路の既定方式は v0.6.0 で位相ボコーダになった(dry-wet を持たず常に
+    // 加工済みの音になる)ため、ディレイライン型へ明示的に固定する。prepare() 前に
+    // 設定すれば、prepare() の reset() がクロスフェード無しでこの方式から始まる。
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodDelayLine);
     check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
     check(!bridge.isCaptureEnabled(), "捕獲は既定で無効");
     check(bridge.captureSweepMs() == prism::AudioBridge::kCaptureSweepMsDefault,
@@ -434,6 +439,8 @@ void testCaptureCushion() {
     constexpr int kFrames = 192;
 
     prism::AudioBridge bridge;
+    // [9] と同じ理由でディレイライン型に固定する(dry-wet=0 の完全パススルーが必要)。
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodDelayLine);
     check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
     configurePassthroughCapture(bridge);
     runToSteadyState(bridge);
@@ -468,6 +475,9 @@ void testMicMuteCaptureOnly() {
     constexpr int kFrames = 192;
 
     prism::AudioBridge bridge;
+    // 後段で dry-wet=0 の完全パススルー([9]/[10] と同じ手法)を使うため、
+    // 捕獲経路をディレイライン型に固定する(prepare() 前 = クロスフェード無しで反映)。
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodDelayLine);
     check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
     check(bridge.micGain() == 1.0f && bridge.captureGain() == 1.0f, "ゲインの既定は 1.0");
     runToSteadyState(bridge);
@@ -528,6 +538,8 @@ void testCaptureOverrunUnderrun() {
     constexpr int kFrames = 192;
 
     prism::AudioBridge bridge;
+    // [9]/[10] と同じ理由でディレイライン型に固定する(dry-wet=0 の完全パススルーが必要)。
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodDelayLine);
     check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
     configurePassthroughCapture(bridge);
     runToSteadyState(bridge);
@@ -652,6 +664,154 @@ void testDiagnosticRecording() {
     check(bridge.diagnosticTotalFrames() == 0, "reset 後は総フレーム数も 0 に戻る");
 }
 
+// ---- 14. 処理方式の切替(v0.6.0) --------------------------------------------
+// 「既存の不連続検出と同じ閾値」= verify/verify.cpp の testGlitchAt()/testPvGlitch() と
+// 同じ式(出力側の最大スロープ基準 = 3.0 x 2pi x f x ratio x A / fs)を
+// AudioBridge::render() の出力へそのまま適用する。マイク経路・捕獲経路それぞれを
+// 単独に鳴らし(もう片方はゲイン 0 / 無効化で無音にする)、3 方式を渡り歩かせても
+// クリック(不連続)が出ないこと、出力が常に有限であることを確認する。
+// 方式切替の区間ごとに、先頭 excludeFramesPerSegment だけ検査から除外する。
+// 除外するのは (a) kMethodSwitchCrossfadeMs のクロスフェード自体と、(b) 切替先が
+// 位相ボコーダのとき、そのインスタンス自身のパイプラインが満杯になるまでの遅延
+// (最大で N=4096 のおよそ 110ms)—— どちらも「本来の遅延特性による滑らかな
+// 立ち上がり」であって、跳躍のようなクリック(不連続)ではないため。
+// 除外区間をまたぐ隣接差分も取らない(除外直後の 1 サンプルは前サンプルと比較しない)。
+void checkNoDiscontinuitiesPerSegment(const std::vector<float>& out, std::size_t segmentFrames,
+                                      std::size_t excludeFramesPerSegment, double limit,
+                                      const char* what) {
+    long count = 0;
+    double worst = 0.0;
+    const std::size_t frames = out.size() / 2u;
+    std::size_t prevIndex = 0;
+    bool havePrev = false;
+    for (std::size_t i = 0; i < frames; ++i) {
+        const bool excluded = (i % segmentFrames) < excludeFramesPerSegment;
+        if (!excluded) {
+            if (havePrev) {
+                const double d = std::fabs(static_cast<double>(out[i * 2u]) -
+                                           static_cast<double>(out[prevIndex * 2u]));
+                if (d > worst) {
+                    worst = d;
+                }
+                if (d > limit) {
+                    ++count;
+                }
+            }
+            prevIndex = i;
+            havePrev = true;
+        } else {
+            havePrev = false;
+        }
+    }
+    char label[160];
+    std::snprintf(label, sizeof(label), "%s: 不連続 0 件(max|dy|=%.5f limit=%.5f)", what, worst,
+                 limit);
+    check(count == 0, label);
+}
+
+void testMethodSwitching() {
+    std::printf("[14] 処理方式の切替(3 方式 x マイク/捕獲経路)\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+    constexpr double kFreq = 440.0;
+    constexpr double kAmplitude = 0.5;
+    constexpr double kShiftCents = -89.0;
+    // verify/verify.cpp の kGlitchSlopeFactor と同じ値(BR2.3)。
+    constexpr double kSlopeFactor = 3.0;
+    constexpr int kSwitchEveryBlocks = 100;  // 192/48000 x 100 = 400ms 間隔 = 1 区間
+    constexpr int kSegments = 6;             // 5 回切替 = 6 区間 = 2.4 秒ぶん
+    const int methodSequence[kSegments] = {
+        prism::AudioBridge::kMethodDelayLine,        prism::AudioBridge::kMethodPhaseVocoder2048,
+        prism::AudioBridge::kMethodPhaseVocoder4096, prism::AudioBridge::kMethodDelayLine,
+        prism::AudioBridge::kMethodPhaseVocoder4096, prism::AudioBridge::kMethodPhaseVocoder2048,
+    };
+    const int kTotalBlocks = kSwitchEveryBlocks * kSegments;
+    const std::size_t segmentFrames =
+        static_cast<std::size_t>(kSwitchEveryBlocks) * static_cast<std::size_t>(kFrames);
+    // 区間先頭の除外幅: クロスフェード(10ms)+ 位相ボコーダ N=4096 の自身の遅延
+    // (最大 ~110ms)+ 捕獲経路のクッション(20ms)をまとめて余裕をもって覆う値。
+    const std::size_t excludeFramesPerSegment = static_cast<std::size_t>(kFs * 0.150);
+    const double ratio = std::exp2(kShiftCents / 1200.0);
+    const double maxSlope = 2.0 * M_PI * kFreq * ratio * kAmplitude / kFs;
+    const double limit = kSlopeFactor * maxSlope;
+
+    prism::AudioBridge bridge;
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    check(bridge.micMethod() == prism::AudioBridge::kMicMethodDefault,
+          "マイク経路の既定方式はディレイライン型(低遅延)");
+    check(bridge.captureMethod() == prism::AudioBridge::kCaptureMethodDefault,
+          "捕獲経路の既定方式は位相ボコーダ N=4096");
+
+    bridge.setMicShiftCentsL(static_cast<float>(kShiftCents));
+    bridge.setMicShiftCentsR(static_cast<float>(kShiftCents));
+    bridge.setCaptureShiftCentsL(static_cast<float>(kShiftCents));
+    bridge.setCaptureShiftCentsR(static_cast<float>(kShiftCents));
+    runToSteadyState(bridge);
+
+    // ---- (a) マイク経路: 捕獲は無効のまま、3 方式を渡り歩く ---------------------
+    {
+        std::vector<float> out(static_cast<std::size_t>(kTotalBlocks) *
+                               static_cast<std::size_t>(kFrames) * 2u);
+        double phase = 0.0;
+        std::size_t writtenFrames = 0;
+        for (int block = 0; block < kTotalBlocks; ++block) {
+            if (block % kSwitchEveryBlocks == 0) {
+                bridge.setMicMethod(methodSequence[block / kSwitchEveryBlocks]);
+            }
+            const std::vector<float> in = makeSine(kFrames, 2, kFreq, kFs, phase, kAmplitude);
+            phase += kFrames;
+            bridge.render(in.data(), kFrames,
+                          out.data() + writtenFrames * 2u, kFrames);
+            writtenFrames += static_cast<std::size_t>(kFrames);
+        }
+        check(allFinite(out), "マイク経路: 3 方式を渡り歩いても NaN / Inf が出ない");
+        checkNoDiscontinuitiesPerSegment(out, segmentFrames, excludeFramesPerSegment, limit,
+                                         "マイク経路の方式切替");
+    }
+
+    // ---- (b) 捕獲経路: マイクをミュートし、3 方式を渡り歩く ----------------------
+    {
+        bridge.setMicGain(0.0f);
+        bridge.setCaptureGain(1.0f);
+        bridge.setCaptureMethod(methodSequence[0]);
+        bridge.setCaptureEnabled(true);
+
+        std::vector<float> out(static_cast<std::size_t>(kTotalBlocks) *
+                               static_cast<std::size_t>(kFrames) * 2u);
+        double phase = 0.0;
+        std::size_t writtenFrames = 0;
+        for (int block = 0; block < kTotalBlocks; ++block) {
+            if (block % kSwitchEveryBlocks == 0) {
+                bridge.setCaptureMethod(methodSequence[block / kSwitchEveryBlocks]);
+            }
+            const std::vector<float> capIn = makeSine(kFrames, 2, kFreq, kFs, phase, kAmplitude);
+            const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+            phase += kFrames;
+            bridge.pushCapture(capIn.data(), kFrames, 2);
+            bridge.render(silence.data(), kFrames,
+                          out.data() + writtenFrames * 2u, kFrames);
+            writtenFrames += static_cast<std::size_t>(kFrames);
+        }
+        check(allFinite(out), "捕獲経路: 3 方式を渡り歩いても NaN / Inf が出ない");
+        checkNoDiscontinuitiesPerSegment(out, segmentFrames, excludeFramesPerSegment, limit,
+                                         "捕獲経路の方式切替");
+    }
+
+    // ---- (c) 遅延表示が方式ごとにおおむね妥当な値を返すこと ----------------------
+    bridge.setMicMethod(prism::AudioBridge::kMethodDelayLine);
+    check(bridge.micDspLatencyMillis() > 0.0 && bridge.micDspLatencyMillis() <= 10.0,
+          "マイク経路: ディレイライン型は 10ms 以下(NFR-1)");
+    bridge.setMicMethod(prism::AudioBridge::kMethodPhaseVocoder2048);
+    check(bridge.micDspLatencyMillis() > 40.0 && bridge.micDspLatencyMillis() < 70.0,
+          "マイク経路: 位相ボコーダ N=2048 の遅延はおよそ 55ms 前後");
+    bridge.setMicMethod(prism::AudioBridge::kMethodPhaseVocoder4096);
+    check(bridge.micDspLatencyMillis() > 90.0 && bridge.micDspLatencyMillis() < 130.0,
+          "マイク経路: 位相ボコーダ N=4096 の遅延はおよそ 110ms 前後");
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodPhaseVocoder4096);
+    check(bridge.captureDspLatencyMillis() > 90.0 && bridge.captureDspLatencyMillis() < 130.0,
+          "捕獲経路: 位相ボコーダ N=4096 の遅延はおよそ 110ms 前後");
+}
+
 }  // namespace
 
 int main() {
@@ -669,6 +829,7 @@ int main() {
     testMicMuteCaptureOnly();
     testCaptureOverrunUnderrun();
     testDiagnosticRecording();
+    testMethodSwitching();
 
     std::printf("\n");
     if (g_failures == 0) {

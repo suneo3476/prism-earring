@@ -512,6 +512,7 @@ PrismEngine::LatencyReport PrismEngine::latency() const {
     report.dspMillis = bridge_.dspLatencyMillis();  // マイク経路の値(捕獲経路は含まない)
     report.micSweepMillis = bridge_.micSweepMs();
     report.captureSweepMillis = bridge_.captureSweepMs();
+    report.captureDspMillis = bridge_.captureDspLatencyMillis();
     if (!running_.load(std::memory_order_acquire) || !inputStream_ || !outputStream_) {
         report.totalMillis = report.dspMillis;
         return report;
@@ -598,15 +599,16 @@ void PrismEngine::setError(const std::string& message) {
     lastError_ = message;
 }
 
-// シフト量は 2 本のシフタ(マイク経路 / 捕獲経路)へ同じ値を流す。
+// シフト量はマイク経路 / 捕獲経路それぞれの 3 方式(ディレイライン / 位相ボコーダ
+// N=2048 / N=4096)すべてへ同じ値を流す(AudioBridge::setMic*/setCapture* 参照)。
 void PrismEngine::setShiftCents(int channel, float cents) noexcept {
     if (channel != 1) {
-        bridge_.shifter().setShiftCentsL(cents);
-        bridge_.captureShifter().setShiftCentsL(cents);
+        bridge_.setMicShiftCentsL(cents);
+        bridge_.setCaptureShiftCentsL(cents);
     }
     if (channel != 0) {
-        bridge_.shifter().setShiftCentsR(cents);
-        bridge_.captureShifter().setShiftCentsR(cents);
+        bridge_.setMicShiftCentsR(cents);
+        bridge_.setCaptureShiftCentsR(cents);
     }
 }
 

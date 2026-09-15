@@ -25,6 +25,8 @@ class NativeEngine private constructor(private var handle: Long) {
         val micSweepMs: Double = 0.0,
         /** 捕獲経路の遅延スイープ幅(ms)。実際に採用された値。 */
         val captureSweepMs: Double = 0.0,
+        /** 捕獲経路の DSP 遅延(ms)。選択中の処理方式([captureMethod])の値。 */
+        val captureDspMs: Double = 0.0,
     )
 
     /** 開いているストリームの実際の素性。UI の診断表示に使う。 */
@@ -96,6 +98,20 @@ class NativeEngine private constructor(private var handle: Long) {
 
     fun setCrossfadeMs(ms: Float) {
         if (handle != 0L) nativeSetCrossfadeMs(handle, ms)
+    }
+
+    /**
+     * 処理方式を切り替える。動作中に呼んでよく、再起動は不要
+     * ([METHOD_DELAY_LINE] / [METHOD_PHASE_VOCODER_2048] / [METHOD_PHASE_VOCODER_4096])。
+     * 切替の瞬間はネイティブ側で短いクロスフェード(約 10ms)をかけるため、クリックは出ない。
+     */
+    fun setMicMethod(method: Int) {
+        if (handle != 0L) nativeSetMethod(handle, PATH_MIC, method)
+    }
+
+    /** [setMicMethod] と同じだが捕獲経路(他アプリの音)に適用する。 */
+    fun setCaptureMethod(method: Int) {
+        if (handle != 0L) nativeSetMethod(handle, PATH_CAPTURE, method)
     }
 
     /** [gain] は倍率(0.5〜4.0)。dB からの変換は [Params] 側の責務。 */
@@ -182,8 +198,8 @@ class NativeEngine private constructor(private var handle: Long) {
         val empty = Latency(0.0, 0.0, 0.0, 0.0, false)
         if (handle == 0L) return empty
         val v = nativeGetLatency(handle) ?: return empty
-        if (v.size < 7) return empty
-        return Latency(v[0], v[1], v[2], v[3], v[4] != 0.0, v[5], v[6])
+        if (v.size < 8) return empty
+        return Latency(v[0], v[1], v[2], v[3], v[4] != 0.0, v[5], v[6], v[7])
     }
 
     fun streamInfo(): StreamInfo {
@@ -294,6 +310,26 @@ class NativeEngine private constructor(private var handle: Long) {
         /** 捕獲経路の走査幅(ms)。ネイティブ側の `kCaptureSweepMsDefault` と同じ。 */
         const val CAPTURE_SWEEP_MS_DEFAULT = 40.0
 
+        // ---- 処理方式(v0.6.0)。ネイティブ側の AudioBridge::kMethod* と同じ値。 ----
+        /** ディレイライン型(低遅延、約 5ms)。マイク経路の既定。 */
+        const val METHOD_DELAY_LINE = 0
+
+        /** 位相ボコーダ N=2048(遅延およそ 55ms)。 */
+        const val METHOD_PHASE_VOCODER_2048 = 1
+
+        /** 位相ボコーダ N=4096(遅延およそ 110ms、音楽向け)。捕獲経路の既定。 */
+        const val METHOD_PHASE_VOCODER_4096 = 2
+
+        /** マイク経路の既定方式。ネイティブ側の `kMicMethodDefault` と同じ。 */
+        const val MIC_METHOD_DEFAULT = METHOD_DELAY_LINE
+
+        /** 捕獲経路の既定方式。ネイティブ側の `kCaptureMethodDefault` と同じ。 */
+        const val CAPTURE_METHOD_DEFAULT = METHOD_PHASE_VOCODER_4096
+
+        /** [setMicMethod] / [setCaptureMethod] が使う nativeSetMethod() の path 引数。 */
+        private const val PATH_MIC = 0
+        private const val PATH_CAPTURE = 1
+
         /** .so のロードに失敗した場合(ABI 不一致など)は null を返す。 */
         @Volatile
         private var libraryLoaded: Boolean? = null
@@ -334,6 +370,7 @@ class NativeEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeSetShiftCents(handle: Long, channel: Int, cents: Float)
         @JvmStatic private external fun nativeSetDryWet(handle: Long, mix: Float)
         @JvmStatic private external fun nativeSetCrossfadeMs(handle: Long, ms: Float)
+        @JvmStatic private external fun nativeSetMethod(handle: Long, path: Int, method: Int)
         @JvmStatic private external fun nativeSetOutputGain(handle: Long, gain: Float)
         @JvmStatic private external fun nativePushCapture(
             handle: Long,

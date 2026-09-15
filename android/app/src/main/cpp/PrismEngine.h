@@ -43,7 +43,16 @@ public:
         bool valid = false;
         double micSweepMillis = 0.0;      // マイク経路の走査幅(採用値)
         double captureSweepMillis = 0.0;  // 捕獲経路の走査幅(採用値)
+        double captureDspMillis = 0.0;    // 捕獲経路の DSP 遅延(選択中の方式の値)
     };
+
+    // 処理方式。setMethod() の method 引数(AudioBridge::kMethod* と同じ値)。
+    static constexpr int kMethodDelayLine = AudioBridge::kMethodDelayLine;
+    static constexpr int kMethodPhaseVocoder2048 = AudioBridge::kMethodPhaseVocoder2048;
+    static constexpr int kMethodPhaseVocoder4096 = AudioBridge::kMethodPhaseVocoder4096;
+    // setMethod() の path 引数。
+    static constexpr int kPathMic = 0;
+    static constexpr int kPathCapture = 1;
 
     // 出力の用途。setOutputUsage() の引数。
     //   Media  … 既定。メディア音量に乗る(ContentType::Music)。
@@ -139,10 +148,12 @@ public:
     // 捕獲経路は常に wet=1.0 固定にする(PitchShifter::kDryWetDefault が
     // 既に 1.0 のため、そもそも書き換えない = ここでは触らない)。
     // マイク経路の dry-wet は従来どおり UI の値を反映する。
+    // シフト量 / dry-wet はどちらも、経路ごとに選択されている 3 方式(ディレイライン /
+    // 位相ボコーダ N=2048 / N=4096)すべてへ流す(AudioBridge::setMic*/setCapture* 参照)。
     // channel: 0 = L, 1 = R, それ以外 = 両方
     void setShiftCents(int channel, float cents) noexcept;
     void setDryWet(float mix) noexcept {
-        bridge_.shifter().setDryWet(mix);
+        bridge_.setMicDryWet(mix);
     }
     void setCrossfadeMs(float ms) noexcept {
         bridge_.shifter().setCrossfadeMs(ms);
@@ -150,6 +161,19 @@ public:
     }
     // gain は倍率(0.5〜4.0)。AudioBridge::setOutputGain が clamp する。
     void setOutputGain(float gain) noexcept { bridge_.setOutputGain(gain); }
+
+    // ---- 処理方式(制御スレッドから。動作中に呼んでよい。再起動不要) -----------
+    // path: kPathMic / kPathCapture。method: kMethodDelayLine /
+    // kMethodPhaseVocoder2048 / kMethodPhaseVocoder4096。範囲外の値は低遅延に丸める。
+    void setMethod(int path, int method) noexcept {
+        if (path == kPathCapture) {
+            bridge_.setCaptureMethod(method);
+        } else {
+            bridge_.setMicMethod(method);
+        }
+    }
+    int micMethod() const noexcept { return bridge_.micMethod(); }
+    int captureMethod() const noexcept { return bridge_.captureMethod(); }
 
     // ---- 捕獲経路(制御スレッドから。動作中に呼んでよい) ---------------------
     void setCaptureEnabled(bool enabled) noexcept { bridge_.setCaptureEnabled(enabled); }

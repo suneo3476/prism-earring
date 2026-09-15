@@ -96,6 +96,17 @@
     <string name="info_split_title">左右を別々に</string>
     <string name="info_split_body">左右の耳で聞こえ方が違う人向けの機能です。ON にすると、左右のイヤホンで別々の高さに調整できます。</string>
 
+    <!-- 処理方式(v0.6.0) -->
+    <string name="method_delay_line">低遅延\n5 ms</string>
+    <string name="method_pv_2048">PV\n55 ms</string>
+    <string name="method_pv_4096">PV\n110 ms</string>
+    <string name="mic_method_title">処理方式(マイク)</string>
+    <string name="info_mic_method_title">処理方式(マイク)</string>
+    <string name="info_mic_method_body">音の高さを変える方式を選べます。低遅延(ディレイライン型): 遅延およそ 5ms。会話や周囲の音向きで、生の音とほぼずれずに聞こえます。音楽ではザラついた粒ノイズが出ることがあります。位相ボコーダ(PV): 音楽向きで滑らかですが、遅延が 55ms(N=2048)/ 110ms(N=4096、和音向き)増えます。マイクは生の音がイヤホンから漏れ込むため、遅延が大きいと自分の声が二重に聞こえたり唸ったりします。音楽を聞きながら試す用途以外では低遅延のままにしておくことをおすすめします。切替は即座に反映され、再起動は不要です(切り替わる瞬間はクリック音が出ないよう自動でなめらかにつなぎます)。</string>
+    <string name="capture_method_title">処理方式(捕獲)</string>
+    <string name="info_capture_method_title">処理方式(捕獲)</string>
+    <string name="info_capture_method_body">他アプリの音(音楽・動画)を処理する方式です。捕獲した音には生の音の漏れ込みが無いため、遅延を気にせず位相ボコーダ(PV)を選べます。既定は PV 110ms(N=4096)— 和音や低い音でも精度が高く、音楽に向いています。PV 55ms(N=2048)は遅延が短い代わりに低音の和音でわずかに精度が落ちます。低遅延(ディレイライン型)は遅延およそ 5ms ですが、音楽ではザラついた粒ノイズが出やすくなります。切替は即座に反映され、再起動は不要です。</string>
+
     <!-- 音量 -->
     <string name="volume_label">音量</string>
     <string name="volume_sub_label">小さく ← → 大きく</string>
@@ -215,7 +226,7 @@
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
     <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
     <string name="diag_placeholder">診断: --</string>
-    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms\nxrun: 出力 %22$d 回 / マイク入力 %23$d 回\n不足フレーム: マイク %10$d 回・計 %24$d フレーム / 捕獲 %13$d 回・計 %25$d フレーム</string>
+    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms / DSP %26$.2f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms\nxrun: 出力 %22$d 回 / マイク入力 %23$d 回\n不足フレーム: マイク %10$d 回・計 %24$d フレーム / 捕獲 %13$d 回・計 %25$d フレーム</string>
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
     <string name="usage_media_short">メディア</string>

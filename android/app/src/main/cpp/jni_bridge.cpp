@@ -106,6 +106,18 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetCrossfadeMs(JNIEnv* /*env*/, jc
     }
 }
 
+// path: 0 = マイク経路, 1 = 捕獲経路。method: 0 = ディレイライン(低遅延),
+// 1 = 位相ボコーダ N=2048, 2 = 位相ボコーダ N=4096。範囲外の値は低遅延に丸められる。
+// 動作中に呼んでよい(再起動不要。切替はクロスフェードを挟んで音声スレッド側が行う)。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeSetMethod(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                        jlong handle, jint path, jint method) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine != nullptr) {
+        engine->setMethod(static_cast<int>(path), static_cast<int>(method));
+    }
+}
+
 // gain は倍率(0.5〜4.0)。dB <-> 倍率の変換は Kotlin 側(Params)で行う。
 JNIEXPORT void JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeSetOutputGain(JNIEnv* /*env*/, jclass /*clazz*/,
@@ -231,17 +243,17 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetMicSweepMs(JNIEnv* /*env*/, jcl
 }
 
 // [0]=入力 ms, [1]=出力 ms, [2]=DSP ms(マイク経路), [3]=合計 ms, [4]=有効なら 1,
-// [5]=マイク経路の走査幅 ms, [6]=捕獲経路の走査幅 ms
+// [5]=マイク経路の走査幅 ms, [6]=捕獲経路の走査幅 ms, [7]=DSP ms(捕獲経路。選択中の方式の値)
 JNIEXPORT jdoubleArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*clazz*/,
                                                          jlong handle) {
-    constexpr jsize kCount = 7;
+    constexpr jsize kCount = 8;
     jdoubleArray out = env->NewDoubleArray(kCount);
     if (out == nullptr) {
         return nullptr;  // OutOfMemoryError は JNI が投げている
     }
     prism::PrismEngine* engine = toEngine(handle);
-    jdouble values[kCount] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    jdouble values[kCount] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     if (engine != nullptr) {
         const prism::PrismEngine::LatencyReport r = engine->latency();
         values[0] = r.inputMillis;
@@ -251,6 +263,7 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*c
         values[4] = r.valid ? 1.0 : 0.0;
         values[5] = r.micSweepMillis;
         values[6] = r.captureSweepMillis;
+        values[7] = r.captureDspMillis;
     }
     env->SetDoubleArrayRegion(out, 0, kCount, values);
     return out;

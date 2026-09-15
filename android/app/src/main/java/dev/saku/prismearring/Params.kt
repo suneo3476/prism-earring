@@ -59,6 +59,18 @@ data class Params(
      * (詳細は README「捕獲音のミックス」節)。
      */
     val duckPercent: Int = DEFAULT_DUCK_PERCENT,
+    /**
+     * マイク経路の処理方式(v0.6.0)。[NativeEngine.METHOD_DELAY_LINE](既定) /
+     * [NativeEngine.METHOD_PHASE_VOCODER_2048] / [NativeEngine.METHOD_PHASE_VOCODER_4096]。
+     * 即時反映・再起動不要(切替はネイティブ側で短いクロスフェードをかける)。
+     */
+    val micMethod: Int = NativeEngine.MIC_METHOD_DEFAULT,
+    /**
+     * 捕獲経路の処理方式(v0.6.0)。既定は音楽向けの位相ボコーダ N=4096
+     * ([NativeEngine.METHOD_PHASE_VOCODER_4096])。捕獲経路には生音の漏れ込みが無いため、
+     * マイク経路と違って低遅延である必要がない。即時反映・再起動不要。
+     */
+    val captureMethod: Int = NativeEngine.CAPTURE_METHOD_DEFAULT,
 ) {
     companion object {
         // --- DSP が実際に受け付ける範囲(PitchShifter の clamp と同じ) ---
@@ -166,6 +178,8 @@ data class Params(
         private const val KEY_MIC_SWEEP_MS = "mic_sweep_ms"
         private const val KEY_INPUT_PRESET = "input_preset"
         private const val KEY_DUCK_PERCENT = "duck_percent"
+        private const val KEY_MIC_METHOD = "mic_method"
+        private const val KEY_CAPTURE_METHOD = "capture_method"
 
         fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -196,6 +210,8 @@ data class Params(
                 micSweepMs = p.getFloat(KEY_MIC_SWEEP_MS, DEFAULT_MIC_SWEEP_MS),
                 duckPercent = p.getInt(KEY_DUCK_PERCENT, DEFAULT_DUCK_PERCENT),
                 inputPreset = p.getInt(KEY_INPUT_PRESET, NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION),
+                micMethod = p.getInt(KEY_MIC_METHOD, NativeEngine.MIC_METHOD_DEFAULT),
+                captureMethod = p.getInt(KEY_CAPTURE_METHOD, NativeEngine.CAPTURE_METHOD_DEFAULT),
             ).sanitized()
         }
 
@@ -225,6 +241,11 @@ data class Params(
                 inputPreset == NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION ||
                 inputPreset == NativeEngine.INPUT_PRESET_VOICE_COMMUNICATION
             ) inputPreset else NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION
+            fun sanitizeMethod(method: Int, fallback: Int) = if (
+                method == NativeEngine.METHOD_DELAY_LINE ||
+                method == NativeEngine.METHOD_PHASE_VOCODER_2048 ||
+                method == NativeEngine.METHOD_PHASE_VOCODER_4096
+            ) method else fallback
             return copy(
                 shiftCentsL = shiftCentsL.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
                 shiftCentsR = shiftCentsR.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
@@ -248,6 +269,8 @@ data class Params(
                 micSweepMs = sweep,
                 duckPercent = duckPercent.coerceIn(DUCK_PERCENT_MIN, DUCK_PERCENT_MAX),
                 inputPreset = preset,
+                micMethod = sanitizeMethod(micMethod, NativeEngine.MIC_METHOD_DEFAULT),
+                captureMethod = sanitizeMethod(captureMethod, NativeEngine.CAPTURE_METHOD_DEFAULT),
             ).let {
                 val (p1l, p1r) = sanitizePresetPair(preset1L, preset1R)
                 val (p2l, p2r) = sanitizePresetPair(preset2L, preset2R)
@@ -286,6 +309,8 @@ data class Params(
             .putFloat(KEY_MIC_SWEEP_MS, micSweepMs)
             .putInt(KEY_DUCK_PERCENT, duckPercent)
             .putInt(KEY_INPUT_PRESET, inputPreset)
+            .putInt(KEY_MIC_METHOD, micMethod)
+            .putInt(KEY_CAPTURE_METHOD, captureMethod)
             .apply()
     }
 
@@ -350,6 +375,8 @@ data class Params(
         engine.setOutputUsage(outputUsage)
         engine.setMicSweepMs(micSweepMs.toDouble())
         engine.setInputPreset(inputPreset)
+        engine.setMicMethod(micMethod)
+        engine.setCaptureMethod(captureMethod)
     }
 
     /**

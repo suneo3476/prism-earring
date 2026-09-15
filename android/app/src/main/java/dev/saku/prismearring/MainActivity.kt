@@ -729,6 +729,31 @@ class MainActivity : AppCompatActivity() {
                 updateParams(params.copy(inputPreset = preset))
             }
         }
+
+        // 処理方式(v0.6.0)。切替は即時反映・再起動不要(Params.applyTo 参照)。
+        val micMethodViews = listOf(
+            NativeEngine.METHOD_DELAY_LINE to binding.micMethod0,
+            NativeEngine.METHOD_PHASE_VOCODER_2048 to binding.micMethod1,
+            NativeEngine.METHOD_PHASE_VOCODER_4096 to binding.micMethod2,
+        )
+        micMethodViews.forEach { (method, view) ->
+            view.setOnClickListener {
+                if (method == params.micMethod) return@setOnClickListener
+                updateParams(params.copy(micMethod = method))
+            }
+        }
+
+        val captureMethodViews = listOf(
+            NativeEngine.METHOD_DELAY_LINE to binding.captureMethod0,
+            NativeEngine.METHOD_PHASE_VOCODER_2048 to binding.captureMethod1,
+            NativeEngine.METHOD_PHASE_VOCODER_4096 to binding.captureMethod2,
+        )
+        captureMethodViews.forEach { (method, view) ->
+            view.setOnClickListener {
+                if (method == params.captureMethod) return@setOnClickListener
+                updateParams(params.copy(captureMethod = method))
+            }
+        }
     }
 
     /** 保存してから夜間モードを切り替える。実際に値が変わればアクティビティが再生成される。 */
@@ -796,6 +821,11 @@ class MainActivity : AppCompatActivity() {
         )
         infoButton(
             binding.outputUsageInfoButton, R.string.info_output_usage_title, R.string.info_output_usage_body
+        )
+        infoButton(binding.micMethodInfoButton, R.string.info_mic_method_title, R.string.info_mic_method_body)
+        infoButton(
+            binding.captureMethodInfoButton, R.string.info_capture_method_title,
+            R.string.info_capture_method_body
         )
     }
 
@@ -995,6 +1025,15 @@ class MainActivity : AppCompatActivity() {
             params.inputPreset,
         )
 
+        selectSegment(
+            listOf(binding.micMethod0, binding.micMethod1, binding.micMethod2),
+            params.micMethod,
+        )
+        selectSegment(
+            listOf(binding.captureMethod0, binding.captureMethod1, binding.captureMethod2),
+            params.captureMethod,
+        )
+
         binding.outputUsageSwitch.isChecked = params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY
 
         binding.duckSlider.value =
@@ -1122,6 +1161,7 @@ class MainActivity : AppCompatActivity() {
                 state.info.inputXRunCount,
                 state.info.micShortfallFrames,
                 state.info.captureShortfallFrames,
+                state.latency.captureDspMs,
             )
         }
 

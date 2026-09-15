@@ -31,6 +31,24 @@
 // 捕獲経路には「生音の漏れ込み」が存在しない(耳に届くのは処理後の音だけ)ため、
 // NFR-1 の 10ms 遅延予算は適用されない。走査幅を広く取り(既定 40ms)、跳躍間隔
 // (= sweep / |1-比|)を伸ばして大きなシフト量でのアーティファクトを抑える。
+//
+// ---- 処理方式の選択(v0.6.0。dsp/include/prism/PhaseVocoderShifter.h 冒頭コメント参照) --
+// マイク経路・捕獲経路それぞれに、ディレイライン型(prism::PitchShifter)と
+// 位相ボコーダ(prism::PhaseVocoderShifter、N=2048/4096)の 3 方式を選べるようにする。
+// 「何を使うかはユーザーに託す」方針のため、DSP 側でどれかに決め打ちはしない。
+//
+//   * 3 方式ぶんのインスタンスは prepare() で経路ごとに 3 つとも確保しておく
+//     (切替のたびにヒープ確保が走るのを避ける — RT 安全の鉄則そのもの)。
+//   * 選択は std::atomic<int> 越しに制御スレッドから渡し、音声スレッド側の
+//     runPathChunk() が「要求値と現在値が違う」ことを検出して切り替える。
+//   * 切替の瞬間にクリックが出ないよう、旧方式の出力を kMethodSwitchCrossfadeMs
+//     (既定 10ms)だけ新方式の出力へ線形クロスフェードする。定常状態では選択中の
+//     1 方式だけを処理する(3 方式を常時並走させない)。CPU 比は README「処理方式」
+//     節を参照 — 切替の瞬間だけ一時的に 2 方式ぶんの負荷になる。
+//   * 新方式へ切り替える瞬間、その方式のインスタンスは reset() してから使う。
+//     休眠中に古い音声が内部バッファへ残っていると再開時に紛れ込むため。
+//     位相ボコーダへ切り替えた直後は、そのインスタンス自身の遅延(55ms/110ms)ぶん
+//     出力が小さいまま滑らかに立ち上がる — これはクリックではなく本来の遅延特性。
 
 #ifndef PRISM_AUDIOBRIDGE_H
 #define PRISM_AUDIOBRIDGE_H
@@ -40,6 +58,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "prism/PhaseVocoderShifter.h"
 #include "prism/PitchShifter.h"
 
 namespace prism {
@@ -92,6 +111,19 @@ public:
     static constexpr float kCaptureGainMax = 4.0f;
     static constexpr float kCaptureGainDefault = 1.0f;
 
+    // ---- 処理方式(経路ごとに独立選択) ---------------------------------------
+    static constexpr int kMethodDelayLine = 0;         // prism::PitchShifter(低遅延)
+    static constexpr int kMethodPhaseVocoder2048 = 1;  // prism::PhaseVocoderShifter N=2048
+    static constexpr int kMethodPhaseVocoder4096 = 2;  // prism::PhaseVocoderShifter N=4096
+    static constexpr int kMethodCount = 3;
+    // マイク経路の既定は低遅延(生音の漏れ込みがあるため)。捕獲経路の既定は
+    // 音楽向けの位相ボコーダ N=4096(生音の漏れ込みが無く、遅延を許容できるため)。
+    static constexpr int kMicMethodDefault = kMethodDelayLine;
+    static constexpr int kCaptureMethodDefault = kMethodPhaseVocoder4096;
+    // 方式切替時のクロスフェード長(ms)。固定値 — dry-wet 用のクロスフェード
+    // (PitchShifter::kCrossfadeMsDefault、跳躍のつなぎ目用)とは別物。
+    static constexpr float kMethodSwitchCrossfadeMs = 10.0f;
+
     // ---- 診断用の 10 秒録音 --------------------------------------------------
     // 4 本(捕獲 in / 捕獲 out / マイク in / マイク out)を同時刻に開始して
     // この秒数ぶん記録する。開始(バッファ確保)は制御スレッドから
@@ -129,16 +161,37 @@ public:
         if (!captureShifter_.prepare(sampleRate, kMaxCallbackFrames, captureSweepMs)) {
             return false;
         }
+        // 3 方式のうち残り 2 つ(位相ボコーダ N=2048/4096)も経路ごとに確保しておく。
+        // 「切替のたびに確保しない」ため、選択されていなくても常に prepare() する。
+        if (!micPv2048_.prepare(sampleRate, kMaxCallbackFrames,
+                                PhaseVocoderShifter::kFftSizeDefault) ||
+            !micPv4096_.prepare(sampleRate, kMaxCallbackFrames,
+                                PhaseVocoderShifter::kFftSizeLarge) ||
+            !capturePv2048_.prepare(sampleRate, kMaxCallbackFrames,
+                                    PhaseVocoderShifter::kFftSizeDefault) ||
+            !capturePv4096_.prepare(sampleRate, kMaxCallbackFrames,
+                                    PhaseVocoderShifter::kFftSizeLarge)) {
+            return false;
+        }
         // 捕獲経路の dry-wet は常に 1.0(全 wet)固定。捕獲経路には「イヤホンから
         // 漏れる生音」に相当するものが無く、dry 成分は原音そのもの(= 二重再生)に
         // なってしまうため、UI の原音まぜ(Dry/Wet)設定はマイク経路にしか流さない
         // (PrismEngine::setDryWet 参照)。ここで明示しておくことで prepare() の
-        // 呼び直しでも既定に戻ることを保証する。
+        // 呼び直しでも既定に戻ることを保証する。捕獲経路の 3 方式すべてに適用する。
         captureShifter_.setDryWet(PitchShifter::kDryWetDefault);
+        capturePv2048_.setDryWet(PhaseVocoderShifter::kDryWetDefault);
+        capturePv4096_.setDryWet(PhaseVocoderShifter::kDryWetDefault);
 
         sampleRate_ = sampleRate;
         inputChannels_ = inputChannels;
         outputChannels_ = outputChannels;
+
+        // 方式切替のクロスフェード長(サンプル)。0 除算を避けるため最低 1。
+        methodFadeTotalSamples_ =
+            static_cast<int>(kMethodSwitchCrossfadeMs * sampleRate / 1000.0 + 0.5);
+        if (methodFadeTotalSamples_ < 1) {
+            methodFadeTotalSamples_ = 1;
+        }
 
         // 捕獲リングの寸法(すべて sampleRate から算出する)。
         ringFrames_ = static_cast<int>(kCaptureRingSeconds * sampleRate);
@@ -161,8 +214,9 @@ public:
 
         try {
             // 非インタリーブの作業領域: マイク入力 L/R・マイク出力 L/R・
-            // 捕獲入力 L/R・捕獲出力 L/R の 8 面。
-            planar_.assign(static_cast<std::size_t>(kMaxCallbackFrames) * 8u, 0.0f);
+            // 捕獲入力 L/R・捕獲出力 L/R・マイク旧方式出力 L/R(切替クロスフェード用の
+            // スクラッチ)・捕獲旧方式出力 L/R の 12 面。
+            planar_.assign(static_cast<std::size_t>(kMaxCallbackFrames) * 12u, 0.0f);
             // 捕獲リング(インタリーブ stereo)。
             captureRing_.assign(static_cast<std::size_t>(ringFrames_) * 2u, 0.0f);
         } catch (...) {
@@ -182,6 +236,10 @@ public:
         capInPlanar_[1] = planar_.data() + kMaxCallbackFrames * 5;
         capOutPlanar_[0] = planar_.data() + kMaxCallbackFrames * 6;
         capOutPlanar_[1] = planar_.data() + kMaxCallbackFrames * 7;
+        micOldPlanar_[0] = planar_.data() + kMaxCallbackFrames * 8;
+        micOldPlanar_[1] = planar_.data() + kMaxCallbackFrames * 9;
+        captureOldPlanar_[0] = planar_.data() + kMaxCallbackFrames * 10;
+        captureOldPlanar_[1] = planar_.data() + kMaxCallbackFrames * 11;
 
         prepared_ = true;
         reset();
@@ -194,7 +252,11 @@ public:
             return;
         }
         shifter_.reset();
+        micPv2048_.reset();
+        micPv4096_.reset();
         captureShifter_.reset();
+        capturePv2048_.reset();
+        capturePv4096_.reset();
         for (std::size_t i = 0; i < planar_.size(); ++i) {
             planar_[i] = 0.0f;
         }
@@ -203,6 +265,16 @@ public:
         underrunCount_.store(0, std::memory_order_relaxed);
         micShortfallFrames_.store(0, std::memory_order_relaxed);
         synced_.store(false, std::memory_order_relaxed);
+
+        // 方式切替の状態機械を、いま要求されている方式から始める(既定値へ戻すのでは
+        // なく、ユーザーが選んでいた方式を尊重する)。フェード中ではないので直ちに
+        // その方式だけが有効になる — start() 直後にいきなりクロスフェードは起きない。
+        micActiveMethod_ = clampMethod(micMethod_.load(std::memory_order_relaxed));
+        micFadeFromMethod_ = -1;
+        micFadeRemaining_ = 0;
+        captureActiveMethod_ = clampMethod(captureMethod_.load(std::memory_order_relaxed));
+        captureFadeFromMethod_ = -1;
+        captureFadeRemaining_ = 0;
 
         // 診断録音は毎回の start() で必ず未開始状態へ戻す。ベクタの解放も含めて
         // ここで行ってよい(prepare() 経由でのみ呼ばれ、音声スレッドはまだ走っていない)。
@@ -251,6 +323,65 @@ public:
         storeGain(captureGain_, gain, kCaptureGainMin, kCaptureGainMax, kCaptureGainDefault);
     }
     float captureGain() const noexcept { return captureGain_.load(std::memory_order_relaxed); }
+
+    // ---- 処理方式(制御スレッドから。動作中に呼んでよい。再起動不要) -----------
+    // kMethodDelayLine / kMethodPhaseVocoder2048 / kMethodPhaseVocoder4096。
+    // 範囲外の値は clampMethod() で低遅延(既定)に丸める。実際の切替は音声スレッド側
+    // (runPathChunk())が次のチャンクで検出し、kMethodSwitchCrossfadeMs だけかけて
+    // クロスフェードする。
+    void setMicMethod(int method) noexcept {
+        micMethod_.store(clampMethod(method), std::memory_order_relaxed);
+    }
+    int micMethod() const noexcept { return micMethod_.load(std::memory_order_relaxed); }
+
+    void setCaptureMethod(int method) noexcept {
+        captureMethod_.store(clampMethod(method), std::memory_order_relaxed);
+    }
+    int captureMethod() const noexcept { return captureMethod_.load(std::memory_order_relaxed); }
+
+    // ---- シフト量 / dry-wet を経路の 3 方式すべてへ流す ------------------------
+    // どの方式がいま選ばれていても正しい値で鳴るように、常に 3 インスタンスとも
+    // 更新する(切替やクロスフェード中に値がずれないようにするため)。
+    void setMicShiftCentsL(float cents) noexcept {
+        shifter_.setShiftCentsL(cents);
+        micPv2048_.setShiftCentsL(cents);
+        micPv4096_.setShiftCentsL(cents);
+    }
+    void setMicShiftCentsR(float cents) noexcept {
+        shifter_.setShiftCentsR(cents);
+        micPv2048_.setShiftCentsR(cents);
+        micPv4096_.setShiftCentsR(cents);
+    }
+    void setCaptureShiftCentsL(float cents) noexcept {
+        captureShifter_.setShiftCentsL(cents);
+        capturePv2048_.setShiftCentsL(cents);
+        capturePv4096_.setShiftCentsL(cents);
+    }
+    void setCaptureShiftCentsR(float cents) noexcept {
+        captureShifter_.setShiftCentsR(cents);
+        capturePv2048_.setShiftCentsR(cents);
+        capturePv4096_.setShiftCentsR(cents);
+    }
+    // マイク経路の dry-wet のみ UI から可変(捕獲経路は prepare() で常に 1.0 固定。
+    // 上の prepare() 内コメント参照)。
+    void setMicDryWet(float mix) noexcept {
+        shifter_.setDryWet(mix);
+        micPv2048_.setDryWet(mix);
+        micPv4096_.setDryWet(mix);
+    }
+
+    // ---- 経路ごとの DSP 遅延(制御スレッドから。1 秒に 1 回程度を想定) ----------
+    // 「いま要求されている方式」(= micMethod()/captureMethod())の遅延を返す。
+    // クロスフェード中の一時的な過渡(最大 kMethodSwitchCrossfadeMs)は無視する —
+    // 音声スレッド専用のクロスフェード状態を制御スレッドから読むと競合するため、
+    // 要求値ベースで十分な近似としている。
+    double micDspLatencyMillis() const noexcept {
+        return latencyMillisForMethod(micMethod(), shifter_, micPv2048_, micPv4096_);
+    }
+    double captureDspLatencyMillis() const noexcept {
+        return latencyMillisForMethod(captureMethod(), captureShifter_, capturePv2048_,
+                                      capturePv4096_);
+    }
 
     // false のあいだ捕獲経路は無音で、pushCapture() は何も書かずに 0 を返す。
     // 次に true にしたとき、リングは空・シフタは初期状態から始まる
@@ -460,10 +591,10 @@ public:
                 chunk = kMaxCallbackFrames;
             }
             deinterleaveChunk(input, pad, done, chunk);
-            shifter_.process(inPlanar_, outPlanar_, chunk);
+            runMicPath(chunk);
             if (captureActive_) {
                 fetchCaptureChunk(chunk);
-                captureShifter_.process(capInPlanar_, capOutPlanar_, chunk);
+                runCapturePath(chunk);
             }
             if (recording) {
                 recordDiagnosticChunk(input, pad, done, chunk);
@@ -487,13 +618,9 @@ public:
     int inputChannels() const noexcept { return inputChannels_; }
     int outputChannels() const noexcept { return outputChannels_; }
 
-    // DSP 側の設計値遅延(ミリ秒)。0 除算を避けるため prepared_ を見る。
-    double dspLatencyMillis() const noexcept {
-        if (!prepared_ || sampleRate_ <= 0.0) {
-            return 0.0;
-        }
-        return shifter_.getLatencySamples() / sampleRate_ * 1000.0;
-    }
+    // DSP 側の設計値遅延(ミリ秒)。マイク経路の値(= micDspLatencyMillis() の別名。
+    // 既存呼び出し元(PrismEngine::latency()・ホストスモーク)との互換のため残す)。
+    double dspLatencyMillis() const noexcept { return micDspLatencyMillis(); }
 
     // 入力アンダーランの累計。診断用(UI に出す)。RT 経路からは relaxed で加算のみ。
     int underrunCount() const noexcept { return underrunCount_.load(std::memory_order_relaxed); }
@@ -542,6 +669,117 @@ public:
     bool isSynced() const noexcept { return synced_.load(std::memory_order_relaxed); }
 
 private:
+    // ---- 処理方式(RT 安全: 確保・ロック・I/O・例外なし) -----------------------
+    // 範囲外の値は低遅延(既定)へ丸める。
+    static int clampMethod(int method) noexcept {
+        if (method < kMethodDelayLine || method > kMethodPhaseVocoder4096) {
+            return kMethodDelayLine;
+        }
+        return method;
+    }
+
+    static void processMethod(int method, PitchShifter& dl, PhaseVocoderShifter& pv2k,
+                              PhaseVocoderShifter& pv4k, const float* const* in,
+                              float* const* out, int chunk) noexcept {
+        switch (method) {
+            case kMethodPhaseVocoder2048:
+                pv2k.process(in, out, chunk);
+                break;
+            case kMethodPhaseVocoder4096:
+                pv4k.process(in, out, chunk);
+                break;
+            default:
+                dl.process(in, out, chunk);
+                break;
+        }
+    }
+
+    static void resetMethod(int method, PitchShifter& dl, PhaseVocoderShifter& pv2k,
+                            PhaseVocoderShifter& pv4k) noexcept {
+        switch (method) {
+            case kMethodPhaseVocoder2048:
+                pv2k.reset();
+                break;
+            case kMethodPhaseVocoder4096:
+                pv4k.reset();
+                break;
+            default:
+                dl.reset();
+                break;
+        }
+    }
+
+    double latencyMillisForMethod(int method, const PitchShifter& dl,
+                                  const PhaseVocoderShifter& pv2k,
+                                  const PhaseVocoderShifter& pv4k) const noexcept {
+        if (!prepared_ || sampleRate_ <= 0.0) {
+            return 0.0;
+        }
+        double samples;
+        switch (clampMethod(method)) {
+            case kMethodPhaseVocoder2048:
+                samples = pv2k.getLatencySamples();
+                break;
+            case kMethodPhaseVocoder4096:
+                samples = pv4k.getLatencySamples();
+                break;
+            default:
+                samples = dl.getLatencySamples();
+                break;
+        }
+        return samples / sampleRate_ * 1000.0;
+    }
+
+    // 経路 1 つぶんを「要求方式」まで進める。要求と現在値が違えば、現在値を
+    // fadeFrom に退避してから要求値へ切り替え(切替先は reset() してから使う)、
+    // kMethodSwitchCrossfadeMs ぶんクロスフェードを開始する。フェード中でなければ
+    // 選択中の 1 方式だけを処理する(3 方式を常時並走させない — README「処理方式」参照)。
+    // out には最終的な(必要ならブレンド済みの)結果を書く。oldOut はフェード中だけ
+    // 使うスクラッチで、この経路専用に prepare() で確保済みのものを渡すこと。
+    void runPathChunk(std::atomic<int>& methodAtomic, int& activeMethod, int& fadeFrom,
+                      int& fadeRemaining, PitchShifter& dl, PhaseVocoderShifter& pv2k,
+                      PhaseVocoderShifter& pv4k, const float* const* in, float* const* out,
+                      float* const* oldOut, int chunk) noexcept {
+        const int requested = clampMethod(methodAtomic.load(std::memory_order_relaxed));
+        if (requested != activeMethod) {
+            fadeFrom = activeMethod;
+            activeMethod = requested;
+            resetMethod(activeMethod, dl, pv2k, pv4k);
+            fadeRemaining = methodFadeTotalSamples_;
+        }
+        processMethod(activeMethod, dl, pv2k, pv4k, in, out, chunk);
+        if (fadeRemaining > 0 && fadeFrom >= 0) {
+            processMethod(fadeFrom, dl, pv2k, pv4k, in, oldOut, chunk);
+            const int n = (fadeRemaining < chunk) ? fadeRemaining : chunk;
+            const int elapsedBase = methodFadeTotalSamples_ - fadeRemaining;
+            for (int i = 0; i < n; ++i) {
+                float t = static_cast<float>(elapsedBase + i + 1) /
+                          static_cast<float>(methodFadeTotalSamples_);
+                if (t > 1.0f) {
+                    t = 1.0f;
+                }
+                out[0][i] = out[0][i] * t + oldOut[0][i] * (1.0f - t);
+                out[1][i] = out[1][i] * t + oldOut[1][i] * (1.0f - t);
+            }
+            fadeRemaining -= n;
+            if (fadeRemaining <= 0) {
+                fadeFrom = -1;
+            }
+        }
+    }
+
+    void runMicPath(int chunk) noexcept {
+        runPathChunk(micMethod_, micActiveMethod_, micFadeFromMethod_, micFadeRemaining_,
+                    shifter_, micPv2048_, micPv4096_, inPlanar_, outPlanar_, micOldPlanar_,
+                    chunk);
+    }
+
+    void runCapturePath(int chunk) noexcept {
+        runPathChunk(captureMethod_, captureActiveMethod_, captureFadeFromMethod_,
+                    captureFadeRemaining_, captureShifter_, capturePv2048_, capturePv4096_,
+                    capInPlanar_, capOutPlanar_, captureOldPlanar_, chunk);
+    }
+
     // インタリーブ input の [done, done+chunk) フレームを inPlanar_ の先頭 chunk へ。
     // 先頭 pad フレームは入力が足りなかった分なので 0 とする。
     void deinterleaveChunk(const float* input, int pad, int done, int chunk) noexcept {
@@ -708,7 +946,15 @@ private:
         captureCushioning_ = true;
         zeroCapturePlanes();
         if (enabled) {
+            // 3 方式とも前回の残響を持ち込まないよう、いま要求されている方式から
+            // クリーンに始める(runPathChunk() は活性化直後は fadeFrom=-1 なので、
+            // 有効化直後にクロスフェードが走ることはない)。
             captureShifter_.reset();
+            capturePv2048_.reset();
+            capturePv4096_.reset();
+            captureActiveMethod_ = clampMethod(captureMethod_.load(std::memory_order_relaxed));
+            captureFadeFromMethod_ = -1;
+            captureFadeRemaining_ = 0;
         } else {
             captureRead_.store(captureWrite_.load(std::memory_order_acquire),
                                std::memory_order_release);
@@ -793,14 +1039,36 @@ private:
     static_assert(std::atomic<int>::is_always_lock_free,
                   "prism requires lock-free int atomics (SPSC capture ring)");
 
-    PitchShifter shifter_;         // マイク経路(走査幅 9.5ms = 10ms 予算内)
-    PitchShifter captureShifter_;  // 捕獲経路(走査幅は prepare の引数、既定 40ms)
+    PitchShifter shifter_;         // マイク経路・方式 0(走査幅 9.5ms = 10ms 予算内)
+    PitchShifter captureShifter_;  // 捕獲経路・方式 0(走査幅は prepare の引数、既定 40ms)
+    // 方式 1/2(位相ボコーダ N=2048/4096)。経路ごとに 2 つずつ、常に prepare 済み。
+    PhaseVocoderShifter micPv2048_;
+    PhaseVocoderShifter micPv4096_;
+    PhaseVocoderShifter capturePv2048_;
+    PhaseVocoderShifter capturePv4096_;
+
+    // 経路ごとの選択方式(制御スレッドが書き、音声スレッドが読む)。
+    std::atomic<int> micMethod_{kMicMethodDefault};
+    std::atomic<int> captureMethod_{kCaptureMethodDefault};
+    // 方式切替のクロスフェード状態(音声スレッド専用。制御スレッドからは読まない —
+    // micDspLatencyMillis()/captureDspLatencyMillis() は micMethod_/captureMethod_
+    // 越しに「要求値」を読むので、ここには触れない)。
+    int micActiveMethod_ = kMicMethodDefault;
+    int micFadeFromMethod_ = -1;  // -1 = フェード中ではない
+    int micFadeRemaining_ = 0;    // 残りサンプル数
+    int captureActiveMethod_ = kCaptureMethodDefault;
+    int captureFadeFromMethod_ = -1;
+    int captureFadeRemaining_ = 0;
+    int methodFadeTotalSamples_ = 0;  // prepare() で算出(kMethodSwitchCrossfadeMs 相当)
 
     std::vector<float> planar_;
     float* inPlanar_[2] = {nullptr, nullptr};
     float* outPlanar_[2] = {nullptr, nullptr};
     float* capInPlanar_[2] = {nullptr, nullptr};
     float* capOutPlanar_[2] = {nullptr, nullptr};
+    // 方式切替クロスフェード中だけ使うスクラッチ(旧方式の出力の受け皿)。
+    float* micOldPlanar_[2] = {nullptr, nullptr};
+    float* captureOldPlanar_[2] = {nullptr, nullptr};
 
     // 捕獲リング(インタリーブ stereo、prepare で確保・以後サイズ不変)。
     std::vector<float> captureRing_;
