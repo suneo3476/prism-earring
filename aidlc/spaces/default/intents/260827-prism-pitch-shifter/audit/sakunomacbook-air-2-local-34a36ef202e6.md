@@ -7453,3 +7453,42 @@
 **Message**: Commit created successfully; only the pre-existing (untouched by me) audit shard remains modified in the working tree, as expected.\n\n## 変更点(3行)\n\n1. `android/` 配下の C++ 層(`AudioBridge.h`/`PrismEngine.{h
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-15T16:22:38Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-15T20:59:03Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-15T21:25:01Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: afe1e381ca81c9de9
+**Message**: `./build.sh` 全緑(136/136、determinism・−O0/−O2 再現性・確保カウンタ 0 含む)。3 コミット完了。\n\n**ピッチ比**(誤差 cents、許容差 ±8.66): −89/−1200/+100/+1200 × 110/440/3520 Hz × 44.1k/48k の全 24 点で最悪 **1.33**(0.077%)。グリッチ 0 件、alloc 0。\n*
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-15T21:25:03Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-15T22:54:52Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: af79cef86b0d0771d
+**Message**: Committed successfully as `c2591a4`.\n\n**実装方式**: 定常状態では選択中の1方式だけを処理し、切替の瞬間だけ旧方式・新方式の2方式が10ms重なって動く「切替時のみクロスフェード」方式(常時3方式並走はしない)。3方式ぶんのインスタンスは `AudioBridge::prepare()` で経路ごとに確保済みなので、切替そのものにヒープ確保は発生しない。\n
+
+---
