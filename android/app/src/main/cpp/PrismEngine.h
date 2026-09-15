@@ -52,6 +52,18 @@ public:
     static constexpr int kUsageMedia = 0;
     static constexpr int kUsageAccessibility = 1;
 
+    // マイクの前処理。setInputPreset() の引数(次の start() から有効)。
+    //   Raw               … oboe::InputPreset::Unprocessed。AGC / ノイズ抑制 / AEC を
+    //                        すべて切る。ピッチを最も正しく通すが、マイクのノイズ床が
+    //                        そのまま乗る(無音時に「サー」というノイズが出やすい)。
+    //   NoiseSuppression  … oboe::InputPreset::VoiceRecognition。端末のノイズ抑制を通す
+    //                        (AEC は多くの端末で無効のまま)。既定。
+    //   VoiceCommunication… oboe::InputPreset::VoiceCommunication。AEC / AGC も有効になる。
+    //                        通話向け。声は聞きやすいが音楽には不向き。
+    static constexpr int kInputPresetRaw = 0;
+    static constexpr int kInputPresetNoiseSuppression = 1;
+    static constexpr int kInputPresetVoiceCommunication = 2;
+
     // 0 = 自動(OS 既定のデバイス)。setOutput/InputDeviceId() の「指定なし」。
     static constexpr int32_t kDeviceIdAuto = 0;
 
@@ -153,6 +165,15 @@ public:
         outputUsage_.store(usage == kUsageAccessibility ? kUsageAccessibility : kUsageMedia,
                            std::memory_order_relaxed);
     }
+    // kInputPresetRaw / kInputPresetNoiseSuppression / kInputPresetVoiceCommunication。
+    // 未知の値は kInputPresetNoiseSuppression(既定)として扱う。
+    void setInputPreset(int preset) noexcept {
+        inputPreset_.store(
+            (preset == kInputPresetRaw || preset == kInputPresetVoiceCommunication)
+                ? preset
+                : kInputPresetNoiseSuppression,
+            std::memory_order_relaxed);
+    }
     // マイク経路の走査幅(ms)。範囲外は PitchShifter が clamp する。
     void setMicSweepMs(double ms) noexcept {
         micSweepMs_.store(ms, std::memory_order_relaxed);
@@ -207,6 +228,7 @@ private:
     std::atomic<bool> outputDeviceFallback_{false};
     std::atomic<bool> inputDeviceFallback_{false};
     std::atomic<int> outputUsage_{kUsageMedia};
+    std::atomic<int> inputPreset_{kInputPresetNoiseSuppression};
     std::atomic<double> micSweepMs_{PitchShifter::kSweepMs};
 
     mutable std::mutex errorMutex_;

@@ -145,6 +145,15 @@ class NativeEngine private constructor(private var handle: Long) {
     }
 
     /**
+     * マイクの前処理。[INPUT_PRESET_RAW] / [INPUT_PRESET_NOISE_SUPPRESSION](既定) /
+     * [INPUT_PRESET_VOICE_COMMUNICATION]。開けなければ Raw → 既定 → Generic の順に
+     * 自動でフォールバックする。
+     */
+    fun setInputPreset(preset: Int) {
+        if (handle != 0L) nativeSetInputPreset(handle, preset)
+    }
+
+    /**
      * マイク経路の遅延スイープ幅(ms、既定 9.5)。範囲はネイティブ側で 2.0〜100.0 に
      * clamp される。広げるほど低域のピッチ精度と跳躍間隔が改善する代わりに遅延が増える
      * (設計値遅延 ≈ 8 サンプル + 走査幅の半分)。採用値は [Latency.micSweepMs]。
@@ -213,6 +222,15 @@ class NativeEngine private constructor(private var handle: Long) {
          */
         const val USAGE_ACCESSIBILITY = 1
 
+        /** マイクの前処理: 生(加工なし)。AGC / ノイズ抑制 / AEC をすべて切る。 */
+        const val INPUT_PRESET_RAW = 0
+
+        /** マイクの前処理: ノイズ抑制(既定)。端末のノイズ抑制を通す。 */
+        const val INPUT_PRESET_NOISE_SUPPRESSION = 1
+
+        /** マイクの前処理: 通話向け。エコー除去(AEC)と自動音量(AGC)も有効になる。 */
+        const val INPUT_PRESET_VOICE_COMMUNICATION = 2
+
         /** マイク経路の走査幅の既定値(ms)。ネイティブ側の `kSweepMs` と同じ。 */
         const val MIC_SWEEP_MS_DEFAULT = 9.5
 
@@ -272,6 +290,7 @@ class NativeEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeSetOutputDeviceId(handle: Long, id: Int)
         @JvmStatic private external fun nativeSetInputDeviceId(handle: Long, id: Int)
         @JvmStatic private external fun nativeSetOutputUsage(handle: Long, usage: Int)
+        @JvmStatic private external fun nativeSetInputPreset(handle: Long, preset: Int)
         @JvmStatic private external fun nativeSetMicSweepMs(handle: Long, ms: Double)
         @JvmStatic private external fun nativeGetLatency(handle: Long): DoubleArray?
         @JvmStatic private external fun nativeGetStreamInfo(handle: Long): IntArray?

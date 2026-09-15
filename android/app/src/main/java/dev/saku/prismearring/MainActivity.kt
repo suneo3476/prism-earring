@@ -684,6 +684,18 @@ class MainActivity : AppCompatActivity() {
         themeViews.forEach { (mode, view) ->
             view.setOnClickListener { setThemeMode(mode) }
         }
+
+        val inputPresetViews = listOf(
+            NativeEngine.INPUT_PRESET_RAW to binding.inputPresetRaw,
+            NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION to binding.inputPresetNoiseSuppression,
+            NativeEngine.INPUT_PRESET_VOICE_COMMUNICATION to binding.inputPresetVoiceCommunication,
+        )
+        inputPresetViews.forEach { (preset, view) ->
+            view.setOnClickListener {
+                if (preset == params.inputPreset) return@setOnClickListener
+                updateParams(params.copy(inputPreset = preset))
+            }
+        }
     }
 
     /** 保存してから夜間モードを切り替える。実際に値が変わればアクティビティが再生成される。 */
@@ -746,6 +758,9 @@ class MainActivity : AppCompatActivity() {
             binding.inputDeviceInfoButton, R.string.info_input_device_title, R.string.info_input_device_body
         )
         infoButton(binding.sweepInfoButton, R.string.info_sweep_title, R.string.info_sweep_body)
+        infoButton(
+            binding.inputPresetInfoButton, R.string.info_input_preset_title, R.string.info_input_preset_body
+        )
         infoButton(
             binding.outputUsageInfoButton, R.string.info_output_usage_title, R.string.info_output_usage_body
         )
@@ -937,6 +952,15 @@ class MainActivity : AppCompatActivity() {
 
         val sweepIndex = Params.SWEEP_PRESETS.indexOf(params.micSweepMs).takeIf { it >= 0 } ?: 0
         binding.sweepSpinner.setSelection(sweepIndex)
+
+        selectSegment(
+            listOf(
+                binding.inputPresetRaw,
+                binding.inputPresetNoiseSuppression,
+                binding.inputPresetVoiceCommunication,
+            ),
+            params.inputPreset,
+        )
 
         binding.outputUsageSwitch.isChecked = params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY
 

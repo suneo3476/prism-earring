@@ -45,6 +45,12 @@ data class Params(
     /** マイク経路の走査幅(ms)。[SWEEP_PRESETS] のいずれか。次の start() から有効。 */
     val micSweepMs: Float = DEFAULT_MIC_SWEEP_MS,
     /**
+     * マイクの前処理。[NativeEngine.INPUT_PRESET_RAW] /
+     * [NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION](既定) /
+     * [NativeEngine.INPUT_PRESET_VOICE_COMMUNICATION]。次の start() から有効。
+     */
+    val inputPreset: Int = NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION,
+    /**
      * 原音の抑え込み(%)。0〜100、既定 100。エンジン(DSP)には渡さない ——
      * [PrismService] が `AudioManager.setStreamVolume(STREAM_MUSIC, ..., 0)` で
      * メディア音量そのものを直接動かす形で実現する(逆相打ち消しではない)。
@@ -158,6 +164,7 @@ data class Params(
         private const val KEY_INPUT_DEVICE_ID = "input_device_id"
         private const val KEY_OUTPUT_USAGE = "output_usage"
         private const val KEY_MIC_SWEEP_MS = "mic_sweep_ms"
+        private const val KEY_INPUT_PRESET = "input_preset"
         private const val KEY_DUCK_PERCENT = "duck_percent"
 
         fun prefs(context: Context): SharedPreferences =
@@ -188,6 +195,7 @@ data class Params(
                 outputUsage = p.getInt(KEY_OUTPUT_USAGE, NativeEngine.USAGE_MEDIA),
                 micSweepMs = p.getFloat(KEY_MIC_SWEEP_MS, DEFAULT_MIC_SWEEP_MS),
                 duckPercent = p.getInt(KEY_DUCK_PERCENT, DEFAULT_DUCK_PERCENT),
+                inputPreset = p.getInt(KEY_INPUT_PRESET, NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION),
             ).sanitized()
         }
 
@@ -213,6 +221,10 @@ data class Params(
             val usage = if (outputUsage == NativeEngine.USAGE_MEDIA ||
                 outputUsage == NativeEngine.USAGE_ACCESSIBILITY
             ) outputUsage else NativeEngine.USAGE_MEDIA
+            val preset = if (inputPreset == NativeEngine.INPUT_PRESET_RAW ||
+                inputPreset == NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION ||
+                inputPreset == NativeEngine.INPUT_PRESET_VOICE_COMMUNICATION
+            ) inputPreset else NativeEngine.INPUT_PRESET_NOISE_SUPPRESSION
             return copy(
                 shiftCentsL = shiftCentsL.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
                 shiftCentsR = shiftCentsR.coerceIn(DSP_SHIFT_CENTS_MIN, DSP_SHIFT_CENTS_MAX),
@@ -235,6 +247,7 @@ data class Params(
                 outputUsage = usage,
                 micSweepMs = sweep,
                 duckPercent = duckPercent.coerceIn(DUCK_PERCENT_MIN, DUCK_PERCENT_MAX),
+                inputPreset = preset,
             ).let {
                 val (p1l, p1r) = sanitizePresetPair(preset1L, preset1R)
                 val (p2l, p2r) = sanitizePresetPair(preset2L, preset2R)
@@ -272,6 +285,7 @@ data class Params(
             .putInt(KEY_OUTPUT_USAGE, outputUsage)
             .putFloat(KEY_MIC_SWEEP_MS, micSweepMs)
             .putInt(KEY_DUCK_PERCENT, duckPercent)
+            .putInt(KEY_INPUT_PRESET, inputPreset)
             .apply()
     }
 
@@ -335,15 +349,17 @@ data class Params(
         engine.setInputDeviceId(inputDeviceId)
         engine.setOutputUsage(outputUsage)
         engine.setMicSweepMs(micSweepMs.toDouble())
+        engine.setInputPreset(inputPreset)
     }
 
     /**
      * この設定と比べて、動作中に変えた場合に Service の stop → start が要る項目
-     * (デバイス指定 / 出力用途 / マイク走査幅)のいずれかが違うか。
+     * (デバイス指定 / 出力用途 / マイク走査幅 / マイクの前処理)のいずれかが違うか。
      */
     fun requiresRestart(other: Params): Boolean =
         outputDeviceId != other.outputDeviceId ||
             inputDeviceId != other.inputDeviceId ||
             outputUsage != other.outputUsage ||
-            micSweepMs != other.micSweepMs
+            micSweepMs != other.micSweepMs ||
+            inputPreset != other.inputPreset
 }

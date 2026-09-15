@@ -209,6 +209,17 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetOutputUsage(JNIEnv* /*env*/, jc
     }
 }
 
+// preset: 0 = Raw(Unprocessed), 1 = NoiseSuppression(VoiceRecognition、既定),
+//         2 = VoiceCommunication。未知の値は 1 扱い。次の start() から有効。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeSetInputPreset(JNIEnv* /*env*/, jclass /*clazz*/,
+                                                              jlong handle, jint preset) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine != nullptr) {
+        engine->setInputPreset(static_cast<int>(preset));
+    }
+}
+
 // マイク経路の走査幅(ms)。範囲外は PitchShifter が clamp する。次の start() から有効。
 JNIEXPORT void JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeSetMicSweepMs(JNIEnv* /*env*/, jclass /*clazz*/,

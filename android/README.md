@@ -176,7 +176,10 @@ cd android
    デバイスを設定する。
 8. 各項目のラベル横の **ⓘ** を押すと、「どう変えるとどう聞こえるか」を平易な言葉で説明する。
 9. 「詳細設定」から **テーマ**(システム / ライト / ダーク)、走査幅、
-   出力用途(実験)も選べる。
+   **マイクの前処理**(生 / ノイズ抑制 / 通話向け、既定はノイズ抑制)、
+   出力用途(実験)も選べる。マイクの前処理を変えると Service が再起動する
+   (動作中に変えた場合、「他アプリの音を拾う」が ON なら画面共有の同意ダイアログが
+   再び出る。これは他の再起動が要る設定と同じ挙動)。
 10. 画面を消しても、他のアプリに移っても処理は続く。止めるときは
     アプリの **停止**、または通知の **停止**。
 
@@ -216,7 +219,7 @@ cd android
 - 捕獲音の走査幅はマイク経路と別枠(既定 40ms)で、生音の漏れ込みが無いため
   10ms の遅延予算の対象外(詳しくは下の「捕獲音のミックス」節)。
 - アプリを起動するたび(Service を再起動するたび)に同意ダイアログが再び出る。
-  「詳細設定」の出力先 / 入力元 / 出力用途 / 走査幅を動作中に変えた場合も、
+  「詳細設定」の出力先 / 入力元 / 出力用途 / 走査幅 / マイクの前処理を動作中に変えた場合も、
   設定の反映に Service の再起動が要るため同意ダイアログが再び出る。
 
 ---
@@ -295,8 +298,12 @@ cd android
 - 出力: `PerformanceMode::LowLatency` / `SharingMode::Exclusive`(不可なら `Shared`)/
   `AudioFormat::Float` / `Usage::Media` + `ContentType::Music`。
   `VoiceCommunication` にすると AEC と受話口ルーティングが有効になり、遅延も音質も悪化する。
-- 入力: 同じサンプルレート、`InputPreset::Unprocessed`(不可なら `VoiceRecognition` →
-  `Generic`)。Unprocessed は AGC / ノイズ抑制 / AEC をすべて切る。
+- 入力: 同じサンプルレート、`InputPreset` は「詳細設定」の**マイクの前処理**で選んだ値
+  (生 = `Unprocessed` / ノイズ抑制 = `VoiceRecognition`、既定 / 通話向け =
+  `VoiceCommunication`)をまず試し、開けなければ `Unprocessed` → `VoiceRecognition` →
+  `Generic` の順に自動フォールバックする(選んだ値と重複する段は飛ばす)。
+  `Unprocessed` は AGC / ノイズ抑制 / AEC をすべて切るぶん、マイクのノイズ床が
+  そのまま乗る(静かな場所で「サー」というノイズが聞こえやすい)。次の start() から有効。
 - `setFramesPerDataCallback` はバースト長。バースト長は開いてみないと分からないため、
   **一度開いて `getFramesPerBurst()` と `getSampleRate()` を読み、閉じてから本開きする**。
 - 出力バッファはバースト 2 個分。`prepare()` は出力ストリームの実サンプルレートで行う。
@@ -419,6 +426,18 @@ Pixel 9a 実機で「他アプリの音を拾う」+「出力をユーザー補�
 用途 1 の狙いは「メディア音量を絞っても本アプリの出力だけ鳴らす」実験。
 Exclusive が取れなければ従来どおり Shared に落ちる。
 
+### マイクの前処理(v0.5.1)
+
+ユーザー報告(原音まぜ 0 でもサーというノイズが常に載る)への対応。v0.4.0 までは
+`InputPreset::Unprocessed` 固定だったため、端末のマイクのノイズ床がそのまま乗っていた。
+`PrismEngine::setInputPreset(int)`(`kInputPresetRaw` = 0 / `kInputPresetNoiseSuppression`
+= 1、既定 / `kInputPresetVoiceCommunication` = 2)を追加し、「詳細設定」の3分割
+セグメントから選べるようにした。既定を **ノイズ抑制**(`VoiceRecognition`)に変更した。
+開けなければ `Unprocessed` → `VoiceRecognition` → `Generic` の順に自動フォールバックする
+(選んだ値と重複する段は飛ばす)。次の `start()` から有効 ──
+`Params.requiresRestart()` に組み込み、動作中に変えると Service を stop → start し直す
+(既存の再起動経路。「他アプリの音を拾う」が ON なら同意ダイアログが再び出る)。
+
 ### マイク経路の走査幅(聴感ヒアリング用)
 
 `NativeEngine.setMicSweepMs(Double)`(既定 9.5、次の `start()` から有効)。
@@ -477,7 +496,7 @@ Android 14 以降、`android:project_media` app-op は同意結果でしか付�
 
 v0.4.0 では `Params.captureEnabled`(ユーザーの ON/OFF 意図。実際の同意の有無とは別)を
 見て型を決めていたため、この順序が崩れる経路があった: 「他アプリの音を拾う」ON で
-動作中に、出力先 / 入力元 / 出力用途 / 走査幅など再起動が要る設定を変えると、
+動作中に、出力先 / 入力元 / 出力用途 / 走査幅 / マイクの前処理など再起動が要る設定を変えると、
 `restartForSettings()` が Service を stop → start し直す。stop 時に
 `CaptureController.stop()` が既存の `MediaProjection` を破棄する一方、直後の start
 (`startProcessing()`)は `captureEnabled == true` のまま mediaProjection 型で
@@ -545,8 +564,9 @@ v0.3.0 で見送っていた理由(元の音がそのまま二重に聞こえる
   100〜200ms あり、この用途の要件(往復 20ms 以下)を満たしようがない。**有線を使うこと。**
 - **AEC(エコーキャンセラ)は意図的に無効。** 音程を正しく通すために `Unprocessed` を
   要求しているため、スピーカー出力ではハウリングする。イヤホン必須。
-- **端末依存。** `SharingMode::Exclusive` と `InputPreset::Unprocessed` が取れるかは端末次第。
-  取れなかった場合は自動で `Shared` / `VoiceRecognition` に落ちるが、その分遅延が増える。
+- **端末依存。** `SharingMode::Exclusive` と、選んだ `InputPreset`(既定 `VoiceRecognition`)
+  が取れるかは端末次第。取れなかった場合は自動で `Shared` に、`InputPreset` は
+  `Unprocessed` → `VoiceRecognition` → `Generic` の順に落ちるが、その分遅延が増えうる。
   実際に何が取れたかは「詳細設定」の診断行に出る。
 - **遅延表示は推定値。** Oboe の `calculateLatencyMillis()`(入力 + 出力)に DSP の
   設計値遅延を足したもの。デバイス側の物理的な遅延(D/A、イヤホン)は含まない。
@@ -558,7 +578,7 @@ v0.3.0 で見送っていた理由(元の音がそのまま二重に聞こえる
   プロセス単位で、永続的な許可にはできない仕様(OS 側の制約)。
 - **一部のアプリ・DRM 付き音声は拾えない。** 詳しくは上の「他アプリの音を拾う」節。
 
-## 設定項目一覧(v0.5.0 時点)
+## 設定項目一覧(v0.5.1 時点)
 
 | 設定 | 範囲 | 既定値 | 反映タイミング |
 |---|---|---|---|
@@ -575,6 +595,7 @@ v0.3.0 で見送っていた理由(元の音がそのまま二重に聞こえる
 | 入力元デバイス | 自動 / 一覧から選択 | 自動 | 同上 |
 | 出力用途(実験) | メディア / ユーザー補助 | メディア | 同上 |
 | マイク経路の走査幅 | 5 / 9.5 / 15 / 20 / 30 / 40 / 60 ms | 9.5 ms | 同上 |
+| マイクの前処理(v0.5.1) | 生 / ノイズ抑制 / 通話向け | ノイズ抑制 | 同上 |
 | テーマ | システム / ライト / ダーク | システム | 即時(Activity 再生成) |
 
 ## 未検証

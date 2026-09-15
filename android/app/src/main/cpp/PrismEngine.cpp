@@ -73,6 +73,21 @@ void configureOutput(oboe::AudioStreamBuilder& builder,
     }
 }
 
+// PrismEngine::kInputPreset* -> oboe::InputPreset。未知の値は VoiceRecognition
+// (kInputPresetNoiseSuppression)扱いにする(PrismEngine::setInputPreset が既に
+// 未知の値をここへ丸めているので、本来はここへは来ない)。
+oboe::InputPreset toOboeInputPreset(int preset) {
+    switch (preset) {
+        case prism::PrismEngine::kInputPresetRaw:
+            return oboe::InputPreset::Unprocessed;
+        case prism::PrismEngine::kInputPresetVoiceCommunication:
+            return oboe::InputPreset::VoiceCommunication;
+        case prism::PrismEngine::kInputPresetNoiseSuppression:
+        default:
+            return oboe::InputPreset::VoiceRecognition;
+    }
+}
+
 void configureInput(oboe::AudioStreamBuilder& builder,
                     oboe::SharingMode sharing,
                     oboe::InputPreset preset,
@@ -227,13 +242,25 @@ bool PrismEngine::startLocked() {
     outputDeviceFallback_.store(outputFellBack, std::memory_order_relaxed);
 
     // ---- 3. 入力ストリーム(出力と同じサンプルレートで) ---------------------
-    // Unprocessed は AGC / ノイズ抑制 / AEC をすべて切る。ピッチを正しく通し、
-    // 遅延も最小になる。対応していない端末は VoiceRecognition に落とす
-    // (こちらも多くの端末で AEC 無効)。
+    // ユーザーが選んだ前処理(setInputPreset)をまず試し、開けなければ
+    // Unprocessed -> VoiceRecognition -> Generic の順にフォールバックする
+    // (このタップ列はユーザーの選択がどれであっても重複を除いて必ず末尾に付く)。
+    // Unprocessed は AGC / ノイズ抑制 / AEC をすべて切るぶん遅延も最小になる、
+    // VoiceRecognition は対応端末が多く AEC は無効のまま、Generic は最後の保険。
     {
-        const oboe::InputPreset presets[] = {oboe::InputPreset::Unprocessed,
-                                             oboe::InputPreset::VoiceRecognition,
-                                             oboe::InputPreset::Generic};
+        const oboe::InputPreset preferredPreset =
+            toOboeInputPreset(inputPreset_.load(std::memory_order_relaxed));
+        const oboe::InputPreset fallbackChain[] = {oboe::InputPreset::Unprocessed,
+                                                   oboe::InputPreset::VoiceRecognition,
+                                                   oboe::InputPreset::Generic};
+        oboe::InputPreset presets[4];
+        int presetCount = 0;
+        presets[presetCount++] = preferredPreset;
+        for (const oboe::InputPreset candidate : fallbackChain) {
+            if (candidate != preferredPreset) {
+                presets[presetCount++] = candidate;
+            }
+        }
         const oboe::SharingMode sharings[] = {oboe::SharingMode::Exclusive,
                                               oboe::SharingMode::Shared};
         oboe::Result result = oboe::Result::ErrorInternal;
@@ -243,7 +270,8 @@ bool PrismEngine::startLocked() {
             if (attempt == 1 && wantInputDevice == kDeviceIdAuto) {
                 break;
             }
-            for (const oboe::InputPreset preset : presets) {
+            for (int presetIndex = 0; presetIndex < presetCount; ++presetIndex) {
+                const oboe::InputPreset preset = presets[presetIndex];
                 for (const oboe::SharingMode sharing : sharings) {
                     oboe::AudioStreamBuilder builder;
                     configureInput(builder, sharing, preset, deviceSampleRate,

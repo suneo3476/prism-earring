@@ -188,6 +188,14 @@
     <string name="info_sweep_title">走査幅(マイク経路)</string>
     <string name="info_sweep_body">ディレイラインの読み出しヘッドが往復する幅です。大きいほど跳躍(つなぎ目)の間隔が広がって歪みが減りますが、その分だけ遅延が増えます(設計値遅延 ≈ 8 サンプル + 走査幅の半分)。既定は 9.5ms で、往復遅延 10ms 以下の目標に収まる値です。数値を大きくして聴感を確かめたいときに使ってください(捕獲音の走査幅には影響しません。捕獲音は生音の漏れ込みが無いため別枠で広めに固定されています)。</string>
 
+    <!-- マイクの前処理 -->
+    <string name="input_preset_title">マイクの前処理</string>
+    <string name="input_preset_raw">生(加工なし)</string>
+    <string name="input_preset_noise_suppression">ノイズ抑制</string>
+    <string name="input_preset_voice_communication">通話向け</string>
+    <string name="info_input_preset_title">マイクの前処理</string>
+    <string name="info_input_preset_body">生: マイクの音をそのまま。静かな場所ではサーというノイズが聞こえやすい。ノイズ抑制: 端末のノイズ抑制を通す。音がわずかに加工される(既定)。通話向け: エコー除去と自動音量も入る。声は聞きやすいが音楽には不向き。指定した前処理で開けない端末では、生 → ノイズ抑制 → 汎用の順に自動で切り替える。変更は次の開始から反映される。</string>
+
     <!-- 出力用途(実験) -->
     <string name="output_usage_label">出力をユーザー補助の音量系統に載せる(実験)</string>
     <string name="output_usage_sub_label">端末の音量キーがこの用途の音量に切り替わります</string>

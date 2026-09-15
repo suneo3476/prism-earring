@@ -1163,6 +1163,55 @@
                     android:text="@string/sweep_sub_label"
                     style="@style/SubLabel" />
 
+                <!-- マイクの前処理 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/input_preset_title"
+                        android:textColor="@color/fg"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/inputPresetInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/input_preset_title"
+                        android:src="@drawable/ic_info" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/inputPresetRaw"
+                        style="@style/SegmentItem"
+                        android:text="@string/input_preset_raw" />
+
+                    <TextView
+                        android:id="@+id/inputPresetNoiseSuppression"
+                        style="@style/SegmentItem"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/input_preset_noise_suppression" />
+
+                    <TextView
+                        android:id="@+id/inputPresetVoiceCommunication"
+                        style="@style/SegmentItem"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/input_preset_voice_communication" />
+                </LinearLayout>
+
                 <!-- 出力用途(実験) -->
                 <LinearLayout
                     android:layout_width="match_parent"
