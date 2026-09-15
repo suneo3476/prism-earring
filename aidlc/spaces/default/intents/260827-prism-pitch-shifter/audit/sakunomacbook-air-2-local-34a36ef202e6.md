@@ -7354,3 +7354,26 @@
 **Message**: 修正完了しました(コミット `51b042d`)。\n\n- 原因: `PrismService.startForegroundCompat()` が `Params.captureEnabled`(ユーザー意図)を見て mediaProjection 型を先取りしていたため、設定変更による自動再起動(stop→start)で「同意なしに mediaProjection 型で `startForegr
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-15T14:47:14Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-15T14:58:58Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: a588f9b7132792f02
+**Message**: Committed as `36a12c2`.\n\n## 変更点(5行以内)\n\n- 捕獲経路の Dry/Wet: これまで `PrismEngine::setDryWet()` がマイク経路と捕獲経路の両方に同じ値を書いていたため、捕獲経路の dry 成分が元アプリの原音そのもの(二重再生)になっていた。今回、捕獲経路だけ `PitchShifter::kDryWetDefault`(=1.0、全w
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-15T14:59:00Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
