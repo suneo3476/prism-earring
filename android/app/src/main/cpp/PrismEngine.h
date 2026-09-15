@@ -110,13 +110,17 @@ public:
     std::string lastError() const;
 
     // ---- パラメータ(制御スレッドから。内部は std::atomic なのでロック不要) --
-    // シフト量 / dry-wet / クロスフェードはマイク経路と捕獲経路の両方へ流す
-    // (2 本のシフタで違うのは走査幅だけ)。
+    // シフト量 / クロスフェードはマイク経路と捕獲経路の両方へ流す
+    // (2 本のシフタで違うのは走査幅だけ)。dry-wet だけは例外:
+    // 捕獲経路には「イヤホンから漏れる生音」に相当するものが無く、
+    // 捕獲経路の dry 成分は原音そのもの(=二重再生)になってしまうため、
+    // 捕獲経路は常に wet=1.0 固定にする(PitchShifter::kDryWetDefault が
+    // 既に 1.0 のため、そもそも書き換えない = ここでは触らない)。
+    // マイク経路の dry-wet は従来どおり UI の値を反映する。
     // channel: 0 = L, 1 = R, それ以外 = 両方
     void setShiftCents(int channel, float cents) noexcept;
     void setDryWet(float mix) noexcept {
         bridge_.shifter().setDryWet(mix);
-        bridge_.captureShifter().setDryWet(mix);
     }
     void setCrossfadeMs(float ms) noexcept {
         bridge_.shifter().setCrossfadeMs(ms);

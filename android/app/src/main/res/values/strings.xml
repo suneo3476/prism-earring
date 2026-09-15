@@ -152,6 +152,16 @@
     <string name="restart_capture_consent_hint">設定を反映するため再起動します。他アプリの音を拾う設定が ON のため、同意画面が再び表示されます。</string>
     <string name="capture_reopen_hint">他アプリの音を拾う設定が ON のまま再起動しました。再開するにはアプリを開いてください。</string>
 
+    <string name="duck_label">原音の抑え込み</string>
+    <string name="duck_value_format">%d%%</string>
+    <string name="desc_duck_slider">原音の抑え込み(%)</string>
+    <string name="desc_duck_down">原音の抑え込みを 5% 下げる</string>
+    <string name="desc_duck_up">原音の抑え込みを 5% 上げる</string>
+    <string name="duck_absolute_volume_hint">0 にしても聞こえるときは、開発者向けオプションの「絶対音量を無効にする」を ON にしてください。</string>
+    <string name="duck_disabled_media_hint">ユーザー補助の音量系統を ON にすると使えます</string>
+    <string name="info_duck_title">原音の抑え込み</string>
+    <string name="info_duck_body" formatted="false">動作中・他アプリの音を拾う ON・出力をユーザー補助の音量系統に載せる ON、の 3 つがそろっているときだけ効きます。逆相打ち消しではなく、端末のメディア音量(STREAM_MUSIC)そのものを直接下げることで原音を聞こえにくくします(このアプリの出力はユーザー補助の音量系統なので巻き込まれません)。100% でメディア音量が 0、0% で抑え込みを始める前の音量のままです。開始した時点の音量を覚えておき、停止すると(通知の「停止」・エラーでの停止・アプリの終了を含め)必ず元の音量に戻します。\n\n端末によっては Bluetooth の絶対音量のせいで、メディア音量を 0 にしても完全には無音にならないことがあります。そのときは、開発者向けオプションの「絶対音量を無効にする」を ON にしてみてください。</string>
+
     <!-- 出力先 / 入力元 -->
     <string name="output_device_label">出力先</string>
     <string name="input_device_label">入力元</string>

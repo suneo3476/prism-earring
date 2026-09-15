@@ -120,6 +120,12 @@ public:
         if (!captureShifter_.prepare(sampleRate, kMaxCallbackFrames, captureSweepMs)) {
             return false;
         }
+        // 捕獲経路の dry-wet は常に 1.0(全 wet)固定。捕獲経路には「イヤホンから
+        // 漏れる生音」に相当するものが無く、dry 成分は原音そのもの(= 二重再生)に
+        // なってしまうため、UI の原音まぜ(Dry/Wet)設定はマイク経路にしか流さない
+        // (PrismEngine::setDryWet 参照)。ここで明示しておくことで prepare() の
+        // 呼び直しでも既定に戻ることを保証する。
+        captureShifter_.setDryWet(PitchShifter::kDryWetDefault);
 
         sampleRate_ = sampleRate;
         inputChannels_ = inputChannels;

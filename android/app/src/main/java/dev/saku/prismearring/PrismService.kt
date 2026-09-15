@@ -8,12 +8,14 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import kotlin.math.roundToInt
 
 /**
  * 常駐オーディオ処理。
@@ -70,6 +72,16 @@ class PrismService : Service() {
 
     /** 他アプリの音を拾う(AudioPlaybackCapture)係。null なら捕獲していない。 */
     private var captureController: CaptureController? = null
+
+    private val audioManager: AudioManager by lazy {
+        getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    /**
+     * 「原音の抑え込み」で STREAM_MUSIC を直接絞っている間の、絞る前の index。
+     * null なら絞っていない(= 復元済み、または元々絞っていない)。
+     */
+    private var duckedOriginalVolumeIndex: Int? = null
 
     @Volatile
     var state: State = State()
@@ -159,16 +171,22 @@ class PrismService : Service() {
 
         state = state.copy(running = true, error = "")
         startPolling()
+        applyDuckState()
         publishState()
         return true
     }
 
+    /**
+     * 通知の「停止」・エラーでの停止・[onDestroy] のいずれもここを通る単一の停止経路。
+     * 「原音の抑え込み」で絞ったメディア音量は、どの経路で止まってもここで必ず復元する。
+     */
     fun stopProcessing() {
         teardownCaptureRuntime()
         engine?.stop()
         stopPolling()
         state = state.copy(running = false, synced = false)
         stopForegroundCompat()
+        restoreDuckedVolume()
         publishState()
     }
 
@@ -230,6 +248,7 @@ class PrismService : Service() {
                 params = params.copy(captureEnabled = false)
                 params.save(this)
                 state = state.copy(error = "捕獲を開始できません: ${t.message}")
+                applyDuckState()
                 publishState()
                 return false
             }
@@ -254,6 +273,7 @@ class PrismService : Service() {
         )
         captureController = controller
         controller.start(resultCode, data)
+        applyDuckState()
         publishState()
         return true
     }
@@ -265,10 +285,62 @@ class PrismService : Service() {
             params = params.copy(captureEnabled = false)
             params.save(this)
         }
+        applyDuckState()
         publishState()
     }
 
     fun isCapturing(): Boolean = captureController?.isActive == true
+
+    // ---- 原音の抑え込み(メディア音量 STREAM_MUSIC の直接制御)-----------------------
+    // 逆相打ち消しではなく、原音の出力経路そのもの(メディア音量)を絞ることで消音する
+    // (詳しくは README「捕獲音のミックス」節)。[Params.duckAvailable] の条件
+    // (動作中 + 捕獲 ON + 出力用途がユーザー補助)が崩れた瞬間に必ず元の音量へ戻す。
+
+    /**
+     * 現在の [params] と実行状態から、抑え込みを効かせるべきかどうかを判定し、
+     * 必要なら STREAM_MUSIC の音量を書き換える(または元へ戻す)。
+     * [startProcessing] / [stopProcessing] / [startCapture] / [stopCapture] /
+     * [updateParams] の末尾から呼ぶ(状態が変わりうる箇所すべて)。副作用は
+     * 冪等 — 条件も値も変わっていなければ何もしない。
+     */
+    private fun applyDuckState() {
+        if (params.duckAvailable(isRunning())) {
+            duckToward(params.duckPercent)
+        } else {
+            restoreDuckedVolume()
+        }
+    }
+
+    private fun duckToward(percent: Int) {
+        val original = duckedOriginalVolumeIndex ?: try {
+            audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).also {
+                duckedOriginalVolumeIndex = it
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "現在のメディア音量を取得できません", t)
+            return
+        }
+        val clamped = percent.coerceIn(Params.DUCK_PERCENT_MIN, Params.DUCK_PERCENT_MAX)
+        // 100% = 0、0% = 絞る前の index のまま。
+        val target = (original - (original * (clamped / 100.0)).roundToInt())
+            .coerceIn(0, original)
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        } catch (t: Throwable) {
+            Log.e(TAG, "メディア音量の変更に失敗", t)
+        }
+    }
+
+    /** 絞る前の音量へ戻す。絞っていなければ何もしない。 */
+    private fun restoreDuckedVolume() {
+        val original = duckedOriginalVolumeIndex ?: return
+        duckedOriginalVolumeIndex = null
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, original, 0)
+        } catch (t: Throwable) {
+            Log.e(TAG, "メディア音量の復元に失敗", t)
+        }
+    }
 
     // ---- パラメータ ---------------------------------------------------------
 
@@ -279,6 +351,7 @@ class PrismService : Service() {
         params = next
         engine?.let { next.applyTo(it) }
         next.save(this)
+        applyDuckState()
     }
 
     // ---- 状態通知 -----------------------------------------------------------

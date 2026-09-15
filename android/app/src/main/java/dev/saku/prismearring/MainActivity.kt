@@ -442,6 +442,14 @@ class MainActivity : AppCompatActivity() {
             if (suppressListeners) return@setOnCheckedChangeListener
             if (checked) requestCaptureEnable() else disableCapture()
         }
+
+        binding.duckSlider.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && !suppressListeners) {
+                updateParams(params.copy(duckPercent = value.roundToInt()))
+            }
+        }
+        binding.duckDown.setOnClickListener { nudgeDuck(-5) }
+        binding.duckUp.setOnClickListener { nudgeDuck(5) }
     }
 
     private fun nudgeMicGain(delta: Float) = updateParams(
@@ -454,6 +462,13 @@ class MainActivity : AppCompatActivity() {
         params.copy(
             captureGainDb = (params.captureGainDb + delta)
                 .coerceIn(Params.CAPTURE_GAIN_DB_MIN, Params.CAPTURE_GAIN_DB_MAX)
+        )
+    )
+
+    private fun nudgeDuck(delta: Int) = updateParams(
+        params.copy(
+            duckPercent = (params.duckPercent + delta)
+                .coerceIn(Params.DUCK_PERCENT_MIN, Params.DUCK_PERCENT_MAX)
         )
     )
 
@@ -723,6 +738,7 @@ class MainActivity : AppCompatActivity() {
         )
         infoButton(binding.micGainInfoButton, R.string.info_mic_gain_title, R.string.info_mic_gain_body)
         infoButton(binding.captureInfoButton, R.string.info_capture_title, R.string.info_capture_body)
+        infoButton(binding.duckInfoButton, R.string.info_duck_title, R.string.info_duck_body)
         infoButton(
             binding.outputDeviceInfoButton, R.string.info_output_device_title, R.string.info_output_device_body
         )
@@ -923,6 +939,25 @@ class MainActivity : AppCompatActivity() {
         binding.sweepSpinner.setSelection(sweepIndex)
 
         binding.outputUsageSwitch.isChecked = params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY
+
+        binding.duckSlider.value =
+            params.duckPercent.toFloat().coerceIn(Params.DUCK_PERCENT_MIN.toFloat(), Params.DUCK_PERCENT_MAX.toFloat())
+        binding.duckValue.text = getString(R.string.duck_value_format, params.duckPercent)
+        updateDuckAvailability(service?.isRunning() == true)
+    }
+
+    /**
+     * 「原音の抑え込み」スライダの有効/無効と、無効理由の表示を更新する。
+     * スライダの値そのものはここでは触らない([renderState] は 1 秒ごとに呼ばれるため、
+     * ここで値を書き換えるとドラッグ中の操作を妨げる)。
+     */
+    private fun updateDuckAvailability(running: Boolean) {
+        val available = params.duckAvailable(running)
+        binding.duckSlider.isEnabled = available
+        binding.duckDown.isEnabled = available
+        binding.duckUp.isEnabled = available
+        binding.duckDisabledText.visibility =
+            if (params.outputUsage != NativeEngine.USAGE_ACCESSIBILITY) View.VISIBLE else View.GONE
     }
 
     private fun selectSegment(views: List<TextView>, selectedIndex: Int) {
@@ -1035,6 +1070,8 @@ class MainActivity : AppCompatActivity() {
             captureStatusText(params, running, state.captureActive, state.info.captureFillFrames),
             params.captureGainDb,
         )
+
+        updateDuckAvailability(running)
 
         if (state.error.isNotEmpty()) showError(state.error) else hideError()
     }

@@ -44,6 +44,15 @@ data class Params(
     val outputUsage: Int = NativeEngine.USAGE_MEDIA,
     /** マイク経路の走査幅(ms)。[SWEEP_PRESETS] のいずれか。次の start() から有効。 */
     val micSweepMs: Float = DEFAULT_MIC_SWEEP_MS,
+    /**
+     * 原音の抑え込み(%)。0〜100、既定 100。エンジン(DSP)には渡さない ——
+     * [PrismService] が `AudioManager.setStreamVolume(STREAM_MUSIC, ..., 0)` で
+     * メディア音量そのものを直接動かす形で実現する(逆相打ち消しではない)。
+     * 100% = メディア音量 0、0% = 抑え込み開始前の音量のまま。
+     * 動作中かつ [captureEnabled] かつ [outputUsage] がユーザー補助のときだけ有効
+     * (詳細は README「捕獲音のミックス」節)。
+     */
+    val duckPercent: Int = DEFAULT_DUCK_PERCENT,
 ) {
     companion object {
         // --- DSP が実際に受け付ける範囲(PitchShifter の clamp と同じ) ---
@@ -113,6 +122,11 @@ data class Params(
         val SWEEP_PRESETS: List<Float> = listOf(5f, 9.5f, 15f, 20f, 30f, 40f, 60f)
         val DEFAULT_MIC_SWEEP_MS = NativeEngine.MIC_SWEEP_MS_DEFAULT.toFloat()
 
+        // --- 原音の抑え込み(%)。メディア音量(STREAM_MUSIC)を直接絞る量。 ---
+        const val DUCK_PERCENT_MIN = 0
+        const val DUCK_PERCENT_MAX = 100
+        const val DEFAULT_DUCK_PERCENT = 100
+
         // --- テーマ ---
         const val THEME_SYSTEM = 0
         const val THEME_LIGHT = 1
@@ -144,6 +158,7 @@ data class Params(
         private const val KEY_INPUT_DEVICE_ID = "input_device_id"
         private const val KEY_OUTPUT_USAGE = "output_usage"
         private const val KEY_MIC_SWEEP_MS = "mic_sweep_ms"
+        private const val KEY_DUCK_PERCENT = "duck_percent"
 
         fun prefs(context: Context): SharedPreferences =
             context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -172,6 +187,7 @@ data class Params(
                 inputDeviceId = p.getInt(KEY_INPUT_DEVICE_ID, NativeEngine.DEVICE_AUTO),
                 outputUsage = p.getInt(KEY_OUTPUT_USAGE, NativeEngine.USAGE_MEDIA),
                 micSweepMs = p.getFloat(KEY_MIC_SWEEP_MS, DEFAULT_MIC_SWEEP_MS),
+                duckPercent = p.getInt(KEY_DUCK_PERCENT, DEFAULT_DUCK_PERCENT),
             ).sanitized()
         }
 
@@ -218,6 +234,7 @@ data class Params(
                 inputDeviceId = if (inputDeviceId >= 0) inputDeviceId else NativeEngine.DEVICE_AUTO,
                 outputUsage = usage,
                 micSweepMs = sweep,
+                duckPercent = duckPercent.coerceIn(DUCK_PERCENT_MIN, DUCK_PERCENT_MAX),
             ).let {
                 val (p1l, p1r) = sanitizePresetPair(preset1L, preset1R)
                 val (p2l, p2r) = sanitizePresetPair(preset2L, preset2R)
@@ -254,11 +271,20 @@ data class Params(
             .putInt(KEY_INPUT_DEVICE_ID, inputDeviceId)
             .putInt(KEY_OUTPUT_USAGE, outputUsage)
             .putFloat(KEY_MIC_SWEEP_MS, micSweepMs)
+            .putInt(KEY_DUCK_PERCENT, duckPercent)
             .apply()
     }
 
     /** L/R 独立が OFF のときは L の値を両チャンネルに使う。 */
     val effectiveRight: Int get() = if (splitChannels) shiftCentsR else shiftCentsL
+
+    /**
+     * 「原音の抑え込み」スライダが有効かどうか。動作中かつ捕獲 ON かつ出力用途が
+     * ユーザー補助のときだけ(メディア音量を絞ると本アプリの音も一緒に消えてしまう
+     * 用途 = メディアのときは無効にする)。
+     */
+    fun duckAvailable(running: Boolean): Boolean =
+        running && captureEnabled && outputUsage == NativeEngine.USAGE_ACCESSIBILITY
 
     /** スライダの実効下限 / 上限(セント)。常に DSP の全域([SLIDER_MIN], [SLIDER_MAX])。 */
     val sliderMin: Int get() = SLIDER_MIN

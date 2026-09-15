@@ -817,6 +817,81 @@
                     android:layout_marginTop="4dp"
                     android:text="@string/capture_status_stopped" />
 
+                <!-- — 原音の抑え込み(メディア音量の直接制御。捕獲 ON + 出力用途ユーザー補助のときだけ有効) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/duck_label"
+                        android:textColor="@color/fg"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/duckInfoButton"
+                        style="@style/InfoButton"
+                        android:contentDescription="@string/duck_label"
+                        android:src="@drawable/ic_info" />
+
+                    <TextView
+                        android:id="@+id/duckValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="100%"
+                        android:textColor="@color/muted"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/duckDown"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_duck_down"
+                        android:src="@drawable/ic_remove" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/duckSlider"
+                        style="@style/MiniSlider"
+                        android:contentDescription="@string/desc_duck_slider"
+                        android:value="100"
+                        android:valueFrom="0"
+                        android:valueTo="100" />
+
+                    <ImageView
+                        android:id="@+id/duckUp"
+                        style="@style/MiniStep"
+                        android:contentDescription="@string/desc_duck_up"
+                        android:src="@drawable/ic_add" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/duckDisabledText"
+                    style="@style/SubLabel"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/duck_disabled_media_hint"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/duckHintText"
+                    style="@style/SubLabel"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/duck_absolute_volume_hint" />
+
                 <!-- — 出力先 -->
                 <LinearLayout
                     android:layout_width="match_parent"
