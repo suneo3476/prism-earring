@@ -32,6 +32,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.lifecycle.Lifecycle
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
@@ -792,11 +793,16 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * 再起動が要る設定(出力先 / 入力元 / 出力用途 / 走査幅)を動作中に変えたときに呼ぶ。
-     * Service を stop → start し直し、捕獲 ON なら同意画面が再び出ることを案内する。
+     * Service を stop → start し直す。stop で MediaProjection 自体が破棄されるため、
+     * 捕獲 ON なら start 後に**改めて同意を取り直す**必要がある
+     * ([PrismService] 側は同意なしに mediaProjection 型で前景化しない設計にしてある)。
+     * Activity が前面にあれば同意ダイアログを再表示し、そうでなければ
+     * (通常は起きないが、念のため)捕獲は OFF のまま通知で再開を案内する。
      */
     private fun restartForSettings() {
         val s = service ?: return
-        if (params.captureEnabled) {
+        val needsCaptureConsent = params.captureEnabled
+        if (needsCaptureConsent) {
             Snackbar.make(binding.root, R.string.restart_capture_consent_hint, Snackbar.LENGTH_LONG).show()
         }
         s.stopProcessing()
@@ -805,8 +811,14 @@ class MainActivity : AppCompatActivity() {
             renderState(s.state)
             return
         }
-        if (params.captureEnabled) {
-            launchProjectionConsent()
+        if (needsCaptureConsent) {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                launchProjectionConsent()
+            } else {
+                // Activity が前面にない。mediaProjection 型では開始せず、通知で案内する。
+                s.stopCapture()
+                s.notifyReopenToResumeCapture()
+            }
         }
         renderState(s.state)
     }

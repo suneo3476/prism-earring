@@ -150,6 +150,7 @@
     <string name="capture_error_open">捕獲用の AudioRecord を初期化できません</string>
     <string name="capture_error_generic">他アプリの音を拾えませんでした: %1$s</string>
     <string name="restart_capture_consent_hint">設定を反映するため再起動します。他アプリの音を拾う設定が ON のため、同意画面が再び表示されます。</string>
+    <string name="capture_reopen_hint">他アプリの音を拾う設定が ON のまま再起動しました。再開するにはアプリを開いてください。</string>
 
     <!-- 出力先 / 入力元 -->
     <string name="output_device_label">出力先</string>

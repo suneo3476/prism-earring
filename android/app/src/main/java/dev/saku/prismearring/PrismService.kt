@@ -25,8 +25,19 @@ import android.util.Log
  * foregroundServiceType は microphone + mediaPlayback + mediaProjection。マイクを開き、
  * 音を鳴らし続け、v0.4.0 からは他アプリの再生音も捕獲しうるので 3 つとも該当する
  * (宣言に無い型だと Android 14 以降で ForegroundServiceTypeException になりうる)。
- * 実際に startForeground() へ渡す型は [Params.captureEnabled] に応じて動的に絞る
- * ([startForegroundCompat] 参照)。
+ *
+ * ただし実際に `startForeground()` へ渡す型は常に microphone + mediaPlayback だけ
+ * ([startForegroundCompat] 参照)。mediaProjection 型は、新しい MediaProjection の
+ * 同意結果(`resultCode`/`data`)を受け取った直後にだけ
+ * [startForegroundWithCaptureType] で足す。Android 14 以降は `android:project_media`
+ * app-op が同意結果でしか付与されないため、**同意 → startForeground(mediaProjection
+ * 込み) → getMediaProjection()** の順序を守らないと `startForeground` が
+ * `SecurityException`(`missing permissions: ... FOREGROUND_SERVICE_MEDIA_PROJECTION ...`)
+ * で失敗する。設定変更などによる Service の自動再起動(stop → start)では、
+ * 直前に同意を得ていても [CaptureController.stop] 経由で MediaProjection 自体を
+ * 破棄しているため、起動直後の `startForeground` に mediaProjection 型を含めては
+ * いけない(v0.4.1 で修正: 以前は [Params.captureEnabled] を見て型を決めていたため、
+ * 再起動のたびにこの順序が崩れて起動が落ちていた)。
  */
 class PrismService : Service() {
 
@@ -170,11 +181,24 @@ class PrismService : Service() {
     // [teardownCaptureRuntime])や外部からの取り消しでは、次回開始時に同じ設定で
     // 再同意を求められるよう、この設定値自体はそのまま残す。
 
-    /** 実行中の捕獲(コントローラ + エンジン側フラグ)を畳む。[Params.captureEnabled] は変えない。 */
+    /**
+     * 実行中の捕獲(コントローラ + エンジン側フラグ)を畳む。[Params.captureEnabled] は変えない。
+     * [CaptureController.stop] が MediaProjection 自体を破棄するため、エンジンがまだ
+     * 動作中なら前景化の型も microphone + mediaPlayback だけへ縮退させておく
+     * (mediaProjection 型のまま残すと、次に同意なしで `startForeground` を呼んだときに
+     * 落ちる余地を残してしまう)。
+     */
     private fun teardownCaptureRuntime() {
         captureController?.stop()
         captureController = null
         engine?.setCaptureEnabled(false)
+        if (isRunning() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                startForegroundCompat()
+            } catch (t: Throwable) {
+                Log.e(TAG, "捕獲終了後の前景化縮退に失敗", t)
+            }
+        }
     }
 
     /**
@@ -193,13 +217,18 @@ class PrismService : Service() {
 
         // Android 14 以降は、getMediaProjection の **前** に mediaProjection 型を
         // 含めて前景化し直す必要がある(順序を逆にすると SecurityException)。
-        // 起動直後の startProcessing() 経由ならここは型の変化なし(既に含めて呼ばれている)、
-        // 動作中に捕獲だけを ON にした場合はここで初めて型が追加される。
+        // [resultCode]/[data] は呼び出し側(MainActivity)が直前に得た同意結果そのものなので、
+        // ここで初めて mediaProjection 型を足すのが安全(startProcessing() 側は常に
+        // microphone + mediaPlayback のみで、型を先取りしない)。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             try {
-                startForegroundCompat()
+                startForegroundWithCaptureType()
             } catch (t: Throwable) {
+                // SecurityException / ForegroundServiceStartNotAllowedException 等。
+                // 落とさず、捕獲を OFF に戻してマイク経路だけで続行する。
                 Log.e(TAG, "捕獲用の前景化に失敗", t)
+                params = params.copy(captureEnabled = false)
+                params.save(this)
                 state = state.copy(error = "捕獲を開始できません: ${t.message}")
                 publishState()
                 return false
@@ -336,32 +365,76 @@ class PrismService : Service() {
     }
 
     /**
-     * Android 14 以降は、`getMediaProjection` を呼ぶ **前** に mediaProjection 型で
-     * 前景化しておく必要がある(順序を逆にすると SecurityException)。捕獲が無効な
-     * ときは従来どおり microphone + mediaPlayback の 2 型だけで前景化する。
+     * 通常の前景化。**常に** microphone + mediaPlayback の 2 型だけ
+     * (mediaProjection 型は含めない)。エンジンの開始・再起動はすべてここを通るため、
+     * [Params.captureEnabled] の値(＝ユーザーの意図。実際の同意の有無とは別)で
+     * 型を変えてはいけない — 変えると、同意が無い(または破棄済みの)状態で
+     * mediaProjection 型を宣言することになり、Android 14 以降で
+     * `startForeground` が `SecurityException` になる。
      */
     private fun startForegroundCompat() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+            val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            if (params.captureEnabled) {
-                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            }
             startForeground(NOTIFICATION_ID, notification, types)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
 
+    /**
+     * mediaProjection 型を含めて前景化し直す。呼び出し前提: 直前に新しい
+     * `MediaProjectionManager.createScreenCaptureIntent()` の同意結果(`resultCode`/`data`)
+     * を受け取っていること。[startCapture] からのみ、`getMediaProjection()` を呼ぶ
+     * **直前**に呼ぶ。SDK 34 未満では呼ばない(マニフェストの宣言だけで足りる)。
+     */
+    private fun startForegroundWithCaptureType() {
+        val notification = buildNotification()
+        val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        startForeground(NOTIFICATION_ID, notification, types)
+    }
+
     private fun stopForegroundCompat() {
         stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    /**
+     * 捕獲 ON のまま設定変更で再起動したが、Activity が前面になく同意画面を
+     * 出せなかった場合に呼ぶ(MainActivity から)。捕獲は OFF のままとし
+     * (mediaProjection 型では前景化しない)、通知で「アプリを開いて再開してください」
+     * と案内するだけにとどめる。
+     */
+    fun notifyReopenToResumeCapture() {
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val openIntent = PendingIntent.getActivity(
+                this,
+                REOPEN_REQUEST_CODE,
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val notification = Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(getString(R.string.notif_title))
+                .setContentText(getString(R.string.capture_reopen_hint))
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentIntent(openIntent)
+                .setAutoCancel(true)
+                .build()
+            manager.notify(REOPEN_NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            Log.e(TAG, "再開案内の通知に失敗", t)
+        }
     }
 
     companion object {
         private const val TAG = "prism"
         private const val CHANNEL_ID = "prism_processing"
         private const val NOTIFICATION_ID = 1
+        private const val REOPEN_NOTIFICATION_ID = 2
+        private const val REOPEN_REQUEST_CODE = 2
         private const val POLL_INTERVAL_MS = 1000L
 
         const val ACTION_START = "dev.saku.prismearring.action.START"

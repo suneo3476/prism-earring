@@ -418,11 +418,32 @@ Activity は自動的に再生成される。選択は `Params.themeMode` とし
 `foregroundServiceType` ごとに個別の権限宣言が必要なため、`FOREGROUND_SERVICE_MICROPHONE` /
 `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `FOREGROUND_SERVICE_MEDIA_PROJECTION` を宣言している
 (宣言に無い型だと `ForegroundServiceTypeException` になりうる)。マニフェストは 3 つとも
-宣言するが、実際に `startForeground()` へ渡す型は `Params.captureEnabled` に応じて
-microphone + mediaPlayback の 2 つか、そこに mediaProjection を足した 3 つかを動的に選ぶ
-(`PrismService.startForegroundCompat()`)。捕獲を動作中に ON にした場合は、
-`MediaProjectionManager.getMediaProjection()` を呼ぶ **前** に mediaProjection 型を含めて
-前景化し直す(順序を逆にすると Android 14 以降で `SecurityException` になる)。
+宣言するが、実際に `startForeground()` へ渡す型は**常に** microphone + mediaPlayback の
+2 つだけ(`PrismService.startForegroundCompat()`)。mediaProjection 型は、新しい
+`MediaProjectionManager.createScreenCaptureIntent()` の同意結果を受け取った直後にだけ
+`PrismService.startForegroundWithCaptureType()` で足し、その直後に
+`getMediaProjection()` を呼ぶ(`PrismService.startCapture()`)。
+
+**同意 → startForeground(mediaProjection 込み) → getMediaProjection() の順序が必須。**
+Android 14 以降、`android:project_media` app-op は同意結果でしか付与されないため、
+これを逆にする(先に mediaProjection 型で前景化してから同意を待つ)と
+`startForeground` が `SecurityException`
+(`missing permissions: ... FOREGROUND_SERVICE_MEDIA_PROJECTION ...`)で失敗する。
+
+v0.4.0 では `Params.captureEnabled`(ユーザーの ON/OFF 意図。実際の同意の有無とは別)を
+見て型を決めていたため、この順序が崩れる経路があった: 「他アプリの音を拾う」ON で
+動作中に、出力先 / 入力元 / 出力用途 / 走査幅など再起動が要る設定を変えると、
+`restartForSettings()` が Service を stop → start し直す。stop 時に
+`CaptureController.stop()` が既存の `MediaProjection` を破棄する一方、直後の start
+(`startProcessing()`)は `captureEnabled == true` のまま mediaProjection 型で
+前景化しようとしていた——同意をまだ取り直していないのに、である。v0.4.1 で
+`startProcessing()`(常時)と `startForegroundWithCaptureType()`(捕獲の同意直後のみ)
+を分離して修正した。設定変更時の再起動でも、`MainActivity.restartForSettings()` が
+Service を start し直した**後**に改めて同意ダイアログを出し(Activity が前面にない
+場合は捕獲を OFF のまま通知で再開を案内する)、その同意結果でだけ
+`startForegroundWithCaptureType()` を呼ぶ。`startForeground` 自体も
+`SecurityException` / `ForegroundServiceStartNotAllowedException` を try/catch し、
+失敗しても落とさず捕獲を OFF に戻してマイク経路だけで続行する。
 
 Activity は Service に bind して状態を読むだけで、エンジンの所有者は Service。
 `START_NOT_STICKY` にしてあるので、システムに殺されても勝手にマイクを開き直さない。
@@ -514,19 +535,20 @@ v0.3.0 で見送っていた理由(元の音がそのまま二重に聞こえる
 
 v0.1.0 は Pixel 9a 実機(有線イヤホン)で動作確認済み(ほぼ遅延なし)。
 
+v0.4.0 で追加した「他アプリの音を拾う」は、v0.4.1 の修正込みで Pixel 9a 実機で
+動作確認済み(ダミー Bluetooth イヤホン + YouTube のバックグラウンド再生。
+多少のノイズはあるが自然に聴こえる)。設定変更による Service の自動再起動
+(stop → start)で `startForeground` が `SecurityException` で落ちる不具合が
+あったが、`PrismService` の前景化まわりを見直して修正した(詳しくは上の
+「設計上の判断」→「常駐」節)。
+
 v0.4.0 で追加した以下の項目は、実機でまだ一度も確認していない:
 
-- 「他アプリの音を拾う」の実際の動作(同意ダイアログ、捕獲音のミックス、
-  ダミー Bluetooth イヤホン運用での二重聞こえの解消)
 - マイク音量スライダの「OFF」位置(完全ミュート)の実際の聴感
 - 出力先 / 入力元デバイススピナーの一覧内容・選択・抜き差し追随
-- デバイス指定 / 出力用途 / 走査幅を動作中に変更した際の自動再起動(stop → start)
-  と、捕獲 ON 時に同意ダイアログが再び出る挙動
 - 出力用途(ユーザー補助ストリーム)の実験結果(上の「実験」節)
 - 走査幅プリセット(5〜60ms)を切り替えたときの聴感の違い
 - なめらかさ(窓長)を 200ms まで伸ばしたときの聴感
-- Android 14 以降での `startForeground` 型の動的な増減(mediaProjection の
-  有無での再宣言)が実際にクラッシュなく動くか
 
 v0.2.0 で追加・変更した以下の項目は、実機でまだ一度も確認していない:
 
