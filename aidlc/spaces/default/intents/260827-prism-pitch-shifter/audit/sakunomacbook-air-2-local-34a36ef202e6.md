@@ -7492,3 +7492,124 @@
 **Message**: Committed successfully as `c2591a4`.\n\n**実装方式**: 定常状態では選択中の1方式だけを処理し、切替の瞬間だけ旧方式・新方式の2方式が10ms重なって動く「切替時のみクロスフェード」方式(常時3方式並走はしない)。3方式ぶんのインスタンスは `AudioBridge::prepare()` で経路ごとに確保済みなので、切替そのものにヒープ確保は発生しない。\n
 
 ---
+
+## Human Turn
+**Timestamp**: 2026-09-15T23:28:38Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:03:13Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:16:54Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:17:45Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:18:53Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:23:19Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:29:52Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:33:15Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:34:35Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:42:56Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:45:41Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:49:21Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:53:07Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:53:48Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T15:56:03Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
+
+## Subagent Completed
+**Timestamp**: 2026-09-17T16:07:57Z
+**Event**: SUBAGENT_COMPLETED
+**Agent Type**: aidlc-developer-agent
+**Agent ID**: a2dc3cbb6c0ecf358
+**Message**: 6 commits on `main`、`./gradlew assembleDebug` 成功、`libprism.so` を APK 内に確認、`build-smoke.sh` は 15 テスト全緑(APK は未コミット)。\n\n1. **出力バッファ自動調整** — `oboe::LatencyTuner` を出力コールバック先頭で回し、xrun 検知ごとにバースト 1 個ずつ `getBuf
+
+---
+
+## Human Turn
+**Timestamp**: 2026-09-17T16:07:58Z
+**Event**: HUMAN_TURN
+**Session**: 6384d72a-3049-5088-8931-9c6ef95a3b60
+
+---
