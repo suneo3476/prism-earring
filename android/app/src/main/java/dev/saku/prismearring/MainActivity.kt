@@ -176,6 +176,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applySystemBarInsets()
+        applyFooterSpacing()
         applyStatusBarAppearance()
 
         params = Params.load(this)
@@ -193,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         setUpDeviceSpinners()
         setUpSweepSpinner()
         setUpOutputUsageSwitch()
+        setUpAccessibilityVolume()
         setUpDiagnosticRecording()
 
         refreshDeviceLists()
@@ -261,6 +263,33 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(binding.root)
+    }
+
+    /**
+     * 固定フッタ(開始 / 停止)の裏に本文の末尾が隠れないようにする。
+     *
+     * レイアウトでは本文(ScrollView)の下余白を 112dp 決め打ちにしていたが、
+     * フッタの実際の高さはボタン(72dp)+ 上下パディング + 下端 inset の合計で、
+     * 端末やジェスチャバーの有無によって 112dp を超える。実機(Pixel 9a)では
+     * 「詳細設定」の行がフッタの裏に潜り込んでいた。
+     *
+     * そこでフッタの高さを測って本文の paddingBottom に反映する。フッタの
+     * paddingBottom には [applySystemBarInsets] が下端 inset を加えてあるので、
+     * 高さにはそれも含まれる。少しだけ隙間(8dp)を足して、最後の行がフッタに
+     * 貼り付かないようにする。
+     */
+    private fun applyFooterSpacing() {
+        val gap = (8 * resources.displayMetrics.density).roundToInt()
+        fun sync() {
+            val wanted = binding.footer.height + gap
+            if (wanted > 0 && binding.scroll.paddingBottom != wanted) {
+                binding.scroll.updatePadding(bottom = wanted)
+            }
+        }
+        // 高さが変わるたびに追従する(inset の適用・回転・テーマ切替)。
+        // 同じ値なら padding を書き換えないので、レイアウトのループにはならない。
+        binding.footer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> sync() }
+        binding.footer.post { sync() }
     }
 
     /** ステータスバー / ナビゲーションバーのアイコン色を、現在解決されているテーマに合わせる。 */
@@ -608,6 +637,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---- ユーザー補助系統の音量(v0.6.1)-----------------------------------------
+    // Params には持たせない。これは「本アプリの設定」ではなく端末のストリーム音量
+    // そのものなので、スライダは現在値の表示と操作だけを行い、値は OS 側に残る。
+
+    private fun setUpAccessibilityVolume() {
+        binding.accVolumeSlider.addOnChangeListener { _, value, fromUser ->
+            if (!fromUser || suppressListeners) return@addOnChangeListener
+            applyAccessibilityVolume(value.roundToInt())
+        }
+        binding.accVolumeDown.setOnClickListener {
+            applyAccessibilityVolume(binding.accVolumeSlider.value.roundToInt() - 1)
+        }
+        binding.accVolumeUp.setOnClickListener {
+            applyAccessibilityVolume(binding.accVolumeSlider.value.roundToInt() + 1)
+        }
+    }
+
+    private fun applyAccessibilityVolume(index: Int) {
+        val s = service ?: return
+        val max = s.accessibilityVolumeMax()
+        if (max <= 0) return
+        val target = index.coerceIn(0, max)
+        val applied = s.setAccessibilityVolume(target)
+        if (!applied) {
+            Snackbar.make(binding.root, R.string.acc_volume_rejected, Snackbar.LENGTH_LONG).show()
+        }
+        refreshAccessibilityVolume()
+    }
+
+    /**
+     * スライダを端末の現在値へ合わせる。ドラッグ中は触らない(操作を妨げないため)。
+     * 有効なのは出力用途がユーザー補助のときだけ。
+     */
+    private fun refreshAccessibilityVolume() {
+        val s = service
+        val max = s?.accessibilityVolumeMax() ?: 0
+        val available = params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY && max > 0
+        binding.accVolumeSlider.isEnabled = available
+        binding.accVolumeDown.isEnabled = available
+        binding.accVolumeUp.isEnabled = available
+        if (!available) {
+            binding.accVolumeValue.text = getString(R.string.acc_volume_unavailable)
+            return
+        }
+        val index = s?.accessibilityVolumeIndex() ?: 0
+        binding.accVolumeValue.text = getString(R.string.acc_volume_value_format, index, max)
+        if (binding.accVolumeSlider.isPressed) return
+        val wasSuppressed = suppressListeners
+        suppressListeners = true
+        binding.accVolumeSlider.valueTo = max.toFloat()
+        binding.accVolumeSlider.value = index.toFloat().coerceIn(0f, max.toFloat())
+        suppressListeners = wasSuppressed
+    }
+
     private fun setUpOutputUsageSwitch() {
         binding.outputUsageSwitch.setOnCheckedChangeListener { _, checked ->
             if (suppressListeners) return@setOnCheckedChangeListener
@@ -825,6 +908,9 @@ class MainActivity : AppCompatActivity() {
         )
         infoButton(
             binding.outputUsageInfoButton, R.string.info_output_usage_title, R.string.info_output_usage_body
+        )
+        infoButton(
+            binding.accVolumeInfoButton, R.string.info_acc_volume_title, R.string.info_acc_volume_body
         )
         infoButton(binding.micMethodInfoButton, R.string.info_mic_method_title, R.string.info_mic_method_body)
         infoButton(
@@ -1044,6 +1130,7 @@ class MainActivity : AppCompatActivity() {
             params.duckPercent.toFloat().coerceIn(Params.DUCK_PERCENT_MIN.toFloat(), Params.DUCK_PERCENT_MAX.toFloat())
         binding.duckValue.text = getString(R.string.duck_value_format, params.duckPercent)
         updateDuckAvailability(service?.isRunning() == true)
+        refreshAccessibilityVolume()
     }
 
     /**
@@ -1218,6 +1305,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         updateDuckAvailability(running)
+        refreshAccessibilityVolume()
 
         // 診断の「10 秒録音」は動作中のみ有効(録音中は startDiagnosticRecording() 側で
         // 無効化済みなので、ここでは running と現在の録音状態だけ見ればよい)。

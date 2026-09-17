@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Android 13 以降は通知も実行時許可。拒否されても処理自体は動く。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- ストリーム音量の操作(原音の抑え込み / ユーザー補助系統の音量)。
+         ただし STREAM_ACCESSIBILITY の音量変更は、この権限があっても
+         「ユーザー補助サービス」でないアプリには OS が黙って無視する
+         (AudioService の CHANGE_ACCESSIBILITY_VOLUME 判定)。本アプリは設定を試み、
+         反映されたかを読み戻して確認し、駄目なら音量キーで操作するよう案内する。 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
     <!-- 低遅延オーディオ。無くても起動はするので required=false。 -->

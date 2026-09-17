@@ -225,6 +225,16 @@
     <string name="note_privacy">音声はこの端末の外へ出ません(外部送信なし)。マイクは開始を押している間だけ開きます。診断区画の「10 秒録音」を押したときだけ、その場に限りローカルの Downloads/katsuo/ へ音声を保存します。</string>
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
     <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
+    <string name="acc_volume_label">ユーザー補助系統の音量</string>
+    <string name="acc_volume_hint">出力用途を「ユーザー補助」にしているときだけ使えます。開始時に自動で最大へ上げます。端末が受け付けない場合は、本アプリを開いたまま端末の音量キーで調整してください(音量キーはこの系統に切り替えてあります)。</string>
+    <string name="acc_volume_value_format">%1$d / %2$d</string>
+    <string name="acc_volume_unavailable">—</string>
+    <string name="acc_volume_rejected">端末がアプリからの変更を受け付けませんでした。音量キーで調整してください。</string>
+    <string name="desc_acc_volume_slider">ユーザー補助系統の音量</string>
+    <string name="desc_acc_volume_down">ユーザー補助系統の音量を下げる</string>
+    <string name="desc_acc_volume_up">ユーザー補助系統の音量を上げる</string>
+    <string name="info_acc_volume_title">ユーザー補助系統の音量</string>
+    <string name="info_acc_volume_body">「出力をユーザー補助の音量系統に載せる」を ON にすると、このアプリの音はメディア音量ではなく「ユーザー補助」の音量つまみで鳴ります。この系統は既定値が小さいことがあり、そのままだと音が小さすぎて聞こえません。開始時に自動で最大まで上げますが、Android はユーザー補助サービス以外のアプリからのこの操作を黙って無視することがあります。反映されない場合は、本アプリを開いた状態で端末の音量キーを押してください — 音量キーはこの系統を操作するよう切り替えてあります。</string>
     <string name="diag_placeholder">診断: --</string>
     <string name="api_aaudio">AAudio</string>
     <string name="api_opensles">OpenSL ES</string>

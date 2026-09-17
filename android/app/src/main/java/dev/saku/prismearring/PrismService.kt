@@ -87,6 +87,12 @@ class PrismService : Service() {
      */
     private var duckedOriginalVolumeIndex: Int? = null
 
+    /**
+     * 出力用途がユーザー補助のときに STREAM_ACCESSIBILITY を最大へ上げる前の index。
+     * null なら上げていない(= 復元済み、または上げようとして失敗した)。
+     */
+    private var accessibilityOriginalVolumeIndex: Int? = null
+
     @Volatile
     var state: State = State()
         private set
@@ -176,6 +182,7 @@ class PrismService : Service() {
 
         state = state.copy(running = true, error = "")
         startPolling()
+        applyAccessibilityVolumeState()
         applyDuckState()
         publishState()
         return true
@@ -194,6 +201,7 @@ class PrismService : Service() {
         state = state.copy(running = false, synced = false)
         stopForegroundCompat()
         restoreDuckedVolume()
+        restoreAccessibilityVolume()
         publishState()
     }
 
@@ -447,7 +455,85 @@ class PrismService : Service() {
         params = next
         engine?.let { next.applyTo(it) }
         next.save(this)
+        applyAccessibilityVolumeState()
         applyDuckState()
+    }
+
+    // ---- ユーザー補助系統の音量(STREAM_ACCESSIBILITY)---------------------------
+    // 出力用途をユーザー補助にすると、本アプリの音はメディアではなくユーザー補助の
+    // 音量つまみに乗る。この系統は既定値が小さいことがあり、実機(Pixel 9a +
+    // Bluetooth)では「アプリ側の音量を最大にしてやっと聞こえる」状態になった。
+    // そこで開始時に一度だけ最大へ上げ(元の値を保存)、停止時に必ず戻す。
+    //
+    // 注意: STREAM_ACCESSIBILITY の音量変更は、ユーザー補助サービスでないアプリには
+    // OS が黙って無視する(AudioService の CHANGE_ACCESSIBILITY_VOLUME 判定。例外は
+    // 飛ばず、ログが出るだけ)。そのため [setAccessibilityVolume] は書き込んだあとに
+    // 読み戻し、反映されたかどうかを返す。反映されない端末では、Activity 側が
+    // volumeControlStream をこの系統へ向けてあるので、端末の音量キーで操作できる。
+
+    private fun applyAccessibilityVolumeState() {
+        if (isRunning() && params.outputUsage == NativeEngine.USAGE_ACCESSIBILITY) {
+            boostAccessibilityVolumeOnce()
+        } else {
+            restoreAccessibilityVolume()
+        }
+    }
+
+    /** 一度だけ最大へ上げる。以後の音量は利用者(スライダ・音量キー)に委ねる。 */
+    private fun boostAccessibilityVolumeOnce() {
+        if (accessibilityOriginalVolumeIndex != null) return
+        try {
+            accessibilityOriginalVolumeIndex =
+                audioManager.getStreamVolume(AudioManager.STREAM_ACCESSIBILITY)
+            audioManager.setStreamVolume(
+                AudioManager.STREAM_ACCESSIBILITY,
+                audioManager.getStreamMaxVolume(AudioManager.STREAM_ACCESSIBILITY),
+                0,
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "ユーザー補助系統の音量を最大にできません", t)
+        }
+    }
+
+    private fun restoreAccessibilityVolume() {
+        val original = accessibilityOriginalVolumeIndex ?: return
+        accessibilityOriginalVolumeIndex = null
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_ACCESSIBILITY, original, 0)
+        } catch (t: Throwable) {
+            Log.e(TAG, "ユーザー補助系統の音量を復元できません", t)
+        }
+    }
+
+    fun accessibilityVolumeMax(): Int = try {
+        audioManager.getStreamMaxVolume(AudioManager.STREAM_ACCESSIBILITY)
+    } catch (t: Throwable) {
+        Log.e(TAG, "ユーザー補助系統の最大音量を取得できません", t)
+        0
+    }
+
+    fun accessibilityVolumeIndex(): Int = try {
+        audioManager.getStreamVolume(AudioManager.STREAM_ACCESSIBILITY)
+    } catch (t: Throwable) {
+        Log.e(TAG, "ユーザー補助系統の音量を取得できません", t)
+        0
+    }
+
+    /**
+     * ユーザー補助系統の音量を直接設定する。
+     * @return 実際に反映されたら true(OS に無視された場合は false)。
+     */
+    fun setAccessibilityVolume(index: Int): Boolean {
+        val max = accessibilityVolumeMax()
+        if (max <= 0) return false
+        val target = index.coerceIn(0, max)
+        return try {
+            audioManager.setStreamVolume(AudioManager.STREAM_ACCESSIBILITY, target, 0)
+            audioManager.getStreamVolume(AudioManager.STREAM_ACCESSIBILITY) == target
+        } catch (t: Throwable) {
+            Log.e(TAG, "ユーザー補助系統の音量を変更できません", t)
+            false
+        }
     }
 
     // ---- 状態通知 -----------------------------------------------------------
