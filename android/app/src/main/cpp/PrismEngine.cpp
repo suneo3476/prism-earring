@@ -10,8 +10,15 @@ namespace {
 
 constexpr const char* kTag = "prism";
 
-// 出力バッファはバースト 2 個分。1 個だと XRun が増え、3 個以上は遅延の無駄。
+// 出力バッファの初期サイズ(バースト何個分か)。
+//   有線: 2 個。1 個だと XRun が増え、3 個以上は遅延の無駄。
+//   Bluetooth: 8 個。A2DP はコールバックの起床ジッタが大きく、2 個で始めると
+//              LatencyTuner が広げきるまでのあいだ xrun が出続ける(Pixel 9a +
+//              WF-C710N で毎秒 20〜40 回)。最初から広げておく。
+// どちらの場合も、以後は LatencyTuner が xrun を検知するたびにバースト 1 個ずつ
+// 広げる(上限 = getBufferCapacityInFrames())。
 constexpr int kOutputBurstsInBuffer = 2;
+constexpr int kOutputBurstsBluetooth = 8;
 // 入力容量は余裕をもたせる(read が遅れても Overrun しにくくする)。
 constexpr int kInputBurstsCapacity = 8;
 
@@ -233,9 +240,24 @@ bool PrismEngine::startLocked() {
                      oboe::convertToText(result));
             return false;
         }
-        // 出力バッファはバースト 2 個分。戻り値は参考値なので捨てる。
-        (void)outputStream_->setBufferSizeInFrames(outputStream_->getFramesPerBurst() *
-                                                   kOutputBurstsInBuffer);
+        // 初期の出力バッファ。Bluetooth で開けたときだけ大きめ(バースト 8 個分)
+        // から始める。以後は LatencyTuner が必要なだけ広げる。
+        const bool bluetooth = isBluetoothOutputDeviceLocked(outputStream_->getDeviceId());
+        outputIsBluetooth_.store(bluetooth, std::memory_order_relaxed);
+        const int bursts = bluetooth ? kOutputBurstsBluetooth : kOutputBurstsInBuffer;
+        // 戻り値は参考値なので捨てる(実際の採用値は下で読み直す)。
+        (void)outputStream_->setBufferSizeInFrames(outputStream_->getFramesPerBurst() * bursts);
+        outputBufferFrames_.store(outputStream_->getBufferSizeInFrames(),
+                                  std::memory_order_relaxed);
+        bufferGrowCount_.store(0, std::memory_order_relaxed);
+        // LatencyTuner は「今のバッファサイズ」から始めて、xrun のたびにバースト
+        // 1 個ずつ広げる。上限は既定(= getBufferCapacityInFrames())のまま。
+        latencyTuner_ = std::unique_ptr<oboe::LatencyTuner>(
+            new (std::nothrow) oboe::LatencyTuner(*outputStream_));
+        if (!latencyTuner_) {
+            // 確保できなくても致命的ではない(自動調整が効かないだけ)。
+            logError("LatencyTuner を確保できません — 出力バッファの自動調整は無効");
+        }
     }
     exclusiveMode_.store(outputStream_->getSharingMode() == oboe::SharingMode::Exclusive,
                          std::memory_order_relaxed);
@@ -329,11 +351,13 @@ bool PrismEngine::startLocked() {
 
     // ---- 5. 開始。入力を先に走らせ、出力コールバックが read できる状態にする --
     inputRaw_ = inputStream_.get();
+    tunerRaw_ = latencyTuner_.get();
     inputErrors_.store(0, std::memory_order_relaxed);
 
     oboe::Result result = inputStream_->requestStart();
     if (result != oboe::Result::OK) {
         inputRaw_ = nullptr;
+        tunerRaw_ = nullptr;
         setError(std::string("マイク入力を開始できません: ") + oboe::convertToText(result));
         return false;
     }
@@ -341,6 +365,7 @@ bool PrismEngine::startLocked() {
     if (result != oboe::Result::OK) {
         inputStream_->requestStop();
         inputRaw_ = nullptr;
+        tunerRaw_ = nullptr;
         setError(std::string("出力を開始できません: ") + oboe::convertToText(result));
         return false;
     }
@@ -352,6 +377,11 @@ bool PrismEngine::startLocked() {
             outputStream_->getFramesPerBurst(), framesPerCallback,
             exclusiveMode_.load(std::memory_order_relaxed) ? 1 : 0,
             unprocessedInput_.load(std::memory_order_relaxed) ? 1 : 0);
+    logInfo("output buffer: %d frames (cap %d, bt=%d) tuner=%d",
+            outputBufferFrames_.load(std::memory_order_relaxed),
+            outputStream_->getBufferCapacityInFrames(),
+            outputIsBluetooth_.load(std::memory_order_relaxed) ? 1 : 0,
+            latencyTuner_ ? 1 : 0);
     logInfo("routing: usage=%d outDev=%d(req %d, fallback=%d) inDev=%d(req %d, fallback=%d) "
             "micSweep=%.1fms captureSweep=%.1fms",
             usage, outputStream_->getDeviceId(), wantOutputDevice, outputFellBack ? 1 : 0,
@@ -385,9 +415,15 @@ void PrismEngine::closeStreamsLocked() {
     // 触ってはいけない。
     if (outputStream_) {
         outputStream_->requestStop();
+        // requestStop() はコールバックの完了を待ってから戻る。ここへ来た時点で
+        // 音声スレッドはもう tunerRaw_ を触らないので、破棄してよい。
+        tunerRaw_ = nullptr;
+        latencyTuner_.reset();
         outputStream_->close();
         outputStream_.reset();
     }
+    tunerRaw_ = nullptr;
+    latencyTuner_.reset();
     inputRaw_ = nullptr;
     if (inputStream_) {
         inputStream_->requestStop();
@@ -413,6 +449,21 @@ oboe::DataCallbackResult PrismEngine::onAudioReady(oboe::AudioStream* outputStre
                                                    int32_t numFrames) {
     float* output = static_cast<float*>(audioData);
     const int32_t outCh = outputStream->getChannelCount();
+
+    // 出力バッファの自動調整。tune() は xrun が増えたときだけバースト 1 個ぶん
+    // setBufferSizeInFrames() を呼ぶ(AAudio では atomic な値の更新のみで、
+    // 確保もロックも I/O も伴わない = RT 安全)。広がった回数は診断表示に出す。
+    if (tunerRaw_ != nullptr) {
+        (void)tunerRaw_->tune();
+        const int32_t size = outputStream->getBufferSizeInFrames();
+        const int32_t previous = outputBufferFrames_.load(std::memory_order_relaxed);
+        if (size != previous) {
+            outputBufferFrames_.store(size, std::memory_order_relaxed);
+            if (size > previous) {
+                bufferGrowCount_.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    }
 
     oboe::AudioStream* input = inputRaw_;
     if (input == nullptr || output == nullptr || numFrames <= 0) {
@@ -584,6 +635,31 @@ int32_t PrismEngine::actualOutputDeviceId() const {
 int32_t PrismEngine::actualInputDeviceId() const {
     std::lock_guard<std::mutex> lock(controlMutex_);
     return inputStream_ ? inputStream_->getDeviceId() : kDeviceIdAuto;
+}
+
+void PrismEngine::setBluetoothOutputDeviceIds(const int32_t* ids, int count) noexcept {
+    std::lock_guard<std::mutex> lock(controlMutex_);
+    bluetoothDeviceIdCount_ = 0;
+    if (ids == nullptr || count <= 0) {
+        return;
+    }
+    const int n = (count < kMaxBluetoothDeviceIds) ? count : kMaxBluetoothDeviceIds;
+    for (int i = 0; i < n; ++i) {
+        bluetoothDeviceIds_[i] = ids[i];
+    }
+    bluetoothDeviceIdCount_ = n;
+}
+
+bool PrismEngine::isBluetoothOutputDeviceLocked(int32_t deviceId) const noexcept {
+    if (deviceId == kDeviceIdAuto) {
+        return false;  // 実際に開いたデバイスが分からない(0 は「未取得」)
+    }
+    for (int i = 0; i < bluetoothDeviceIdCount_; ++i) {
+        if (bluetoothDeviceIds_[i] == deviceId) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string PrismEngine::lastError() const {

@@ -211,6 +211,38 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetInputDeviceId(JNIEnv* /*env*/, 
     }
 }
 
+// Bluetooth 出力デバイスの ID 一覧。Kotlin 側が AudioDeviceInfo の種別
+// (A2DP / LE / SCO)で絞ったものを渡す。実際に開いた出力デバイスがこの一覧に
+// あれば、初期の出力バッファをバースト 8 個ぶんから始める(次の start() から有効)。
+JNIEXPORT void JNICALL
+Java_dev_saku_prismearring_NativeEngine_nativeSetBluetoothOutputDeviceIds(JNIEnv* env,
+                                                                         jclass /*clazz*/,
+                                                                         jlong handle,
+                                                                         jintArray ids) {
+    prism::PrismEngine* engine = toEngine(handle);
+    if (engine == nullptr) {
+        return;
+    }
+    if (ids == nullptr) {
+        engine->setBluetoothOutputDeviceIds(nullptr, 0);
+        return;
+    }
+    const jsize length = env->GetArrayLength(ids);
+    if (length <= 0) {
+        engine->setBluetoothOutputDeviceIds(nullptr, 0);
+        return;
+    }
+    // 制御スレッドからしか呼ばれず、要素数も高々数個なので Critical は使わない。
+    jint* raw = env->GetIntArrayElements(ids, nullptr);
+    if (raw == nullptr) {
+        return;
+    }
+    static_assert(sizeof(jint) == sizeof(int32_t), "jint と int32_t の幅が一致しません");
+    engine->setBluetoothOutputDeviceIds(reinterpret_cast<const int32_t*>(raw),
+                                        static_cast<int>(length));
+    env->ReleaseIntArrayElements(ids, raw, JNI_ABORT);
+}
+
 // usage: 0 = Media/Music(既定), 1 = AssistanceAccessibility/Speech
 JNIEXPORT void JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeSetOutputUsage(JNIEnv* /*env*/, jclass /*clazz*/,
@@ -292,16 +324,19 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*c
 //   [19] 捕獲リング側の不足フレーム累計(同上。捕獲は AudioRecord のため
 //        Oboe の xRun 概念が無く、こちらと captureUnderruns()/captureOverruns()
 //        [8]/[9] を合わせて代用する)
+//   [20] 出力バッファの現在のサイズ(フレーム。LatencyTuner が広げると増える)
+//   [21] LatencyTuner が出力バッファを広げた回数(start() のたびにリセット)
+//   [22] 実際に開いた出力デバイスが Bluetooth なら 1(初期バッファが大きくなる)
 JNIEXPORT jintArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass /*clazz*/,
                                                             jlong handle) {
-    constexpr jsize kCount = 20;
+    constexpr jsize kCount = 23;
     jintArray out = env->NewIntArray(kCount);
     if (out == nullptr) {
         return nullptr;
     }
     prism::PrismEngine* engine = toEngine(handle);
-    jint values[kCount] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    jint values[kCount] = {};
     if (engine != nullptr) {
         values[0] = engine->sampleRate();
         values[1] = engine->inputChannelCount();
@@ -323,6 +358,9 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass 
         values[17] = engine->inputXRunCount();
         values[18] = engine->micShortfallFrames();
         values[19] = engine->captureShortfallFrames();
+        values[20] = engine->outputBufferFrames();
+        values[21] = engine->bufferGrowCount();
+        values[22] = engine->outputIsBluetooth() ? 1 : 0;
     }
     env->SetIntArrayRegion(out, 0, kCount, values);
     return out;

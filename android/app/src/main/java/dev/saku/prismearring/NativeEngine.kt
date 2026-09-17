@@ -71,6 +71,16 @@ class NativeEngine private constructor(private var handle: Long) {
          * [captureOverruns] と合わせて捕獲経路の「xrun」の代用とする。
          */
         val captureShortfallFrames: Int = 0,
+        /**
+         * 出力バッファの現在のサイズ(フレーム)。開始時は有線でバースト 2 個分、
+         * Bluetooth でバースト 8 個分。以後 `oboe::LatencyTuner` が xrun を検知する
+         * たびにバースト 1 個ずつ広がる(上限は `getBufferCapacityInFrames()`)。
+         */
+        val outputBufferFrames: Int = 0,
+        /** LatencyTuner が出力バッファを広げた回数。開始のたびに 0 へ戻る。 */
+        val bufferGrowCount: Int = 0,
+        /** 実際に開いた出力デバイスが Bluetooth だったか(初期バッファが大きくなる)。 */
+        val outputBluetooth: Boolean = false,
     )
 
     val isValid: Boolean get() = handle != 0L
@@ -177,6 +187,16 @@ class NativeEngine private constructor(private var handle: Long) {
     }
 
     /**
+     * Bluetooth 出力デバイスの ID 一覧を渡す(`AudioDeviceInfo` の種別で絞ったもの)。
+     * 実際に開いた出力デバイスがこの一覧にあれば、初期の出力バッファを
+     * バースト 8 個ぶんから始める(有線は 2 個ぶんのまま)。抜き差しのたびに
+     * 呼び直してよい。反映は次の [start] から。
+     */
+    fun setBluetoothOutputDeviceIds(ids: IntArray) {
+        if (handle != 0L) nativeSetBluetoothOutputDeviceIds(handle, ids)
+    }
+
+    /**
      * マイクの前処理。[INPUT_PRESET_RAW] / [INPUT_PRESET_NOISE_SUPPRESSION](既定) /
      * [INPUT_PRESET_VOICE_COMMUNICATION]。開けなければ Raw → 既定 → Generic の順に
      * 自動でフォールバックする。
@@ -206,7 +226,7 @@ class NativeEngine private constructor(private var handle: Long) {
         val empty = StreamInfo(0, 0, 0, 0, 0, 0, false, false)
         if (handle == 0L) return empty
         val v = nativeGetStreamInfo(handle) ?: return empty
-        if (v.size < 20) return empty
+        if (v.size < 23) return empty
         return StreamInfo(
             sampleRate = v[0],
             inputChannels = v[1],
@@ -228,6 +248,9 @@ class NativeEngine private constructor(private var handle: Long) {
             inputXRunCount = v[17],
             micShortfallFrames = v[18],
             captureShortfallFrames = v[19],
+            outputBufferFrames = v[20],
+            bufferGrowCount = v[21],
+            outputBluetooth = v[22] != 0,
         )
     }
 
@@ -384,6 +407,10 @@ class NativeEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeSetOutputDeviceId(handle: Long, id: Int)
         @JvmStatic private external fun nativeSetInputDeviceId(handle: Long, id: Int)
         @JvmStatic private external fun nativeSetOutputUsage(handle: Long, usage: Int)
+        @JvmStatic private external fun nativeSetBluetoothOutputDeviceIds(
+            handle: Long,
+            ids: IntArray,
+        )
         @JvmStatic private external fun nativeSetInputPreset(handle: Long, preset: Int)
         @JvmStatic private external fun nativeSetMicSweepMs(handle: Long, ms: Double)
         @JvmStatic private external fun nativeGetLatency(handle: Long): DoubleArray?

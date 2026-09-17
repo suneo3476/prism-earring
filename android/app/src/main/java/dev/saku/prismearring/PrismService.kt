@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
@@ -162,6 +163,7 @@ class PrismService : Service() {
         }
 
         params.applyTo(e)
+        pushBluetoothDeviceIds(e)
         val ok = e.start()
         if (!ok) {
             val message = e.lastError().ifEmpty { "オーディオストリームを開けませんでした" }
@@ -193,6 +195,37 @@ class PrismService : Service() {
         stopForegroundCompat()
         restoreDuckedVolume()
         publishState()
+    }
+
+    // ---- 出力バッファの初期サイズ(Bluetooth 判定)-------------------------------
+    // Bluetooth(A2DP / LE / SCO)はコールバックの起床ジッタが大きく、バースト
+    // 2 個ぶんのバッファで開くと xrun が出続ける。エンジンが「実際に開いた出力
+    // デバイスが Bluetooth かどうか」を判定できるよう、現在見えている Bluetooth
+    // 出力デバイスの ID 一覧を start() の直前に渡しておく(出力先が「自動」でも、
+    // 実際に開いた ID と突き合わせられる)。
+
+    private fun isBluetoothOutputType(type: Int): Boolean = when (type) {
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        -> true
+
+        else -> false
+    }
+
+    private fun pushBluetoothDeviceIds(e: NativeEngine) {
+        val ids = try {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .filter { isBluetoothOutputType(it.type) }
+                .map { it.id }
+                .toIntArray()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Bluetooth 出力デバイスの列挙に失敗", t)
+            IntArray(0)
+        }
+        e.setBluetoothOutputDeviceIds(ids)
     }
 
     // ---- 診断用の 10 秒録音 ---------------------------------------------------

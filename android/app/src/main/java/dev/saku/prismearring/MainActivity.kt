@@ -511,8 +511,12 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.device_type_usb_device)
         AudioDeviceInfo.TYPE_WIRED_HEADSET -> getString(R.string.device_type_wired_headset)
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> getString(R.string.device_type_wired_headphones)
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO ->
-            getString(R.string.device_type_bluetooth)
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        -> getString(R.string.device_type_bluetooth)
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> getString(R.string.device_type_speaker)
         AudioDeviceInfo.TYPE_BUILTIN_MIC -> getString(R.string.device_type_builtin_mic)
         AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> getString(R.string.device_type_earpiece)
@@ -1087,6 +1091,10 @@ class MainActivity : AppCompatActivity() {
         else -> "±0"
     }
 
+    /** フレーム数 → ミリ秒。サンプルレートが未取得(0)のときは 0 を返す。 */
+    private fun framesToMillis(frames: Int, sampleRate: Int): Double =
+        if (sampleRate > 0) frames * 1000.0 / sampleRate else 0.0
+
     private fun renderState(state: PrismService.State) {
         val running = state.running
         binding.toggleButton.text = getString(if (running) R.string.action_stop else R.string.action_start)
@@ -1162,6 +1170,10 @@ class MainActivity : AppCompatActivity() {
                 state.info.micShortfallFrames,
                 state.info.captureShortfallFrames,
                 state.latency.captureDspMs,
+                state.info.outputBufferFrames,
+                framesToMillis(state.info.outputBufferFrames, state.info.sampleRate),
+                state.info.bufferGrowCount,
+                getString(if (state.info.outputBluetooth) R.string.yes else R.string.no),
             )
         }
 

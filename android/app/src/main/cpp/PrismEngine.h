@@ -114,6 +114,20 @@ public:
     // (代わりに captureUnderruns()/captureOverruns() を使う)。
     int outputXRunCount() const;
     int inputXRunCount() const;
+    // 出力バッファの現在のサイズ(フレーム)。LatencyTuner が xrun を検知するたびに
+    // バースト 1 個ぶんずつ広げるので、動作中に増えていきうる(上限は
+    // getBufferCapacityInFrames())。
+    int outputBufferFrames() const noexcept {
+        return outputBufferFrames_.load(std::memory_order_relaxed);
+    }
+    // LatencyTuner が出力バッファを広げた回数(start() のたびにリセット)。
+    int bufferGrowCount() const noexcept {
+        return bufferGrowCount_.load(std::memory_order_relaxed);
+    }
+    // 実際に開いた出力デバイスが Bluetooth だったか(初期バッファの決め方が変わる)。
+    bool outputIsBluetooth() const noexcept {
+        return outputIsBluetooth_.load(std::memory_order_relaxed);
+    }
     bool usingExclusiveMode() const noexcept {
         return exclusiveMode_.load(std::memory_order_relaxed);
     }
@@ -215,6 +229,13 @@ public:
     void setInputDeviceId(int32_t id) noexcept {
         inputDeviceId_.store(id, std::memory_order_relaxed);
     }
+    // Bluetooth 出力デバイスの ID 一覧(Kotlin 側の AudioDeviceInfo で種別を判定して渡す)。
+    // 出力ストリームを開いたあと、実際に開けたデバイス ID がこの一覧にあれば
+    // 「Bluetooth で開いた」と判定し、初期の出力バッファをバースト
+    // kOutputBurstsBluetooth 個ぶんから始める(有線より大きく取る)。
+    // 一覧は抜き差しのたびに更新してよい。次の start() から効く。
+    void setBluetoothOutputDeviceIds(const int32_t* ids, int count) noexcept;
+
     // kUsageMedia / kUsageAccessibility。未知の値は kUsageMedia として扱う。
     void setOutputUsage(int usage) noexcept {
         outputUsage_.store(usage == kUsageAccessibility ? kUsageAccessibility : kUsageMedia,
@@ -248,7 +269,11 @@ private:
     // oboe::AudioStreamErrorCallback
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
 
+    // Bluetooth 出力 ID 一覧の上限。実機に同時に見える出力デバイスはせいぜい数個。
+    static constexpr int kMaxBluetoothDeviceIds = 32;
+
     // controlMutex_ を保持した状態で呼ぶこと。
+    bool isBluetoothOutputDeviceLocked(int32_t deviceId) const noexcept;
     bool startLocked();
     void stopLocked();
     void closeStreamsLocked();
@@ -263,6 +288,14 @@ private:
     std::shared_ptr<oboe::AudioStream> outputStream_;
     oboe::AudioStream* inputRaw_ = nullptr;
 
+    // 出力バッファの自動調整。出力コールバックの先頭で tune() を呼び、xrun を
+    // 検知したらバースト 1 個ぶんずつバッファを広げる(上限は
+    // getBufferCapacityInFrames())。有線では最小のまま、Bluetooth では必要な
+    // ぶんだけ広がる。inputRaw_ と同じく「出力ストリームが停止していて
+    // コールバックが走っていない」間にしか付け替えない。
+    std::unique_ptr<oboe::LatencyTuner> latencyTuner_;
+    oboe::LatencyTuner* tunerRaw_ = nullptr;
+
     AudioBridge bridge_;
 
     // 入力 read の受け皿。start() で確保し、コールバック中は伸縮させない。
@@ -276,6 +309,13 @@ private:
     std::atomic<int> inputErrors_{0};
     std::atomic<bool> exclusiveMode_{false};
     std::atomic<bool> unprocessedInput_{false};
+    std::atomic<int32_t> outputBufferFrames_{0};
+    std::atomic<int> bufferGrowCount_{0};
+    std::atomic<bool> outputIsBluetooth_{false};
+
+    // Bluetooth 出力デバイスの ID 一覧(制御スレッドのみ。controlMutex_ で守る)。
+    int32_t bluetoothDeviceIds_[kMaxBluetoothDeviceIds] = {};
+    int bluetoothDeviceIdCount_ = 0;
 
     // 次の start() で使う設定と、その結果。
     std::atomic<int32_t> outputDeviceId_{kDeviceIdAuto};
