@@ -1431,7 +1431,9 @@ private:
     std::atomic<bool> diagActive_{false};
     std::atomic<bool> diagDone_{false};
 
-    bool prepared_ = false;
+    // pushCapture()(Java の録音スレッド)が prepare() の最中に飛び込んでくることが
+    // あるため atomic にする。prepare() は先頭で false を立ててからバッファへ触る。
+    std::atomic<bool> prepared_{false};
 };
 
 }  // namespace prism
