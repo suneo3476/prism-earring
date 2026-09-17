@@ -329,10 +329,19 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*c
 //   [20] 出力バッファの現在のサイズ(フレーム。LatencyTuner が広げると増える)
 //   [21] LatencyTuner が出力バッファを広げた回数(start() のたびにリセット)
 //   [22] 実際に開いた出力デバイスが Bluetooth なら 1(初期バッファが大きくなる)
+//   [23] 出力バッファの容量(フレーム。LatencyTuner の拡大上限)
+//   [24] 出力の AudioApi(oboe::AudioApi: 0=Unspecified, 1=OpenSLES, 2=AAudio)
+//   [25] 出力の PerformanceMode(oboe: 10=None, 11=PowerSaving, 12=LowLatency)
+//   [26] 出力が AAudio MMAP 経路なら 1
+//   [27] 入力の AudioApi(同上)
+//   [28] 入力の PerformanceMode(同上)
+//   [29] 入力が AAudio MMAP 経路なら 1
+//   [30] 出力コールバック処理時間の最大値(マイクロ秒。開始のたびにリセット)
+//   [31] 出力コールバック処理時間の移動平均(マイクロ秒)
 JNIEXPORT jintArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass /*clazz*/,
                                                             jlong handle) {
-    constexpr jsize kCount = 23;
+    constexpr jsize kCount = 32;
     jintArray out = env->NewIntArray(kCount);
     if (out == nullptr) {
         return nullptr;
@@ -363,6 +372,15 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetStreamInfo(JNIEnv* env, jclass 
         values[20] = engine->outputBufferFrames();
         values[21] = engine->bufferGrowCount();
         values[22] = engine->outputIsBluetooth() ? 1 : 0;
+        values[23] = engine->outputBufferCapacity();
+        values[24] = engine->outputAudioApi();
+        values[25] = engine->outputPerformanceMode();
+        values[26] = engine->outputMMapUsed() ? 1 : 0;
+        values[27] = engine->inputAudioApi();
+        values[28] = engine->inputPerformanceMode();
+        values[29] = engine->inputMMapUsed() ? 1 : 0;
+        values[30] = engine->callbackMaxMicros();
+        values[31] = engine->callbackAvgMicros();
     }
     env->SetIntArrayRegion(out, 0, kCount, values);
     return out;

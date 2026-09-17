@@ -226,7 +226,15 @@
     <string name="note_aec">エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。</string>
     <string name="note_codename">開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</string>
     <string name="diag_placeholder">診断: --</string>
-    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms / DSP %26$.2f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms\nxrun: 出力 %22$d 回 / マイク入力 %23$d 回\n不足フレーム: マイク %10$d 回・計 %24$d フレーム / 捕獲 %13$d 回・計 %25$d フレーム\n出力バッファ: %27$d フレーム(%28$.1f ms)/ 自動拡大 %29$d 回 / Bluetooth %30$s\n捕獲ワーカー: 追加遅延 %31$.1f ms(1024 フレーム + FIFO クッション)/ 捕獲経路 計 %32$.1f ms</string>
+    <string name="api_aaudio">AAudio</string>
+    <string name="api_opensles">OpenSL ES</string>
+    <string name="api_unknown">不明</string>
+    <string name="perf_low_latency">低遅延</string>
+    <string name="perf_none">通常</string>
+    <string name="perf_power_saving">省電力</string>
+    <string name="sharing_exclusive">排他</string>
+    <string name="sharing_shared">共有</string>
+    <string name="diag_format">fs %1$d Hz / 入力 %2$dch / 出力 %3$dch / バースト %4$d / 排他 %5$s / 無加工入力 %6$s\n遅延内訳: 入力 %7$.1f ms + 出力 %8$.1f ms + DSP(マイク) %9$.2f ms\nアンダーラン %10$d 回 / 入力エラー %11$d 回\n捕獲: 滞留 %12$d フレーム / アンダーラン %13$d 回 / オーバーラン %14$d 回 / 走査幅 %15$.1f ms / DSP %26$.2f ms\n出力先 ID %16$d(%17$s)/ 入力元 ID %18$d(%19$s)/ 用途 %20$s / マイク走査幅 %21$.1f ms\nxrun: 出力 %22$d 回 / マイク入力 %23$d 回\n不足フレーム: マイク %10$d 回・計 %24$d フレーム / 捕獲 %13$d 回・計 %25$d フレーム\n出力バッファ: %27$d フレーム(%28$.1f ms)/ 自動拡大 %29$d 回 / Bluetooth %30$s\n捕獲ワーカー: 追加遅延 %31$.1f ms(1024 フレーム + FIFO クッション)/ 捕獲経路 計 %32$.1f ms\n経路(出力): %33$s / %34$s / MMAP %35$s / 共有 %36$s / 容量 %37$d フレーム\n経路(入力): %38$s / %39$s / MMAP %40$s\nコールバック処理時間: 最大 %41$d µs / 平均 %42$d µs(締切 %43$d µs)</string>
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
     <string name="usage_media_short">メディア</string>

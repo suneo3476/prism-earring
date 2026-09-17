@@ -87,6 +87,27 @@ class NativeEngine private constructor(private var handle: Long) {
         val bufferGrowCount: Int = 0,
         /** 実際に開いた出力デバイスが Bluetooth だったか(初期バッファが大きくなる)。 */
         val outputBluetooth: Boolean = false,
+        /** 出力バッファの容量(フレーム)。LatencyTuner が広げられる上限。 */
+        val outputBufferCapacity: Int = 0,
+        /** 出力の AudioApi。[AUDIO_API_AAUDIO] などを参照。 */
+        val outputAudioApi: Int = AUDIO_API_UNSPECIFIED,
+        /** 出力の PerformanceMode。[PERFORMANCE_MODE_LOW_LATENCY] などを参照。 */
+        val outputPerformanceMode: Int = 0,
+        /** 出力が AAudio の MMAP データ経路で開けているか。 */
+        val outputMMap: Boolean = false,
+        /** 入力の AudioApi。 */
+        val inputAudioApi: Int = AUDIO_API_UNSPECIFIED,
+        /** 入力の PerformanceMode。 */
+        val inputPerformanceMode: Int = 0,
+        /** 入力が AAudio の MMAP データ経路で開けているか。 */
+        val inputMMap: Boolean = false,
+        /**
+         * 出力コールバック 1 回ぶんの処理時間の最大値(マイクロ秒)。開始のたびに 0 へ戻る。
+         * 締切(= [framesPerBurst] / [sampleRate])と見比べる。
+         */
+        val callbackMaxMicros: Int = 0,
+        /** 出力コールバック処理時間の移動平均(マイクロ秒)。 */
+        val callbackAvgMicros: Int = 0,
     )
 
     val isValid: Boolean get() = handle != 0L
@@ -232,7 +253,7 @@ class NativeEngine private constructor(private var handle: Long) {
         val empty = StreamInfo(0, 0, 0, 0, 0, 0, false, false)
         if (handle == 0L) return empty
         val v = nativeGetStreamInfo(handle) ?: return empty
-        if (v.size < 23) return empty
+        if (v.size < 32) return empty
         return StreamInfo(
             sampleRate = v[0],
             inputChannels = v[1],
@@ -257,6 +278,15 @@ class NativeEngine private constructor(private var handle: Long) {
             outputBufferFrames = v[20],
             bufferGrowCount = v[21],
             outputBluetooth = v[22] != 0,
+            outputBufferCapacity = v[23],
+            outputAudioApi = v[24],
+            outputPerformanceMode = v[25],
+            outputMMap = v[26] != 0,
+            inputAudioApi = v[27],
+            inputPerformanceMode = v[28],
+            inputMMap = v[29] != 0,
+            callbackMaxMicros = v[30],
+            callbackAvgMicros = v[31],
         )
     }
 
@@ -314,6 +344,25 @@ class NativeEngine private constructor(private var handle: Long) {
 
         /** デバイス ID の「指定なし」(OS 既定のデバイスを使う)。 */
         const val DEVICE_AUTO = 0
+
+        // ---- 実際に取れた経路(診断用)。ネイティブ側の oboe の enum と同じ値。 ----
+        /** `oboe::AudioApi::Unspecified`。 */
+        const val AUDIO_API_UNSPECIFIED = 0
+
+        /** `oboe::AudioApi::OpenSLES`。低遅延経路は望めない。 */
+        const val AUDIO_API_OPENSLES = 1
+
+        /** `oboe::AudioApi::AAudio`。 */
+        const val AUDIO_API_AAUDIO = 2
+
+        /** `oboe::PerformanceMode::None`。 */
+        const val PERFORMANCE_MODE_NONE = 10
+
+        /** `oboe::PerformanceMode::PowerSaving`。 */
+        const val PERFORMANCE_MODE_POWER_SAVING = 11
+
+        /** `oboe::PerformanceMode::LowLatency`。要求しているのはこれ。 */
+        const val PERFORMANCE_MODE_LOW_LATENCY = 12
 
         /** 出力の用途: メディア(既定)。メディア音量に乗る。 */
         const val USAGE_MEDIA = 0

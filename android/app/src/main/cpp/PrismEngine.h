@@ -21,6 +21,7 @@
 #define PRISM_PRISMENGINE_H
 
 #include <atomic>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -130,6 +131,40 @@ public:
     // 実際に開いた出力デバイスが Bluetooth だったか(初期バッファの決め方が変わる)。
     bool outputIsBluetooth() const noexcept {
         return outputIsBluetooth_.load(std::memory_order_relaxed);
+    }
+    // 出力バッファの容量(フレーム)。LatencyTuner の拡大上限でもある。
+    int outputBufferCapacity() const noexcept {
+        return outputBufferCapacity_.load(std::memory_order_relaxed);
+    }
+
+    // ---- 実際に取れた経路(診断用)-------------------------------------------
+    // 要求した LowLatency / Exclusive / AAudio が実際に取れているかを一目で
+    // 分かるようにするための値。いずれもストリームを開いた時点で確定する。
+    //   AudioApi        … oboe::AudioApi の値(0 = Unspecified, 1 = OpenSLES, 2 = AAudio)
+    //   PerformanceMode … oboe::PerformanceMode の値(10 = None, 11 = PowerSaving,
+    //                     12 = LowLatency)
+    //   MMap            … AAudio の MMAP データ経路が使われているか
+    //                     (oboe::OboeExtensions::isMMapUsed)
+    int outputAudioApi() const noexcept { return outputAudioApi_.load(std::memory_order_relaxed); }
+    int outputPerformanceMode() const noexcept {
+        return outputPerformanceMode_.load(std::memory_order_relaxed);
+    }
+    bool outputMMapUsed() const noexcept { return outputMMap_.load(std::memory_order_relaxed); }
+    int inputAudioApi() const noexcept { return inputAudioApi_.load(std::memory_order_relaxed); }
+    int inputPerformanceMode() const noexcept {
+        return inputPerformanceMode_.load(std::memory_order_relaxed);
+    }
+    bool inputMMapUsed() const noexcept { return inputMMap_.load(std::memory_order_relaxed); }
+
+    // ---- 出力コールバックの処理時間(マイクロ秒)-------------------------------
+    // 締切を落としているのがコールバック自身の重さなのか、外からの割り込みなのかを
+    // 区別するための計測。start() のたびにリセットする。
+    // バースト長 / サンプルレートから求まる「締切」と見比べる。
+    int callbackMaxMicros() const noexcept {
+        return callbackMaxMicros_.load(std::memory_order_relaxed);
+    }
+    int callbackAvgMicros() const noexcept {
+        return callbackAvgMicros_.load(std::memory_order_relaxed);
     }
     bool usingExclusiveMode() const noexcept {
         return exclusiveMode_.load(std::memory_order_relaxed);
@@ -283,6 +318,8 @@ private:
     void setError(const std::string& message);
 
     static void writeSilence(float* output, int32_t numFrames, int32_t channels) noexcept;
+    // 音声スレッドから。コールバック 1 回ぶんの処理時間を atomic へ残す。
+    void recordCallbackDuration(const timespec& start) noexcept;
 
     mutable std::mutex controlMutex_;
 
@@ -313,8 +350,24 @@ private:
     std::atomic<bool> exclusiveMode_{false};
     std::atomic<bool> unprocessedInput_{false};
     std::atomic<int32_t> outputBufferFrames_{0};
+    std::atomic<int32_t> outputBufferCapacity_{0};
     std::atomic<int> bufferGrowCount_{0};
     std::atomic<bool> outputIsBluetooth_{false};
+    std::atomic<int> outputAudioApi_{0};
+    std::atomic<int> outputPerformanceMode_{0};
+    std::atomic<bool> outputMMap_{false};
+    std::atomic<int> inputAudioApi_{0};
+    std::atomic<int> inputPerformanceMode_{0};
+    std::atomic<bool> inputMMap_{false};
+    std::atomic<int32_t> callbackMaxMicros_{0};
+    std::atomic<int32_t> callbackAvgMicros_{0};
+
+    // LatencyTuner を呼ぶ間隔(コールバック何回に 1 回か)。tune() はストリームへ
+    // xRun 数を問い合わせるので、毎回のコールバックで叩かずに約 10ms 間隔へ間引く
+    // (xRun は累積値なので、間引いても検知を取りこぼさない)。
+    // 音声スレッド専用。値はストリーム停止中にしか書き換えない。
+    int tunePeriodCallbacks_ = 1;
+    int tuneCountdown_ = 0;
 
     // Bluetooth 出力デバイスの ID 一覧(制御スレッドのみ。controlMutex_ で守る)。
     int32_t bluetoothDeviceIds_[kMaxBluetoothDeviceIds] = {};

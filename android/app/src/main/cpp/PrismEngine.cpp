@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <ctime>
 
 #include <android/log.h>
+#include <oboe/OboeExtensions.h>
 
 namespace prism {
 namespace {
@@ -18,7 +20,14 @@ constexpr const char* kTag = "prism";
 // どちらの場合も、以後は LatencyTuner が xrun を検知するたびにバースト 1 個ずつ
 // 広げる(上限 = getBufferCapacityInFrames())。
 constexpr int kOutputBurstsInBuffer = 2;
-constexpr int kOutputBurstsBluetooth = 8;
+constexpr int kOutputBurstsWide = 8;
+// 初期バッファの時間的な頭打ち。低遅延経路が取れていない端末ではバースト長自体が
+// 大きいことがあり、その 8 倍から始めると遅延が跳ね上がる。40ms で止める。
+constexpr double kOutputInitialBufferMaxMs = 40.0;
+// LatencyTuner を呼ぶ間隔の目安(ms)。毎コールバックでの問い合わせを避ける。
+constexpr double kTunePeriodMs = 10.0;
+// コールバック処理時間の移動平均の重み(1/16)。RT 経路で除算を避けるためシフトで持つ。
+constexpr int kCallbackAvgShift = 4;
 // 入力容量は余裕をもたせる(read が遅れても Overrun しにくくする)。
 constexpr int kInputBurstsCapacity = 8;
 
@@ -240,16 +249,48 @@ bool PrismEngine::startLocked() {
                      oboe::convertToText(result));
             return false;
         }
-        // 初期の出力バッファ。Bluetooth で開けたときだけ大きめ(バースト 8 個分)
-        // から始める。以後は LatencyTuner が必要なだけ広げる。
+        // 実際に取れた経路を記録する(要求は LowLatency / Exclusive / AAudio)。
+        const bool mmap = oboe::OboeExtensions::isMMapUsed(outputStream_.get());
+        outputAudioApi_.store(static_cast<int>(outputStream_->getAudioApi()),
+                              std::memory_order_relaxed);
+        outputPerformanceMode_.store(static_cast<int>(outputStream_->getPerformanceMode()),
+                                     std::memory_order_relaxed);
+        outputMMap_.store(mmap, std::memory_order_relaxed);
+
+        // 初期の出力バッファ。次のどちらかなら大きめ(バースト 8 個分)から始める:
+        //   - Bluetooth で開けた(A2DP は起床ジッタが大きい)
+        //   - 低遅延経路(LowLatency かつ MMAP)が取れていない。用途を
+        //     USAGE_ACCESSIBILITY にすると FAST/MMAP を外される端末があり、
+        //     その場合バースト 2 個では毎回締切に間に合わない。
+        // 以後は LatencyTuner が必要なだけ広げる。
         const bool bluetooth = isBluetoothOutputDeviceLocked(outputStream_->getDeviceId());
         outputIsBluetooth_.store(bluetooth, std::memory_order_relaxed);
-        const int bursts = bluetooth ? kOutputBurstsBluetooth : kOutputBurstsInBuffer;
+        const bool lowLatencyPath =
+            (outputStream_->getPerformanceMode() == oboe::PerformanceMode::LowLatency) && mmap;
+        const int32_t outBurst = outputStream_->getFramesPerBurst() > 0
+                                     ? outputStream_->getFramesPerBurst()
+                                     : framesPerCallback;
+        int bursts = (bluetooth || !lowLatencyPath) ? kOutputBurstsWide : kOutputBurstsInBuffer;
+        // 初期バッファが時間的に大きくなりすぎないよう頭打ちにする。
+        const int32_t maxInitialFrames =
+            static_cast<int32_t>(kOutputInitialBufferMaxMs * deviceSampleRate / 1000.0);
+        while (bursts > kOutputBurstsInBuffer && outBurst * bursts > maxInitialFrames) {
+            --bursts;
+        }
         // 戻り値は参考値なので捨てる(実際の採用値は下で読み直す)。
-        (void)outputStream_->setBufferSizeInFrames(outputStream_->getFramesPerBurst() * bursts);
+        (void)outputStream_->setBufferSizeInFrames(outBurst * bursts);
         outputBufferFrames_.store(outputStream_->getBufferSizeInFrames(),
                                   std::memory_order_relaxed);
+        outputBufferCapacity_.store(outputStream_->getBufferCapacityInFrames(),
+                                    std::memory_order_relaxed);
         bufferGrowCount_.store(0, std::memory_order_relaxed);
+        // tune() を呼ぶ間隔(コールバック何回に 1 回か)。
+        tunePeriodCallbacks_ = static_cast<int>(kTunePeriodMs * deviceSampleRate / 1000.0 /
+                                                (framesPerCallback > 0 ? framesPerCallback : 1));
+        if (tunePeriodCallbacks_ < 1) {
+            tunePeriodCallbacks_ = 1;
+        }
+        tuneCountdown_ = tunePeriodCallbacks_;
         // LatencyTuner は「今のバッファサイズ」から始めて、xrun のたびにバースト
         // 1 個ずつ広げる。上限は既定(= getBufferCapacityInFrames())のまま。
         latencyTuner_ = std::unique_ptr<oboe::LatencyTuner>(
@@ -319,6 +360,13 @@ bool PrismEngine::startLocked() {
         }
     }
 
+    inputAudioApi_.store(static_cast<int>(inputStream_->getAudioApi()),
+                         std::memory_order_relaxed);
+    inputPerformanceMode_.store(static_cast<int>(inputStream_->getPerformanceMode()),
+                                std::memory_order_relaxed);
+    inputMMap_.store(oboe::OboeExtensions::isMMapUsed(inputStream_.get()),
+                     std::memory_order_relaxed);
+
     inputChannels_ = inputStream_->getChannelCount();
     outputChannels_ = outputStream_->getChannelCount();
     if (inputChannels_ < 1 || outputChannels_ < 1) {
@@ -359,6 +407,8 @@ bool PrismEngine::startLocked() {
     inputRaw_ = inputStream_.get();
     tunerRaw_ = latencyTuner_.get();
     inputErrors_.store(0, std::memory_order_relaxed);
+    callbackMaxMicros_.store(0, std::memory_order_relaxed);
+    callbackAvgMicros_.store(0, std::memory_order_relaxed);
 
     oboe::Result result = inputStream_->requestStart();
     if (result != oboe::Result::OK) {
@@ -383,6 +433,13 @@ bool PrismEngine::startLocked() {
             outputStream_->getFramesPerBurst(), framesPerCallback,
             exclusiveMode_.load(std::memory_order_relaxed) ? 1 : 0,
             unprocessedInput_.load(std::memory_order_relaxed) ? 1 : 0);
+    logInfo("path: out api=%d perf=%d mmap=%d / in api=%d perf=%d mmap=%d",
+            outputAudioApi_.load(std::memory_order_relaxed),
+            outputPerformanceMode_.load(std::memory_order_relaxed),
+            outputMMap_.load(std::memory_order_relaxed) ? 1 : 0,
+            inputAudioApi_.load(std::memory_order_relaxed),
+            inputPerformanceMode_.load(std::memory_order_relaxed),
+            inputMMap_.load(std::memory_order_relaxed) ? 1 : 0);
     logInfo("output buffer: %d frames (cap %d, bt=%d) tuner=%d",
             outputBufferFrames_.load(std::memory_order_relaxed),
             outputStream_->getBufferCapacityInFrames(),
@@ -456,13 +513,19 @@ void PrismEngine::writeSilence(float* output, int32_t numFrames, int32_t channel
 oboe::DataCallbackResult PrismEngine::onAudioReady(oboe::AudioStream* outputStream,
                                                    void* audioData,
                                                    int32_t numFrames) {
+    // 処理時間の計測。clock_gettime(CLOCK_MONOTONIC) は vDSO で解決されるため
+    // システムコールにはならない(RT 経路で使ってよい数少ない例外)。
+    timespec callbackStart{};
+    clock_gettime(CLOCK_MONOTONIC, &callbackStart);
+
     float* output = static_cast<float*>(audioData);
     const int32_t outCh = outputStream->getChannelCount();
 
     // 出力バッファの自動調整。tune() は xrun が増えたときだけバースト 1 個ぶん
-    // setBufferSizeInFrames() を呼ぶ(AAudio では atomic な値の更新のみで、
-    // 確保もロックも I/O も伴わない = RT 安全)。広がった回数は診断表示に出す。
-    if (tunerRaw_ != nullptr) {
+    // setBufferSizeInFrames() を呼ぶ。ストリームへの問い合わせ(getXRunCount)を
+    // 含むので毎回は呼ばず、約 10ms 間隔へ間引く(xRun は累積値なので取りこぼさない)。
+    if (tunerRaw_ != nullptr && --tuneCountdown_ <= 0) {
+        tuneCountdown_ = tunePeriodCallbacks_;
         (void)tunerRaw_->tune();
         const int32_t size = outputStream->getBufferSizeInFrames();
         const int32_t previous = outputBufferFrames_.load(std::memory_order_relaxed);
@@ -479,6 +542,7 @@ oboe::DataCallbackResult PrismEngine::onAudioReady(oboe::AudioStream* outputStre
         if (output != nullptr && numFrames > 0) {
             writeSilence(output, numFrames, outCh);
         }
+        recordCallbackDuration(callbackStart);
         return oboe::DataCallbackResult::Continue;
     }
 
@@ -526,7 +590,27 @@ oboe::DataCallbackResult PrismEngine::onAudioReady(oboe::AudioStream* outputStre
         }
     }
 
+    recordCallbackDuration(callbackStart);
     return oboe::DataCallbackResult::Continue;
+}
+
+// 出力コールバック 1 回ぶんの処理時間を最大値と移動平均で残す(RT 安全:
+// atomic への書き込みだけ)。締切(バースト長 / サンプルレート)と見比べて、
+// 締切超過がコールバック自身の重さによるものかどうかを切り分けるために使う。
+void PrismEngine::recordCallbackDuration(const timespec& start) noexcept {
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const int64_t micros = (now.tv_sec - start.tv_sec) * 1000000LL +
+                           (now.tv_nsec - start.tv_nsec) / 1000LL;
+    if (micros < 0) {
+        return;
+    }
+    const int32_t value = static_cast<int32_t>(micros > 1000000LL ? 1000000LL : micros);
+    if (value > callbackMaxMicros_.load(std::memory_order_relaxed)) {
+        callbackMaxMicros_.store(value, std::memory_order_relaxed);
+    }
+    const int32_t avg = callbackAvgMicros_.load(std::memory_order_relaxed);
+    callbackAvgMicros_.store(avg + ((value - avg) >> kCallbackAvgShift), std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------

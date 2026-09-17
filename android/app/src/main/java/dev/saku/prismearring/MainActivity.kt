@@ -1091,6 +1091,23 @@ class MainActivity : AppCompatActivity() {
         else -> "±0"
     }
 
+    private fun audioApiLabel(api: Int): String = when (api) {
+        NativeEngine.AUDIO_API_AAUDIO -> getString(R.string.api_aaudio)
+        NativeEngine.AUDIO_API_OPENSLES -> getString(R.string.api_opensles)
+        else -> getString(R.string.api_unknown)
+    }
+
+    private fun performanceModeLabel(mode: Int): String = when (mode) {
+        NativeEngine.PERFORMANCE_MODE_LOW_LATENCY -> getString(R.string.perf_low_latency)
+        NativeEngine.PERFORMANCE_MODE_POWER_SAVING -> getString(R.string.perf_power_saving)
+        NativeEngine.PERFORMANCE_MODE_NONE -> getString(R.string.perf_none)
+        else -> getString(R.string.api_unknown)
+    }
+
+    /** コールバック 1 回ぶんの締切(マイクロ秒)= バースト長 / サンプルレート。 */
+    private fun callbackDeadlineMicros(framesPerBurst: Int, sampleRate: Int): Int =
+        if (sampleRate > 0) (framesPerBurst * 1_000_000L / sampleRate).toInt() else 0
+
     /** フレーム数 → ミリ秒。サンプルレートが未取得(0)のときは 0 を返す。 */
     private fun framesToMillis(frames: Int, sampleRate: Int): Double =
         if (sampleRate > 0) frames * 1000.0 / sampleRate else 0.0
@@ -1176,6 +1193,20 @@ class MainActivity : AppCompatActivity() {
                 getString(if (state.info.outputBluetooth) R.string.yes else R.string.no),
                 state.latency.captureExtraMs,
                 state.latency.captureDspMs + state.latency.captureExtraMs,
+                audioApiLabel(state.info.outputAudioApi),
+                performanceModeLabel(state.info.outputPerformanceMode),
+                getString(if (state.info.outputMMap) R.string.yes else R.string.no),
+                getString(
+                    if (state.info.exclusive) R.string.sharing_exclusive
+                    else R.string.sharing_shared
+                ),
+                state.info.outputBufferCapacity,
+                audioApiLabel(state.info.inputAudioApi),
+                performanceModeLabel(state.info.inputPerformanceMode),
+                getString(if (state.info.inputMMap) R.string.yes else R.string.no),
+                state.info.callbackMaxMicros,
+                state.info.callbackAvgMicros,
+                callbackDeadlineMicros(state.info.framesPerBurst, state.info.sampleRate),
             )
         }
 
