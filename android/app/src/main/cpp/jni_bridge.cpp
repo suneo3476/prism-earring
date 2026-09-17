@@ -275,17 +275,18 @@ Java_dev_saku_prismearring_NativeEngine_nativeSetMicSweepMs(JNIEnv* /*env*/, jcl
 }
 
 // [0]=入力 ms, [1]=出力 ms, [2]=DSP ms(マイク経路), [3]=合計 ms, [4]=有効なら 1,
-// [5]=マイク経路の走査幅 ms, [6]=捕獲経路の走査幅 ms, [7]=DSP ms(捕獲経路。選択中の方式の値)
+// [5]=マイク経路の走査幅 ms, [6]=捕獲経路の走査幅 ms, [7]=DSP ms(捕獲経路。選択中の方式の値),
+// [8]=捕獲経路の追加遅延 ms(ワーカーのブロック長 + ステージリングのクッション)
 JNIEXPORT jdoubleArray JNICALL
 Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*clazz*/,
                                                          jlong handle) {
-    constexpr jsize kCount = 8;
+    constexpr jsize kCount = 9;
     jdoubleArray out = env->NewDoubleArray(kCount);
     if (out == nullptr) {
         return nullptr;  // OutOfMemoryError は JNI が投げている
     }
     prism::PrismEngine* engine = toEngine(handle);
-    jdouble values[kCount] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    jdouble values[kCount] = {};
     if (engine != nullptr) {
         const prism::PrismEngine::LatencyReport r = engine->latency();
         values[0] = r.inputMillis;
@@ -296,6 +297,7 @@ Java_dev_saku_prismearring_NativeEngine_nativeGetLatency(JNIEnv* env, jclass /*c
         values[5] = r.micSweepMillis;
         values[6] = r.captureSweepMillis;
         values[7] = r.captureDspMillis;
+        values[8] = r.captureExtraMillis;
     }
     env->SetDoubleArrayRegion(out, 0, kCount, values);
     return out;

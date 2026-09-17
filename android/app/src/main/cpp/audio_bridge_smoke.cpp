@@ -351,14 +351,23 @@ void testOutputGainAndSoftClip() {
 }
 
 // ---- 捕獲経路の共通ヘルパ ---------------------------------------------------
+// v0.6.1 から、捕獲経路の処理は専用ワーカースレッドが 1024 フレーム単位で行う。
+// ホストスモークではスレッドを起こさず(startCaptureWorker() を呼ばず)、
+// pumpCaptureWorkerForTesting() を明示的に呼んでワーカー本体をこのスレッドで回す。
+// こうするとタイミングに依存せず、実機と同じコードパスを決定的に検査できる。
+void pump(prism::AudioBridge& bridge) { bridge.pumpCaptureWorkerForTesting(); }
+
 // 捕獲経路を「素通し(dryWet=0)+ マイク無音」に構成する。こうするとリングに
 // 書いた値がそのまま出力に現れるため、順序・クッション・欠落を厳密に検査できる。
 //   out = マイク経路 x 0.0 + 捕獲経路 x 1.0、出力ゲイン 1.0、|x| <= 0.9 は素通し。
+// 有効化の反映(リングを空にし、シフタを初期化する)はワーカーの仕事なので、
+// 直後に 1 回 pump しておく。
 void configurePassthroughCapture(prism::AudioBridge& bridge) {
     bridge.captureShifter().setDryWet(0.0f);  // 有効化時の reset() で即座に整定する
     bridge.setMicGain(0.0f);
     bridge.setCaptureGain(1.0f);
     bridge.setCaptureEnabled(true);
+    pump(bridge);
 }
 
 // 値が単調増加するインタリーブ stereo の列(L=R)。
@@ -396,11 +405,20 @@ void testCaptureRingOrdering() {
     configurePassthroughCapture(bridge);
     runToSteadyState(bridge);
 
-    // クッション(20ms = 960 フレーム @48k)を超える量をまとめて書く。
-    const int pushed = 2000;
+    // ワーカーのブロック(1024)複数個ぶん + ステージのクッションを超える量を書く。
+    const int pushed = 4000;
     const std::vector<float> ramp = makeRamp(pushed);
-    check(bridge.pushCapture(ramp.data(), pushed, 2) == pushed, "2000 フレーム全部書ける");
-    check(bridge.captureFillFrames() == pushed, "滞留が push した分だけ増える");
+    check(bridge.pushCapture(ramp.data(), pushed, 2) == pushed, "4000 フレーム全部書ける");
+    check(bridge.captureInputFillFrames() == pushed, "入力リングの滞留が push した分だけ増える");
+
+    // ワーカーは 1024 フレーム単位でしか処理しない(端数は次の起床まで残る)。
+    pump(bridge);
+    const int blocks = pushed / prism::AudioBridge::kCaptureWorkerBlockFrames;
+    const int processed = blocks * prism::AudioBridge::kCaptureWorkerBlockFrames;
+    check(bridge.captureStageFillFrames() == processed,
+          "ワーカーが 1024 フレーム単位でステージリングへ積む");
+    check(bridge.captureInputFillFrames() == pushed - processed,
+          "1 ブロックに満たない端数は入力リングに残る");
 
     const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
     std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
@@ -423,7 +441,8 @@ void testCaptureRingOrdering() {
         }
     }
     check(continued, "2 回目は続きから途切れずに出る(取りこぼし・重複なし)");
-    check(bridge.captureFillFrames() == pushed - 2 * kFrames, "滞留が pop した分だけ減る");
+    check(bridge.captureStageFillFrames() == processed - 2 * kFrames,
+          "ステージリングの滞留が pop した分だけ減る");
     check(bridge.captureUnderruns() == 0 && bridge.captureOverruns() == 0,
           "順調な経路では under/overrun が発生しない");
 
@@ -445,27 +464,44 @@ void testCaptureCushion() {
     configurePassthroughCapture(bridge);
     runToSteadyState(bridge);
 
+    const int block = prism::AudioBridge::kCaptureWorkerBlockFrames;
     const int cushion = bridge.captureCushionFrames();
-    check(cushion == static_cast<int>(prism::AudioBridge::kCaptureCushionMs * kFs / 1000.0),
-          "クッションは 20ms 相当(960 フレーム @48k)");
+    check(cushion == block + static_cast<int>(prism::AudioBridge::kCaptureStageCushionMs * kFs /
+                                              1000.0),
+          "ステージのクッションは ブロック長(1024)+ 10ms 相当(480 @48k)");
+    check(cushion > block,
+          "クッションはブロック長より大きい(ブロック到着直前に枯れないため)");
 
-    // クッション未満: 読まずに無音を出す(滞留も減らない)。
-    const int half = cushion / 2;
-    const std::vector<float> quiet(static_cast<std::size_t>(half) * 2u, 0.5f);
-    check(bridge.pushCapture(quiet.data(), half, 2) == half, "クッション未満だけ書く");
+    // ブロック 1 個に満たない量では、ワーカーは 1 フレームも処理しない。
+    const int partial = block / 2;
+    const std::vector<float> quiet(static_cast<std::size_t>(partial) * 2u, 0.5f);
+    check(bridge.pushCapture(quiet.data(), partial, 2) == partial, "ブロック未満だけ書く");
+    pump(bridge);
+    check(bridge.captureStageFillFrames() == 0,
+          "1 ブロックたまるまでワーカーは処理しない");
 
     const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
     std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
-    check(peak(out, 1, 0) == 0.0f, "クッションがたまるまで捕獲経路は無音");
-    check(bridge.captureFillFrames() == half, "読まないので滞留は減らない");
+    check(peak(out, 1, 0) == 0.0f, "ステージが空のあいだ捕獲経路は無音");
+    check(bridge.captureInputFillFrames() == partial, "処理しないので入力の滞留は減らない");
     check(bridge.captureUnderruns() == 0, "クッション待ちはアンダーランに数えない");
 
+    // 1 ブロックは超えたがクッションには届かない量: 読み出しはまだ始まらない。
+    check(bridge.pushCapture(quiet.data(), partial, 2) == partial, "追加してブロック 1 個を超える");
+    pump(bridge);
+    check(bridge.captureStageFillFrames() == block, "1 ブロックだけ処理される");
+    bridge.render(silence.data(), kFrames, out.data(), kFrames);
+    check(peak(out, 1, 0) == 0.0f, "クッションに届かないうちは無音のまま");
+    check(bridge.captureStageFillFrames() == block, "読まないのでステージの滞留も減らない");
+
     // クッションを超えたら読み始める。
-    check(bridge.pushCapture(quiet.data(), half, 2) == half, "追加で書いてクッションを超える");
+    const std::vector<float> more(static_cast<std::size_t>(block) * 2u, 0.5f);
+    check(bridge.pushCapture(more.data(), block, 2) == block, "さらに 1 ブロック書く");
+    pump(bridge);
+    check(bridge.captureStageFillFrames() >= cushion, "ステージがクッションを超える");
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
     check(out[0] == 0.5f, "クッションが満ちたら捕獲音がそのまま出る");
-    check(bridge.captureFillFrames() == 2 * half - kFrames, "読んだ分だけ滞留が減る");
 }
 
 // ---- 11. mic 0 + capture 1 のとき捕獲音だけが出ること -----------------------
@@ -497,8 +533,10 @@ void testMicMuteCaptureOnly() {
     bridge.captureShifter().setDryWet(0.0f);
     bridge.setCaptureGain(1.0f);
     bridge.setCaptureEnabled(true);
+    pump(bridge);  // 有効化の反映(ワーカーの仕事)
     const std::vector<float> constant(4000u * 2u, 0.25f);
     check(bridge.pushCapture(constant.data(), 4000, 2) == 4000, "捕獲音を 4000 フレーム書く");
+    pump(bridge);  // ワーカーが 3 ブロック(3072 フレーム)処理してステージへ積む
 
     const std::vector<float> mic = makeSine(kFrames, 2, 440.0, kFs, 0.0);
     bridge.render(mic.data(), kFrames, out.data(), kFrames);
@@ -557,19 +595,27 @@ void testCaptureOverrunUnderrun() {
     check(bridge.pushCapture(big.data(), 128, 2) == 0, "満杯のあいだは 1 フレームも書けない");
     check(bridge.captureOverruns() == 2, "満杯への push も取りこぼしとして数える");
 
-    // 滞留が上限(200ms)を超えているので、最初の読み出しで古い分が捨てられる。
+    // 入力の滞留が上限(200ms)を超えているので、ワーカーが古い分を捨てる。
     const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
     std::vector<float> out(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
-    bridge.render(silence.data(), kFrames, out.data(), kFrames);
-    check(bridge.captureFillFrames() <= bridge.captureCushionFrames(),
-          "滞留が上限を超えたら古い分を捨ててクッション量まで詰める(ドリフト対策)");
+    pump(bridge);
+    check(bridge.captureInputFillFrames() < prism::AudioBridge::kCaptureWorkerBlockFrames,
+          "入力の滞留が上限を超えたらワーカーが古い分を捨てる(ドリフト対策)");
     check(bridge.captureUnderruns() == 0, "捨てただけではアンダーランに数えない");
 
-    // 読み続けるとリングが空になり、アンダーランが数えられる。
-    for (int k = 0; k < 16; ++k) {
+    // ステージにクッションを超える量を積んでから読み切ると、アンダーランが数えられる。
+    const std::vector<float> feed(
+        static_cast<std::size_t>(prism::AudioBridge::kCaptureWorkerBlockFrames) * 3u * 2u, 0.1f);
+    check(bridge.pushCapture(feed.data(), prism::AudioBridge::kCaptureWorkerBlockFrames * 3, 2) ==
+              prism::AudioBridge::kCaptureWorkerBlockFrames * 3,
+          "3 ブロックぶん書ける");
+    pump(bridge);
+    check(bridge.captureStageFillFrames() >= bridge.captureCushionFrames(),
+          "ステージがクッションを超える");
+    for (int k = 0; k < 64; ++k) {
         bridge.render(silence.data(), kFrames, out.data(), kFrames);
     }
-    check(bridge.captureUnderruns() >= 1, "リングが空になるとアンダーランを数える");
+    check(bridge.captureUnderruns() >= 1, "ステージが空になるとアンダーランを数える");
     check(bridge.captureShortfallFrames() >= 1, "不足フレーム数も一緒に積み上がる");
 
     // アンダーラン後はクッション待ちに戻るので、たまるまでは無音。
@@ -587,9 +633,12 @@ void testCaptureOverrunUnderrun() {
     bridge.setCaptureEnabled(false);
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
     check(peak(out, 1, 0) == 0.0f, "無効化すると捕獲経路は無音");
+    check(bridge.captureStageFillFrames() == 0,
+          "無効化では音声スレッド側がステージリングを空にする");
     bridge.setCaptureEnabled(true);
+    pump(bridge);
+    check(bridge.captureInputFillFrames() == 0, "再有効化ではワーカーが入力リングを空にする");
     bridge.render(silence.data(), kFrames, out.data(), kFrames);
-    check(bridge.captureFillFrames() == 0, "再有効化ではリングが空から始まる");
     check(peak(out, 1, 0) == 0.0f, "再有効化直後はクッションがたまるまで無音");
 }
 
@@ -729,8 +778,9 @@ void testMethodSwitching() {
     const std::size_t segmentFrames =
         static_cast<std::size_t>(kSwitchEveryBlocks) * static_cast<std::size_t>(kFrames);
     // 区間先頭の除外幅: クロスフェード(10ms)+ 位相ボコーダ N=4096 の自身の遅延
-    // (最大 ~110ms)+ 捕獲経路のクッション(20ms)をまとめて余裕をもって覆う値。
-    const std::size_t excludeFramesPerSegment = static_cast<std::size_t>(kFs * 0.150);
+    // (最大 ~110ms)+ 捕獲ワーカー経由の追加遅延(ブロック 1024 + クッション
+    // 1504 = 約 53ms)をまとめて余裕をもって覆う値。
+    const std::size_t excludeFramesPerSegment = static_cast<std::size_t>(kFs * 0.220);
     const double ratio = std::exp2(kShiftCents / 1200.0);
     const double maxSlope = 2.0 * M_PI * kFreq * ratio * kAmplitude / kFs;
     const double limit = kSlopeFactor * maxSlope;
@@ -775,6 +825,7 @@ void testMethodSwitching() {
         bridge.setCaptureGain(1.0f);
         bridge.setCaptureMethod(methodSequence[0]);
         bridge.setCaptureEnabled(true);
+        pump(bridge);
 
         std::vector<float> out(static_cast<std::size_t>(kTotalBlocks) *
                                static_cast<std::size_t>(kFrames) * 2u);
@@ -788,6 +839,7 @@ void testMethodSwitching() {
             const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
             phase += kFrames;
             bridge.pushCapture(capIn.data(), kFrames, 2);
+            pump(bridge);  // 捕獲経路の処理はワーカーの仕事(実機では別スレッド)
             bridge.render(silence.data(), kFrames,
                           out.data() + writtenFrames * 2u, kFrames);
             writtenFrames += static_cast<std::size_t>(kFrames);
@@ -812,6 +864,120 @@ void testMethodSwitching() {
           "捕獲経路: 位相ボコーダ N=4096 の遅延はおよそ 110ms 前後");
 }
 
+
+// ---- 15. 捕獲ワーカー経路(v0.6.1) -------------------------------------------
+// 捕獲経路の処理をオーディオコールバックから専用ワーカースレッドへ移したことで、
+//   (1) 入力 -> 出力が常に有限
+//   (2) 不連続(クリック)が出ない
+//   (3) 実測の遅延が「ブロック長 + ステージのクッション」の見積もりと合う
+// の 3 点を、フレーム単位で確かめる。
+// 駆動の順序は実機に合わせて「push(録音スレッド)-> ワーカー -> render(音声
+// スレッド)」。ホストスモークではスレッドを起こさず pump() で決定的に回す。
+void testCaptureWorkerPath() {
+    std::printf("[15] 捕獲ワーカー経路(別スレッド処理と追加遅延)\n");
+    constexpr double kFs = 48000.0;
+    constexpr int kFrames = 192;
+    constexpr double kFreq = 440.0;
+    constexpr double kAmplitude = 0.5;
+    constexpr double kShiftCents = -89.0;
+    constexpr double kSlopeFactor = 3.0;  // verify/verify.cpp の kGlitchSlopeFactor と同じ
+    const int block = prism::AudioBridge::kCaptureWorkerBlockFrames;
+
+    prism::AudioBridge bridge;
+    // 素通し(dryWet=0)で遅延をフレーム単位に読みたいので、ディレイライン型に固定する。
+    bridge.setCaptureMethod(prism::AudioBridge::kMethodDelayLine);
+    check(bridge.prepare(kFs, 2, 2), "prepare が成功する");
+    check(!bridge.isCaptureWorkerRunning(),
+          "prepare だけではワーカースレッドは起きない(起こすのは PrismEngine)");
+
+    const int cushion = bridge.captureCushionFrames();
+    const double expectedExtraMs = static_cast<double>(block + cushion) / kFs * 1000.0;
+    const double reportedExtraMs = bridge.captureExtraLatencyMillis();
+    check(std::fabs(reportedExtraMs - expectedExtraMs) < 1.0e-9,
+          "追加遅延の申告値 = (ブロック長 + クッション)/ fs");
+
+    bridge.setCaptureShiftCentsL(static_cast<float>(kShiftCents));
+    bridge.setCaptureShiftCentsR(static_cast<float>(kShiftCents));
+    configurePassthroughCapture(bridge);
+    runToSteadyState(bridge);
+
+    // 5 秒ぶん流す。1 回あたり push(192)-> pump -> render(192)。
+    const int totalBlocks = 1200;
+    const std::size_t totalFrames =
+        static_cast<std::size_t>(totalBlocks) * static_cast<std::size_t>(kFrames);
+    std::vector<float> out(totalFrames * 2u, 0.0f);
+    const std::vector<float> silence(static_cast<std::size_t>(kFrames) * 2u, 0.0f);
+    double phase = 0.0;
+    std::size_t written = 0;
+    int pushFailures = 0;
+    for (int b = 0; b < totalBlocks; ++b) {
+        const std::vector<float> capIn = makeSine(kFrames, 2, kFreq, kFs, phase, kAmplitude);
+        phase += kFrames;
+        if (bridge.pushCapture(capIn.data(), kFrames, 2) != kFrames) {
+            ++pushFailures;
+        }
+        pump(bridge);
+        bridge.render(silence.data(), kFrames, out.data() + written * 2u, kFrames);
+        written += static_cast<std::size_t>(kFrames);
+    }
+
+    check(pushFailures == 0, "5 秒ぶん流しても push の取りこぼしが 1 回も無い");
+    check(allFinite(out), "ワーカー経由の出力に NaN / Inf が無い");
+    check(bridge.captureOverruns() == 0, "定常状態では入力リングが溢れない");
+    check(bridge.captureUnderruns() == 0, "定常状態ではステージリングが枯れない");
+
+    // (3) 実測の遅延: 出力の先頭に並ぶ無音の長さ。ワーカーはブロック単位でしか
+    // 積まず、音声スレッドはクッションがたまるまで読まないので、
+    // クッション以上・クッション + ブロック + コールバック 1 回ぶん以下に収まるはず。
+    std::size_t silentPrefix = 0;
+    while (silentPrefix < totalFrames && out[silentPrefix * 2u] == 0.0f) {
+        ++silentPrefix;
+    }
+    const std::size_t lowerBound = static_cast<std::size_t>(cushion);
+    const std::size_t upperBound =
+        static_cast<std::size_t>(cushion + block + kFrames) +
+        static_cast<std::size_t>(bridge.captureShifter().getLatencySamples()) + 2u;
+    char label[192];
+    std::snprintf(label, sizeof(label),
+                  "実測の追加遅延 %zu フレームが [%zu, %zu] に収まる(申告 %.1f ms)",
+                  silentPrefix, lowerBound, upperBound, reportedExtraMs);
+    check(silentPrefix >= lowerBound && silentPrefix <= upperBound, label);
+
+    // (2) 不連続。立ち上がり(無音 -> 信号)は遅延特性そのものなので、先頭の
+    // 除外幅に含めて検査から外す。以降は 1 区間として最大スロープ基準で検査する。
+    const double ratio = std::exp2(kShiftCents / 1200.0);
+    const double limit = kSlopeFactor * 2.0 * M_PI * kFreq * ratio * kAmplitude / kFs;
+    checkNoDiscontinuitiesPerSegment(out, totalFrames, upperBound + static_cast<std::size_t>(kFs * 0.05),
+                                     limit, "捕獲ワーカー経路");
+
+    // 無効化 -> 再有効化でワーカーの状態がきれいに畳まれること。
+    std::vector<float> small(static_cast<std::size_t>(kFrames) * 2u, 7.0f);
+    bridge.setCaptureEnabled(false);
+    pump(bridge);
+    bridge.render(silence.data(), kFrames, small.data(), kFrames);
+    check(peak(small, 1, 0) == 0.0f, "無効化すると捕獲経路は無音になる");
+    check(bridge.captureFillFrames() == 0, "無効化で入力・ステージとも空になる");
+
+    // OFF -> ON を相手が観測する前に往復させても、前回の残りが混ざらないこと
+    // (値ではなく世代番号で切り替わりを検出しているため)。
+    bridge.setCaptureEnabled(true);
+    pump(bridge);
+    const std::vector<float> stale(static_cast<std::size_t>(kFrames) * 2u, 0.5f);
+    check(bridge.pushCapture(stale.data(), kFrames, 2) == kFrames, "古い音を書いておく");
+    bridge.setCaptureEnabled(false);
+    bridge.setCaptureEnabled(true);  // ワーカーが観測する前に往復させる
+    pump(bridge);
+    check(bridge.captureInputFillFrames() == 0,
+          "OFF -> ON を往復しても入力リングは空から始まる");
+
+    // 実スレッドとして起こして畳めること(join まで戻ること)。
+    check(bridge.startCaptureWorker(), "ワーカースレッドを起こせる");
+    check(bridge.isCaptureWorkerRunning(), "起こした後は動作中になる");
+    check(bridge.startCaptureWorker(), "二重 start は無害");
+    bridge.stopCaptureWorker();
+    check(!bridge.isCaptureWorkerRunning(), "stop で確実に畳める");
+}
+
 }  // namespace
 
 int main() {
@@ -830,6 +996,7 @@ int main() {
     testCaptureOverrunUnderrun();
     testDiagnosticRecording();
     testMethodSwitching();
+    testCaptureWorkerPath();
 
     std::printf("\n");
     if (g_failures == 0) {

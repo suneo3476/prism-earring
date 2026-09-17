@@ -349,6 +349,12 @@ bool PrismEngine::startLocked() {
         return false;
     }
 
+    // 捕獲経路の処理を回すワーカースレッド。prepare() の後・ストリーム開始の前に
+    // 起こす。失敗しても致命的ではない(捕獲経路が無音になるだけで、マイク経路は動く)。
+    if (!bridge_.startCaptureWorker()) {
+        logError("捕獲ワーカースレッドを開始できません — 捕獲経路は無音になります");
+    }
+
     // ---- 5. 開始。入力を先に走らせ、出力コールバックが read できる状態にする --
     inputRaw_ = inputStream_.get();
     tunerRaw_ = latencyTuner_.get();
@@ -410,6 +416,9 @@ void PrismEngine::stopLocked() {
 }
 
 void PrismEngine::closeStreamsLocked() {
+    // 捕獲ワーカーを先に畳む。ワーカーが止まっていることが bridge_.prepare() /
+    // reset() の前提(リングの読み書き位置とシフタを作り直すため)。
+    bridge_.stopCaptureWorker();
     // 順序が重要: 出力を止めるとコールバックが完全に止まる(requestStop() は
     // 実行中のコールバックの完了を待つ)。その後でなければ inputRaw_ を
     // 触ってはいけない。
@@ -564,6 +573,7 @@ PrismEngine::LatencyReport PrismEngine::latency() const {
     report.micSweepMillis = bridge_.micSweepMs();
     report.captureSweepMillis = bridge_.captureSweepMs();
     report.captureDspMillis = bridge_.captureDspLatencyMillis();
+    report.captureExtraMillis = bridge_.captureExtraLatencyMillis();
     if (!running_.load(std::memory_order_acquire) || !inputStream_ || !outputStream_) {
         report.totalMillis = report.dspMillis;
         return report;

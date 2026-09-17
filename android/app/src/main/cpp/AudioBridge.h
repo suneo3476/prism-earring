@@ -22,15 +22,33 @@
 // バッファは prepare() でのみ確保し、以後サイズを変えない。
 //
 // スレッド:
-//   pushCapture()          … Java 側の AudioRecord スレッド(単一の書き手)
-//   render() / nextStep()  … 音声スレッド(単一の読み手)
+//   pushCapture()          … Java 側の AudioRecord スレッド(捕獲入力リングの書き手)
+//   捕獲ワーカースレッド    … 捕獲入力リングの読み手 兼 捕獲ステージリングの書き手
+//   render() / nextStep()  … 音声スレッド(マイク入力とステージリングの読み手)
 //   セッター / 診断        … 制御スレッド(すべて std::atomic 越し)
-// リングは SPSC。書き手は write インデックスだけを、読み手は read インデックスだけを
-// 進める。相手側は acquire で読むので、ロックは要らない。
+// リングは 2 本とも SPSC。書き手は write インデックスだけを、読み手は read
+// インデックスだけを進める。相手側は acquire で読むので、ロックは要らない。
+// 「リングを空にする」操作も必ず読み手側が行う(read を write に追いつかせる)。
 //
 // 捕獲経路には「生音の漏れ込み」が存在しない(耳に届くのは処理後の音だけ)ため、
 // NFR-1 の 10ms 遅延予算は適用されない。走査幅を広く取り(既定 40ms)、跳躍間隔
 // (= sweep / |1-比|)を伸ばして大きなシフト量でのアーティファクトを抑える。
+//
+// ---- 捕獲経路は専用ワーカースレッド(v0.6.1) --------------------------------
+// 捕獲経路の処理(とくに位相ボコーダ)を出力コールバックの中で回すと、コールバック
+// 1 回あたりの処理時間が跳ね上がり、締切を落として xrun になる(Pixel 9a 実機で
+// 毎秒 20〜40 回)。捕獲経路は遅延予算の対象外なので、処理そのものを音声スレッドから
+// 追い出す:
+//
+//   Java 録音スレッド  --push-->  捕獲入力リング(SPSC)
+//   捕獲ワーカー       --pop--->  1024 フレーム単位で処理(方式切替・クロスフェード込み)
+//                      --push-->  捕獲ステージリング(SPSC。生音と処理後を同じ位置へ)
+//   音声スレッド       --pop--->  ミックスして出力(コールバックは FIFO を読むだけ)
+//
+// ワーカーはコールバックではないので、待機に条件変数を使ってよい(ロック可)。
+// 音声スレッド側はこれまでどおり非ブロッキングのまま。追加遅延は
+// 「ブロック長(1024)+ ステージリングのクッション」で、captureExtraLatencyMillis()
+// が返す。マイク経路は従来どおりコールバック内で処理する(低遅延が本分)。
 //
 // ---- 処理方式の選択(v0.6.0。dsp/include/prism/PhaseVocoderShifter.h 冒頭コメント参照) --
 // マイク経路・捕獲経路それぞれに、ディレイライン型(prism::PitchShifter)と
@@ -54,9 +72,20 @@
 #define PRISM_AUDIOBRIDGE_H
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
+#include <mutex>
+#include <thread>
 #include <vector>
+
+#if defined(__ANDROID__) || defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
+#include <sys/resource.h>
+#include <sys/time.h>
+#endif
 
 #include "prism/PhaseVocoderShifter.h"
 #include "prism/PitchShifter.h"
@@ -93,13 +122,20 @@ public:
     static constexpr double kCaptureSweepMsDefault = 40.0;
     // リング容量(秒)。Java 側の AudioRecord スレッドが数十 ms 単位でまとめて
     // push してくるため、コールバック 1 回分では足りない。1 秒あれば
-    // アプリが一時停止して復帰しても取りこぼさない。
+    // アプリが一時停止して復帰しても取りこぼさない。入力リングとステージリングの
+    // どちらもこの容量で確保する。
     static constexpr double kCaptureRingSeconds = 1.0;
-    // 有効化直後・アンダーラン後にためるクッション(ms)。Java スレッドの
-    // スケジューリングジッタを吸収する。
-    static constexpr double kCaptureCushionMs = 20.0;
-    // 滞留の上限(ms)。これを超えたら古い分を捨ててクッション量まで詰める
-    // (捕獲側と出力側のクロックがわずかにずれても遅延が伸び続けないようにする)。
+    // 捕獲ワーカーの処理単位(フレーム)。位相ボコーダのホップより十分大きく取り、
+    // 起床 1 回あたりの処理をまとめる。48kHz で 21.3ms 相当。
+    static constexpr int kCaptureWorkerBlockFrames = 1024;
+    // ステージリングのクッションのうち、ブロック長に上乗せする余裕(ms)。
+    // ステージリングへはブロック単位(= 21.3ms ごと)にしかデータが積まれないため、
+    // クッションはブロック 1 個ぶん + この余裕にする。これを下回らせると、
+    // ブロックの到着直前に必ずリングが枯れてアンダーランになる。
+    static constexpr double kCaptureStageCushionMs = 10.0;
+    // 滞留の上限(ms)。これを超えたら古い分を捨てて詰める(捕獲側と出力側の
+    // クロックがわずかにずれても遅延が伸び続けないようにする)。入力リングは
+    // ワーカーが、ステージリングは音声スレッドが、それぞれ自分の read 側で行う。
     static constexpr double kCaptureMaxFillMs = 200.0;
 
     // マイク経路のゲイン(倍率)。0.0 で完全ミュート(捕獲音だけを聞く用途)。
@@ -138,8 +174,15 @@ public:
     };
 
     AudioBridge() = default;
+    // ワーカースレッドを持つのでコピー・ムーブはしない。
+    AudioBridge(const AudioBridge&) = delete;
+    AudioBridge& operator=(const AudioBridge&) = delete;
+    ~AudioBridge() { stopCaptureWorker(); }
 
     // ---- 初期化(音声スレッド停止中に呼ぶ。ここだけがヒープ確保を行う) --------
+    // 捕獲ワーカーも停止中であること(prepare() はリングの読み書き位置と
+    // シフタの状態を作り直すため)。PrismEngine は stopCaptureWorker() 済みの
+    // 状態からしか prepare() を呼ばない。
     // sampleRate は出力ストリームの実サンプルレート。inputChannels は入力
     // ストリームの実チャンネル数(1 でも 2 でも、それ以上でもよい)。
     // micSweepMs / captureSweepMs は各シフタの走査幅(ms)。どちらも PitchShifter 側で
@@ -195,11 +238,18 @@ public:
 
         // 捕獲リングの寸法(すべて sampleRate から算出する)。
         ringFrames_ = static_cast<int>(kCaptureRingSeconds * sampleRate);
-        // コールバック上限の数倍は必ず確保する(低いサンプルレートでの保険)。
-        if (ringFrames_ < kMaxCallbackFrames * 4) {
-            ringFrames_ = kMaxCallbackFrames * 4;
+        // コールバック上限とワーカーのブロック長の数倍は必ず確保する
+        // (低いサンプルレートでの保険)。
+        const int minRing = (kMaxCallbackFrames > kCaptureWorkerBlockFrames
+                                 ? kMaxCallbackFrames
+                                 : kCaptureWorkerBlockFrames) * 4;
+        if (ringFrames_ < minRing) {
+            ringFrames_ = minRing;
         }
-        cushionFrames_ = static_cast<int>(kCaptureCushionMs * sampleRate / 1000.0);
+        // ステージリングのクッション = ワーカーのブロック長 + 余裕。ステージリングへは
+        // ブロック単位でしか積まれないので、ブロック 1 個ぶんを下回らせてはいけない。
+        cushionFrames_ = kCaptureWorkerBlockFrames +
+                         static_cast<int>(kCaptureStageCushionMs * sampleRate / 1000.0);
         if (cushionFrames_ < 1) {
             cushionFrames_ = 1;
         }
@@ -214,17 +264,24 @@ public:
 
         try {
             // 非インタリーブの作業領域: マイク入力 L/R・マイク出力 L/R・
-            // 捕獲入力 L/R・捕獲出力 L/R・マイク旧方式出力 L/R(切替クロスフェード用の
-            // スクラッチ)・捕獲旧方式出力 L/R の 12 面。
-            planar_.assign(static_cast<std::size_t>(kMaxCallbackFrames) * 12u, 0.0f);
-            // 捕獲リング(インタリーブ stereo)。
+            // 捕獲入力 L/R・捕獲出力 L/R(ここまで音声スレッド)・マイク旧方式出力 L/R
+            // (切替クロスフェード用のスクラッチ)・捕獲旧方式出力 L/R・
+            // ワーカー入力 L/R・ワーカー出力 L/R(ここから捕獲ワーカー)の 16 面。
+            planar_.assign(static_cast<std::size_t>(kMaxCallbackFrames) * 16u, 0.0f);
+            // 捕獲入力リング(インタリーブ stereo)。Java 録音スレッド -> ワーカー。
             captureRing_.assign(static_cast<std::size_t>(ringFrames_) * 2u, 0.0f);
+            // 捕獲ステージリング。ワーカー -> 音声スレッド。1 フレームあたり 4 float
+            // (生 L / 生 R / 処理後 L / 処理後 R)。生音も同じ位置へ並べておくことで、
+            // 診断録音の capture-in と capture-out が必ず同じ時刻で揃う。
+            captureStageRing_.assign(static_cast<std::size_t>(ringFrames_) * 4u, 0.0f);
         } catch (...) {
             // 確保失敗は例外を漏らさず false へ変換する(呼び出し側で扱う)。
             planar_.clear();
             planar_.shrink_to_fit();
             captureRing_.clear();
             captureRing_.shrink_to_fit();
+            captureStageRing_.clear();
+            captureStageRing_.shrink_to_fit();
             return false;
         }
 
@@ -240,6 +297,10 @@ public:
         micOldPlanar_[1] = planar_.data() + kMaxCallbackFrames * 9;
         captureOldPlanar_[0] = planar_.data() + kMaxCallbackFrames * 10;
         captureOldPlanar_[1] = planar_.data() + kMaxCallbackFrames * 11;
+        workInPlanar_[0] = planar_.data() + kMaxCallbackFrames * 12;
+        workInPlanar_[1] = planar_.data() + kMaxCallbackFrames * 13;
+        workOutPlanar_[0] = planar_.data() + kMaxCallbackFrames * 14;
+        workOutPlanar_[1] = planar_.data() + kMaxCallbackFrames * 15;
 
         prepared_ = true;
         reset();
@@ -291,12 +352,27 @@ public:
         diagMicOut_.clear();
         diagMicOut_.shrink_to_fit();
 
-        // 捕獲リングは「読み手を書き手に追いつかせる」形で空にする。書き手
+        // 捕獲入力リングは「読み手を書き手に追いつかせる」形で空にする。書き手
         // (Java の録音スレッド)が同時に走っていても壊れないよう、write 側は触らない。
         captureRead_.store(captureWrite_.load(std::memory_order_acquire),
                            std::memory_order_release);
+        // ステージリングはワーカーが停止している前提で作り直してよい(prepare() の
+        // 契約。呼び出し側は stopCaptureWorker() 済みであること)。
+        captureStageWrite_.store(0, std::memory_order_relaxed);
+        captureStageRead_.store(0, std::memory_order_relaxed);
+        for (std::size_t i = 0; i < captureStageRing_.size(); ++i) {
+            captureStageRing_[i] = 0.0f;
+        }
+        // 世代番号は 3 者とも同じ値から始める(prepare() は音声スレッドもワーカーも
+        // 止まっている前提なので、ここで揃えてよい)。
+        captureEpoch_.store(0, std::memory_order_relaxed);
+        workerEpoch_ = 0;
+        audioEpoch_ = 0;
+        workerActive_ = captureEnabled_.load(std::memory_order_relaxed);
         captureCushioning_ = true;
-        captureActive_ = false;  // 次の render() で captureEnabled_ を見て組み直す
+        // 捕獲が有効なままの再 prepare() では、最初の render() で世代が一致するため
+        // ここで実際の値に合わせておく(無効なら次の有効化で世代が進む)。
+        captureActive_ = workerActive_;
         captureUnderruns_.store(0, std::memory_order_relaxed);
         captureOverruns_.store(0, std::memory_order_relaxed);
         captureShortfallFramesTotal_.store(0, std::memory_order_relaxed);
@@ -386,8 +462,16 @@ public:
     // false のあいだ捕獲経路は無音で、pushCapture() は何も書かずに 0 を返す。
     // 次に true にしたとき、リングは空・シフタは初期状態から始まる
     // (前回の残りが混ざらない)。
+    // 切り替えのたびに世代番号を進める。音声スレッドとワーカーは「値が違うか」では
+    // なく「世代が変わったか」で切り替わりを検出する — 値だけを見ていると、相手が
+    // 観測する前に OFF -> ON と往復した場合に取りこぼし、前回の残りが混ざる。
     void setCaptureEnabled(bool enabled) noexcept {
-        captureEnabled_.store(enabled, std::memory_order_relaxed);
+        const bool previous = captureEnabled_.exchange(enabled, std::memory_order_acq_rel);
+        if (previous != enabled) {
+            captureEpoch_.fetch_add(1, std::memory_order_release);
+        }
+        // 有効/無効の切り替わりをワーカーにすぐ処理させる(制御スレッドなのでロック可)。
+        notifyCaptureWorker();
     }
     bool isCaptureEnabled() const noexcept {
         return captureEnabled_.load(std::memory_order_relaxed);
@@ -428,8 +512,56 @@ public:
         if (n < frames) {
             captureOverruns_.fetch_add(1, std::memory_order_relaxed);
         }
+        if (n > 0) {
+            // 捕獲ワーカーを起こす。ここは Java の録音スレッド(ブロッキング read で
+            // 回っている通常スレッド)であり、オーディオコールバックではないので
+            // ロックを取ってよい。
+            notifyCaptureWorker();
+        }
         return n;
     }
+
+    // ---- 捕獲ワーカー(制御スレッドから) --------------------------------------
+    // 捕獲経路の処理をオーディオコールバックの外へ出すためのスレッド。
+    // prepare() の後・ストリーム開始の前に start、ストリームを閉じた後に stop する。
+    // 二重 start は無害(既に動いていれば true を返すだけ)。
+    // 確保に失敗したら false を返す(捕獲経路が無音になるだけで、マイク経路は動く)。
+    bool startCaptureWorker() {
+        if (workerThread_.joinable()) {
+            return true;
+        }
+        {
+            std::lock_guard<std::mutex> lock(workerMutex_);
+            workerQuit_ = false;
+            workerWake_ = false;
+        }
+        try {
+            workerThread_ = std::thread([this] { captureWorkerLoop(); });
+        } catch (...) {
+            return false;
+        }
+        return true;
+    }
+
+    void stopCaptureWorker() noexcept {
+        if (!workerThread_.joinable()) {
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(workerMutex_);
+            workerQuit_ = true;
+            workerWake_ = true;
+        }
+        workerCv_.notify_all();
+        workerThread_.join();
+    }
+
+    bool isCaptureWorkerRunning() const noexcept { return workerThread_.joinable(); }
+
+    // テスト専用: ワーカー本体を呼び出しスレッドで 1 回だけ回す。
+    // ホストスモークはスレッドを起こさずにこれを呼ぶことで、タイミングに依存しない
+    // 決定的な検査ができる(実機では captureWorkerLoop() が同じ関数を回す)。
+    void pumpCaptureWorkerForTesting() noexcept { processCaptureBlocks(); }
 
     // ---- 診断用の 10 秒録音(制御スレッドから。ここだけがヒープ確保/解放を行う) ---
     // 4 本(捕獲 in / 捕獲 out / マイク in / マイク out)を同時刻に開始して記録する。
@@ -593,8 +725,9 @@ public:
             deinterleaveChunk(input, pad, done, chunk);
             runMicPath(chunk);
             if (captureActive_) {
-                fetchCaptureChunk(chunk);
-                runCapturePath(chunk);
+                // 捕獲経路の処理はワーカースレッドが済ませてある。ここは
+                // ステージリングから生音と処理後の音を取り出すだけ。
+                fetchCaptureStageChunk(chunk);
             }
             if (recording) {
                 recordDiagnosticChunk(input, pad, done, chunk);
@@ -644,8 +777,13 @@ public:
     int captureShortfallFrames() const noexcept {
         return captureShortfallFramesTotal_.load(std::memory_order_relaxed);
     }
-    // 現在リングにたまっているフレーム数(遅延の目安 = これ / sampleRate)。
+    // 捕獲経路に滞留しているフレーム数の合計(入力リング + ステージリング)。
+    // 遅延の目安 = これ / sampleRate。UI の「捕獲中かどうか」の判定にも使う。
     int captureFillFrames() const noexcept {
+        return captureInputFillFrames() + captureStageFillFrames();
+    }
+    // 入力リング(Java 録音スレッド -> ワーカー)の滞留。
+    int captureInputFillFrames() const noexcept {
         if (!prepared_) {
             return 0;
         }
@@ -656,9 +794,32 @@ public:
         }
         return fill;
     }
-    // 読み出しを始めるのに必要な滞留フレーム数(kCaptureCushionMs 相当)。
+    // ステージリング(ワーカー -> 音声スレッド)の滞留。
+    int captureStageFillFrames() const noexcept {
+        if (!prepared_) {
+            return 0;
+        }
+        int fill = captureStageWrite_.load(std::memory_order_relaxed) -
+                   captureStageRead_.load(std::memory_order_relaxed);
+        if (fill < 0) {
+            fill += ringFrames_;
+        }
+        return fill;
+    }
+    // ステージリングの読み出しを始めるのに必要な滞留フレーム数
+    // (= ワーカーのブロック長 + kCaptureStageCushionMs 相当)。
     int captureCushionFrames() const noexcept { return cushionFrames_; }
     int captureRingFrames() const noexcept { return ringFrames_; }
+    // ワーカー経由にしたことで増える遅延(ms)。
+    // = ブロック 1 個ぶんの待ち(kCaptureWorkerBlockFrames)+ ステージリングの
+    //   クッション。方式そのものの遅延(captureDspLatencyMillis())とは別勘定。
+    double captureExtraLatencyMillis() const noexcept {
+        if (!prepared_ || sampleRate_ <= 0.0) {
+            return 0.0;
+        }
+        return static_cast<double>(kCaptureWorkerBlockFrames + cushionFrames_) / sampleRate_ *
+               1000.0;
+    }
     // 各経路の走査幅(ms)。prepare() が採用した値。
     double micSweepMs() const noexcept { return shifter_.getSweepMs(); }
     double captureSweepMs() const noexcept { return captureShifter_.getSweepMs(); }
@@ -774,10 +935,12 @@ private:
                     chunk);
     }
 
-    void runCapturePath(int chunk) noexcept {
+    // 捕獲経路 1 ブロックぶん(ワーカースレッドから)。マイク経路と同じ
+    // runPathChunk() を、ワーカー専用の作業面に対して回す。
+    void runCapturePathBlock(int frames) noexcept {
         runPathChunk(captureMethod_, captureActiveMethod_, captureFadeFromMethod_,
                     captureFadeRemaining_, captureShifter_, capturePv2048_, capturePv4096_,
-                    capInPlanar_, capOutPlanar_, captureOldPlanar_, chunk);
+                    workInPlanar_, workOutPlanar_, captureOldPlanar_, frames);
     }
 
     // インタリーブ input の [done, done+chunk) フレームを inPlanar_ の先頭 chunk へ。
@@ -926,47 +1089,40 @@ private:
         }
     }
 
-    // 有効/無効の切り替わりを検出して経路を組み直す。
-    //   有効化: シフタを初期状態に戻し、クッションがたまるまで待つ状態から始める
-    //           (reset() は音声スレッド自身から呼ぶ分には契約上安全)。有効化 1 回に
-    //           つき 1 コールバックだけ、確保を伴わないバッファのゼロ埋め
-    //           (48kHz / sweep 40ms / 窓長 200ms で約 140KB、数十マイクロ秒)が乗る。
-    //           前回の残響を持ち込まないための代償として許容する。
-    //   無効化: リングを読み捨てて空にする。書き手は無効中に書かないので、
-    //           次の有効化時はここで空にした状態から始まる。
-    // 「空にする」を無効化側に置くのが要点 — 有効化側で空にすると、制御スレッドが
-    // setCaptureEnabled(true) してから最初のコールバックが走るまでに書かれた
-    // 数 ms ぶんを捨ててしまう。
+    // 有効/無効の切り替わりを検出して、音声スレッド側の状態を組み直す。
+    //   有効化: 作業面をゼロにし、ステージリングのクッションがたまるまで待つ状態から
+    //           始める。有効化 1 回につき 1 コールバックだけ、確保を伴わない
+    //           バッファのゼロ埋め(数十マイクロ秒)が乗る。
+    //   無効化: ステージリングを読み捨てて空にする(音声スレッドはこのリングの
+    //           読み手なので、read を write に追いつかせるのは自分の側の操作)。
+    // シフタの reset は音声スレッドでは行わない — 捕獲経路の 3 方式はワーカーが
+    // 所有しており、有効化時の初期化は processCaptureBlocks() が行う。
     void syncCaptureState() noexcept {
-        const bool enabled = captureEnabled_.load(std::memory_order_relaxed);
-        if (enabled == captureActive_) {
+        const int epoch = captureEpoch_.load(std::memory_order_acquire);
+        if (epoch == audioEpoch_) {
             return;
         }
-        captureActive_ = enabled;
+        audioEpoch_ = epoch;
+        captureActive_ = captureEnabled_.load(std::memory_order_acquire);
         captureCushioning_ = true;
         zeroCapturePlanes();
-        if (enabled) {
-            // 3 方式とも前回の残響を持ち込まないよう、いま要求されている方式から
-            // クリーンに始める(runPathChunk() は活性化直後は fadeFrom=-1 なので、
-            // 有効化直後にクロスフェードが走ることはない)。
-            captureShifter_.reset();
-            capturePv2048_.reset();
-            capturePv4096_.reset();
-            captureActiveMethod_ = clampMethod(captureMethod_.load(std::memory_order_relaxed));
-            captureFadeFromMethod_ = -1;
-            captureFadeRemaining_ = 0;
-        } else {
-            captureRead_.store(captureWrite_.load(std::memory_order_acquire),
-                               std::memory_order_release);
+        // 空にするのは無効化のときだけ。read を write に追いつかせるのは読み手で
+        // ある自分の操作なので安全。有効化のときに空にしてはいけない —
+        // ワーカーが有効化後に積んだ正規のデータまで捨ててしまう。
+        if (!captureActive_) {
+            captureStageRead_.store(captureStageWrite_.load(std::memory_order_acquire),
+                                    std::memory_order_release);
         }
     }
 
-    // リングから chunk フレーム取り出して capInPlanar_ を埋める。
+    // ステージリングから chunk フレーム取り出して capInPlanar_(生音)と
+    // capOutPlanar_(処理後)を埋める。ワーカーが同じ位置へ並べて書いているので、
+    // 2 つは必ず同じ時刻で揃う。
     // 状態機械: クッションがたまるまで無音 -> 毎回 chunk ぶん pop ->
     //           足りなければ無音で埋めてクッション待ちへ戻る。
-    void fetchCaptureChunk(int chunk) noexcept {
-        const int w = captureWrite_.load(std::memory_order_acquire);
-        int r = captureRead_.load(std::memory_order_relaxed);
+    void fetchCaptureStageChunk(int chunk) noexcept {
+        const int w = captureStageWrite_.load(std::memory_order_acquire);
+        int r = captureStageRead_.load(std::memory_order_relaxed);
         int fill = w - r;
         if (fill < 0) {
             fill += ringFrames_;
@@ -977,6 +1133,8 @@ private:
                 for (int i = 0; i < chunk; ++i) {
                     capInPlanar_[0][i] = 0.0f;
                     capInPlanar_[1][i] = 0.0f;
+                    capOutPlanar_[0][i] = 0.0f;
+                    capOutPlanar_[1][i] = 0.0f;
                 }
                 return;  // まだためる。read は進めない。
             }
@@ -997,19 +1155,155 @@ private:
         for (int i = 0; i < pad; ++i) {
             capInPlanar_[0][i] = 0.0f;
             capInPlanar_[1][i] = 0.0f;
+            capOutPlanar_[0][i] = 0.0f;
+            capOutPlanar_[1][i] = 0.0f;
         }
         for (int i = 0; i < avail; ++i) {
-            const std::size_t base = static_cast<std::size_t>(r) * 2u;
-            capInPlanar_[0][pad + i] = captureRing_[base];
-            capInPlanar_[1][pad + i] = captureRing_[base + 1];
+            const std::size_t base = static_cast<std::size_t>(r) * 4u;
+            capInPlanar_[0][pad + i] = captureStageRing_[base];
+            capInPlanar_[1][pad + i] = captureStageRing_[base + 1];
+            capOutPlanar_[0][pad + i] = captureStageRing_[base + 2];
+            capOutPlanar_[1][pad + i] = captureStageRing_[base + 3];
             r = wrapRing(r + 1);
         }
-        captureRead_.store(r, std::memory_order_release);
+        captureStageRead_.store(r, std::memory_order_release);
 
         if (pad > 0) {
             captureUnderruns_.fetch_add(1, std::memory_order_relaxed);
             captureShortfallFramesTotal_.fetch_add(pad, std::memory_order_relaxed);
             captureCushioning_ = true;  // たまり直すまで待つ
+        }
+    }
+
+    // ---- 捕獲ワーカー本体(ワーカースレッド、またはテストの pump から) ----------
+
+    void notifyCaptureWorker() noexcept {
+        if (!workerThread_.joinable()) {
+            return;  // ワーカーを起こしていない(ホストスモークの pump 運用)
+        }
+        {
+            std::lock_guard<std::mutex> lock(workerMutex_);
+            workerWake_ = true;
+        }
+        workerCv_.notify_one();
+    }
+
+    // スレッド優先度を上げる。SCHED_FIFO が取れなければ nice 値を
+    // ANDROID_PRIORITY_AUDIO(-16)相当まで下げる。どちらも失敗しても致命的では
+    // ないので、戻り値は見ない(ワーカーは締切を落としても xrun にはならない —
+    // ステージリングのクッションが吸収する)。
+    static void raiseCaptureWorkerPriority() noexcept {
+#if defined(__ANDROID__) || defined(__linux__)
+        sched_param param{};
+        param.sched_priority = 2;  // SCHED_FIFO の下限付近(音声スレッドより低く)
+        if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+            // PRIO_PROCESS + who=0 は Linux/Android では「呼び出しスレッド」を指す。
+            (void)setpriority(PRIO_PROCESS, 0, -16);
+        }
+#endif
+    }
+
+    void captureWorkerLoop() noexcept {
+        raiseCaptureWorkerPriority();
+        for (;;) {
+            {
+                std::unique_lock<std::mutex> lock(workerMutex_);
+                // タイムアウトを置くのは保険。push が来なくなっても、有効/無効の
+                // 切り替わりとドリフト処理は定期的に回したい。
+                workerCv_.wait_for(lock, std::chrono::milliseconds(10),
+                                   [this] { return workerWake_ || workerQuit_; });
+                if (workerQuit_) {
+                    return;
+                }
+                workerWake_ = false;
+            }
+            processCaptureBlocks();
+        }
+    }
+
+    // 入力リングにたまっているぶんを kCaptureWorkerBlockFrames 単位で処理し、
+    // 生音と処理後の音をステージリングへ並べて書く。
+    // ここはオーディオコールバックではないので締切は緩いが、確保・I/O はしない
+    // (すべて prepare() 済みのバッファの上で完結する)。
+    void processCaptureBlocks() noexcept {
+        if (!prepared_) {
+            return;
+        }
+        const int epoch = captureEpoch_.load(std::memory_order_acquire);
+        const bool enabled = captureEnabled_.load(std::memory_order_acquire);
+        if (epoch != workerEpoch_) {
+            workerEpoch_ = epoch;
+            workerActive_ = enabled;
+            // 入力リングの読み手は自分なので、read を write に追いつかせて空にする。
+            captureRead_.store(captureWrite_.load(std::memory_order_acquire),
+                               std::memory_order_release);
+            if (enabled) {
+                // 3 方式とも前回の残響を持ち込まないよう、いま要求されている方式から
+                // クリーンに始める(runPathChunk() は活性化直後は fadeFrom=-1 なので、
+                // 有効化直後にクロスフェードが走ることはない)。
+                captureShifter_.reset();
+                capturePv2048_.reset();
+                capturePv4096_.reset();
+                captureActiveMethod_ =
+                    clampMethod(captureMethod_.load(std::memory_order_relaxed));
+                captureFadeFromMethod_ = -1;
+                captureFadeRemaining_ = 0;
+            }
+        }
+        if (!workerActive_) {
+            return;
+        }
+
+        for (;;) {
+            const int w = captureWrite_.load(std::memory_order_acquire);
+            int r = captureRead_.load(std::memory_order_relaxed);
+            int fill = w - r;
+            if (fill < 0) {
+                fill += ringFrames_;
+            }
+            // ドリフト対策: 入力の滞留が上限を超えたら古い分を捨てる
+            // (捨てる瞬間は不連続になるが、遅延が伸び続けるよりはよい)。
+            if (fill > maxFillFrames_) {
+                r = wrapRing(r + (fill - kCaptureWorkerBlockFrames));
+                fill = kCaptureWorkerBlockFrames;
+                captureRead_.store(r, std::memory_order_release);
+            }
+            if (fill < kCaptureWorkerBlockFrames) {
+                return;  // 1 ブロックたまるまで待つ
+            }
+
+            const int sw = captureStageWrite_.load(std::memory_order_relaxed);
+            const int sr = captureStageRead_.load(std::memory_order_acquire);
+            int freeFrames = sr - sw - 1;
+            if (freeFrames < 0) {
+                freeFrames += ringFrames_;
+            }
+            if (freeFrames < kCaptureWorkerBlockFrames) {
+                return;  // 音声スレッドが追いつくまで待つ(入力側は滞留上限で守る)
+            }
+
+            // 入力リング -> 作業面
+            for (int i = 0; i < kCaptureWorkerBlockFrames; ++i) {
+                const std::size_t base = static_cast<std::size_t>(r) * 2u;
+                workInPlanar_[0][i] = captureRing_[base];
+                workInPlanar_[1][i] = captureRing_[base + 1];
+                r = wrapRing(r + 1);
+            }
+            captureRead_.store(r, std::memory_order_release);
+
+            runCapturePathBlock(kCaptureWorkerBlockFrames);
+
+            // 作業面 -> ステージリング(生音と処理後を同じ位置へ)
+            int sweep = sw;
+            for (int i = 0; i < kCaptureWorkerBlockFrames; ++i) {
+                const std::size_t base = static_cast<std::size_t>(sweep) * 4u;
+                captureStageRing_[base] = workInPlanar_[0][i];
+                captureStageRing_[base + 1] = workInPlanar_[1][i];
+                captureStageRing_[base + 2] = workOutPlanar_[0][i];
+                captureStageRing_[base + 3] = workOutPlanar_[1][i];
+                sweep = wrapRing(sweep + 1);
+            }
+            captureStageWrite_.store(sweep, std::memory_order_release);
         }
     }
 
@@ -1068,23 +1362,47 @@ private:
     float* capOutPlanar_[2] = {nullptr, nullptr};
     // 方式切替クロスフェード中だけ使うスクラッチ(旧方式の出力の受け皿)。
     float* micOldPlanar_[2] = {nullptr, nullptr};
-    float* captureOldPlanar_[2] = {nullptr, nullptr};
+    float* captureOldPlanar_[2] = {nullptr, nullptr};  // 捕獲ワーカー専用
+    // 捕獲ワーカー専用の作業面(ブロック 1 個ぶん)。
+    float* workInPlanar_[2] = {nullptr, nullptr};
+    float* workOutPlanar_[2] = {nullptr, nullptr};
 
-    // 捕獲リング(インタリーブ stereo、prepare で確保・以後サイズ不変)。
+    // 捕獲入力リング(インタリーブ stereo、prepare で確保・以後サイズ不変)。
+    // Java の録音スレッド -> 捕獲ワーカー。
     std::vector<float> captureRing_;
     int ringFrames_ = 0;
-    int cushionFrames_ = 0;
+    int cushionFrames_ = 0;  // ステージリングのクッション(ブロック長 + 余裕)
     int maxFillFrames_ = 0;
     std::atomic<int> captureWrite_{0};  // 書き手 = Java の録音スレッドだけが進める
-    std::atomic<int> captureRead_{0};   // 読み手 = 音声スレッドだけが進める
+    std::atomic<int> captureRead_{0};   // 読み手 = 捕獲ワーカーだけが進める
+
+    // 捕獲ステージリング(1 フレーム 4 float: 生 L / 生 R / 処理後 L / 処理後 R)。
+    // 捕獲ワーカー -> 音声スレッド。
+    std::vector<float> captureStageRing_;
+    std::atomic<int> captureStageWrite_{0};  // 書き手 = 捕獲ワーカー
+    std::atomic<int> captureStageRead_{0};   // 読み手 = 音声スレッド
+
+    // 捕獲ワーカースレッド。制御スレッドが start/stop し、pushCapture() /
+    // setCaptureEnabled() が起こす。
+    std::thread workerThread_;
+    std::mutex workerMutex_;
+    std::condition_variable workerCv_;
+    bool workerWake_ = false;
+    bool workerQuit_ = false;
+    bool workerActive_ = false;  // ワーカー専用。captureEnabled_ の追従状態
+    int workerEpoch_ = 0;        // ワーカー専用。captureEpoch_ の追従状態
     std::atomic<int> captureUnderruns_{0};
     std::atomic<int> captureOverruns_{0};
     std::atomic<bool> captureEnabled_{false};
+    // 有効/無効の切り替え世代。setCaptureEnabled() が進め、音声スレッド
+    // (audioEpoch_)とワーカー(workerEpoch_)がそれぞれ追従する。
+    std::atomic<int> captureEpoch_{0};
     std::atomic<float> micGain_{kMicGainDefault};
     std::atomic<float> captureGain_{kCaptureGainDefault};
     // 音声スレッド専用の状態(制御スレッドからは読まない)。
     bool captureActive_ = false;
     bool captureCushioning_ = true;
+    int audioEpoch_ = 0;  // 音声スレッド専用。captureEpoch_ の追従状態
 
     double sampleRate_ = 0.0;
     int inputChannels_ = 0;

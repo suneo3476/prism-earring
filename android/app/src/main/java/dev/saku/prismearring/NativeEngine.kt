@@ -27,6 +27,12 @@ class NativeEngine private constructor(private var handle: Long) {
         val captureSweepMs: Double = 0.0,
         /** 捕獲経路の DSP 遅延(ms)。選択中の処理方式([captureMethod])の値。 */
         val captureDspMs: Double = 0.0,
+        /**
+         * 捕獲経路をワーカースレッドで処理することによる追加遅延(ms)。
+         * ワーカーのブロック長(1024 フレーム)+ ステージ FIFO のクッション。
+         * [captureDspMs] とは別勘定で、合計が捕獲経路の遅延になる。
+         */
+        val captureExtraMs: Double = 0.0,
     )
 
     /** 開いているストリームの実際の素性。UI の診断表示に使う。 */
@@ -218,8 +224,8 @@ class NativeEngine private constructor(private var handle: Long) {
         val empty = Latency(0.0, 0.0, 0.0, 0.0, false)
         if (handle == 0L) return empty
         val v = nativeGetLatency(handle) ?: return empty
-        if (v.size < 8) return empty
-        return Latency(v[0], v[1], v[2], v[3], v[4] != 0.0, v[5], v[6], v[7])
+        if (v.size < 9) return empty
+        return Latency(v[0], v[1], v[2], v[3], v[4] != 0.0, v[5], v[6], v[7], v[8])
     }
 
     fun streamInfo(): StreamInfo {

@@ -44,6 +44,9 @@ public:
         double micSweepMillis = 0.0;      // マイク経路の走査幅(採用値)
         double captureSweepMillis = 0.0;  // 捕獲経路の走査幅(採用値)
         double captureDspMillis = 0.0;    // 捕獲経路の DSP 遅延(選択中の方式の値)
+        // 捕獲経路をワーカースレッド化したことで増える遅延(ブロック長 + FIFO
+        // クッション)。captureDspMillis とは別勘定で、合計が捕獲経路の遅延。
+        double captureExtraMillis = 0.0;
     };
 
     // 処理方式。setMethod() の method 引数(AudioBridge::kMethod* と同じ値)。

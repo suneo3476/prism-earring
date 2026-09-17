@@ -1174,6 +1174,8 @@ class MainActivity : AppCompatActivity() {
                 framesToMillis(state.info.outputBufferFrames, state.info.sampleRate),
                 state.info.bufferGrowCount,
                 getString(if (state.info.outputBluetooth) R.string.yes else R.string.no),
+                state.latency.captureExtraMs,
+                state.latency.captureDspMs + state.latency.captureExtraMs,
             )
         }
 
