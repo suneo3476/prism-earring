@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- プロファイル一覧の 1 カード。MainActivity#renderProfileTab() が動的に inflate して
+     binding.profileList へ追加する(RecyclerView は使わない。件数は多くても数件想定)。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="12dp"
+    android:background="@drawable/bg_card"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/profileAbbrevBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_tag"
+            android:minWidth="34dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:textAlignment="center"
+            android:textColor="@color/muted"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            tools:text="U会" />
+
+        <TextView
+            android:id="@+id/profileName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:textColor="@color/fg"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            tools:text="USB 有線・会話" />
+
+        <TextView
+            android:id="@+id/profileActiveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_pill_ok"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="3dp"
+            android:text="@string/profile_active_badge"
+            android:textColor="@color/ok_fg"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/profileDeviceLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textAlignment="viewStart"
+        android:textColor="@color/muted"
+        android:textSize="12sp"
+        tools:text="対象デバイス: USB ヘッドセット" />
+
+    <TextView
+        android:id="@+id/profileSummary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:lineSpacingExtra="2dp"
+        android:textColor="@color/fg"
+        android:textSize="13sp"
+        tools:text="シフト −89 ・ マイク +0 dB ・ 他アプリの音 OFF ・ 出力先 自動" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/profileApplyButton"
+        style="@style/Widget.MaterialComponents.Button"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="end"
+        android:layout_marginTop="10dp"
+        android:backgroundTint="@color/primary"
+        android:minWidth="88dp"
+        android:text="@string/profile_apply"
+        android:textAllCaps="false"
+        android:textColor="@color/primary_fg" />
+</LinearLayout>

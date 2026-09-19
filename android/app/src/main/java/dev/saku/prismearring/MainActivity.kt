@@ -15,6 +15,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.text.InputFilter
 import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -23,7 +24,10 @@ import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -34,6 +38,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import dev.saku.prismearring.databinding.ActivityMainBinding
@@ -44,8 +49,11 @@ import kotlin.math.roundToInt
  * 画面。エンジンは持たず、[PrismService] に bind して状態を読み、
  * パラメータの変更を Service 経由で流し込むだけ。
  *
- * 意匠は web/index.html + web/styles.css を踏襲する(ライト/ダーク両対応 /
- * 大きな数値 / 太いスライダ / 72dp の −+ / セグメント / 固定フッタ)。
+ * v0.7.0: 単一 Activity・単一レイアウトのまま、中身を 4 タブ(聞く / 音源 /
+ * プロファイル / 詳細)+ 上部バー(状態・開始/停止・プロファイル略称ピル)+
+ * 下部 BottomNavigationView に組み替えた(mock/spec.md §3, §5 参照)。
+ * 意匠の元ネタは web/index.html + web/styles.css(ライト/ダーク両対応 /
+ * 大きな数値 / 太いスライダ / 72dp の −+ / セグメント)。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -60,6 +68,15 @@ class MainActivity : AppCompatActivity() {
 
     /** 権限許可の直後に開始したい、というユーザーの意図を覚えておく。 */
     private var startAfterPermission = false
+
+    // ---- タブ(v0.7.0) ------------------------------------------------------
+
+    private var currentTab = TAB_LISTEN
+
+    // ---- プロファイル(v0.7.0) ------------------------------------------------
+
+    private var profileState = ProfileState()
+    private var suppressProfileListeners = false
 
     // ---- 音源(v0.4.0): デバイス一覧 / MediaProjection --------------------------
 
@@ -76,10 +93,14 @@ class MainActivity : AppCompatActivity() {
         getSystemService(MediaProjectionManager::class.java)
     }
 
-    /** 抜き差しのたびにデバイス一覧(出力先 / 入力元スピナー)を作り直す。 */
+    /**
+     * 抜き差しのたびにデバイス一覧(出力先 / 入力元スピナー)を作り直す。
+     * 追加されたデバイスがあれば、プロファイルの自動切替([maybeAutoSwitchProfile])も試す。
+     */
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
             refreshDeviceLists()
+            maybeAutoSwitchProfile(addedDevices)
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
@@ -157,6 +178,8 @@ class MainActivity : AppCompatActivity() {
         suppressListeners = true
         bindParamsToViews()
         suppressListeners = false
+        // プロファイル適用直後に同意が拒否された場合、スナップショットと食い違うので「使用中」を外す。
+        syncActiveProfileId()
     }
 
     private fun launchProjectionConsent() {
@@ -176,15 +199,16 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applySystemBarInsets()
-        applyFooterSpacing()
         applyStatusBarAppearance()
 
         params = Params.load(this)
+        profileState = ProfileStore.load(this)
         setUpSliders()
         setUpSteppers()
+        setUpStepPill()
         setUpSegments()
         setUpSplitSwitch()
-        setUpAdvancedToggle()
+        setUpBottomNav()
         setUpDock()
         setUpInfoButtons()
         setUpShiftValueInputs()
@@ -196,6 +220,7 @@ class MainActivity : AppCompatActivity() {
         setUpOutputUsageSwitch()
         setUpAccessibilityVolume()
         setUpDiagnosticRecording()
+        setUpProfileTab()
 
         refreshDeviceLists()
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
@@ -205,7 +230,16 @@ class MainActivity : AppCompatActivity() {
         bindParamsToViews()
         suppressListeners = false
 
+        renderProfileTab()
+        renderProfilePill()
+        selectTab(savedInstanceState?.getString(KEY_CURRENT_TAB) ?: TAB_LISTEN)
+
         requestNotificationPermissionIfNeeded()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_CURRENT_TAB, currentTab)
     }
 
     override fun onStart() {
@@ -245,51 +279,31 @@ class MainActivity : AppCompatActivity() {
     /**
      * ジェスチャバー / ノッチ / ディスプレイカットアウトの下にコントロールが
      * 潜り込まないようにする。fitsSystemWindows には頼らず、上端の inset は
-     * ヘッダの paddingTop に、下端の inset は固定フッタの paddingBottom に、
-     * それぞれ既存の余白へ加算する形で適用する。左右は画面全体(root)へ。
+     * 上部バー(headerRow)の paddingTop に、下端の inset は下部タブバー
+     * (bottomNav)の paddingBottom に、それぞれ既存の余白へ加算する形で適用する。
+     * 左右は画面全体(root)へ。
+     *
+     * v0.7.0 で固定フッタ(旧 footer)を廃止し、上部バー + タブの中身 + 下部
+     * タブバーの縦 3 段構成にした。中身(FrameLayout, height=0dp + weight=1)は
+     * レイアウトの流れの中で下部タブバーの上に収まるため、旧来の
+     * 「フッタの実測高さを ScrollView の paddingBottom に反映する」ハック
+     * (applyFooterSpacing)は不要になった。
      */
     private fun applySystemBarInsets() {
         val header = binding.headerRow
-        val footer = binding.footer
+        val bottomNav = binding.bottomNav
         val headerInitialTop = header.paddingTop
-        val footerInitialBottom = footer.paddingBottom
+        val bottomNavInitialBottom = bottomNav.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             view.updatePadding(left = bars.left, right = bars.right)
             header.updatePadding(top = headerInitialTop + bars.top)
-            footer.updatePadding(bottom = footerInitialBottom + bars.bottom)
+            bottomNav.updatePadding(bottom = bottomNavInitialBottom + bars.bottom)
             insets
         }
         ViewCompat.requestApplyInsets(binding.root)
-    }
-
-    /**
-     * 固定フッタ(開始 / 停止)の裏に本文の末尾が隠れないようにする。
-     *
-     * レイアウトでは本文(ScrollView)の下余白を 112dp 決め打ちにしていたが、
-     * フッタの実際の高さはボタン(72dp)+ 上下パディング + 下端 inset の合計で、
-     * 端末やジェスチャバーの有無によって 112dp を超える。実機(Pixel 9a)では
-     * 「詳細設定」の行がフッタの裏に潜り込んでいた。
-     *
-     * そこでフッタの高さを測って本文の paddingBottom に反映する。フッタの
-     * paddingBottom には [applySystemBarInsets] が下端 inset を加えてあるので、
-     * 高さにはそれも含まれる。少しだけ隙間(8dp)を足して、最後の行がフッタに
-     * 貼り付かないようにする。
-     */
-    private fun applyFooterSpacing() {
-        val gap = (8 * resources.displayMetrics.density).roundToInt()
-        fun sync() {
-            val wanted = binding.footer.height + gap
-            if (wanted > 0 && binding.scroll.paddingBottom != wanted) {
-                binding.scroll.updatePadding(bottom = wanted)
-            }
-        }
-        // 高さが変わるたびに追従する(inset の適用・回転・テーマ切替)。
-        // 同じ値なら padding を書き換えないので、レイアウトのループにはならない。
-        binding.footer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> sync() }
-        binding.footer.post { sync() }
     }
 
     /** ステータスバー / ナビゲーションバーのアイコン色を、現在解決されているテーマに合わせる。 */
@@ -305,6 +319,37 @@ class MainActivity : AppCompatActivity() {
         Params.THEME_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
         Params.THEME_DARK -> AppCompatDelegate.MODE_NIGHT_YES
         else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+    }
+
+    // ---- タブ切替(v0.7.0) ---------------------------------------------------
+
+    private fun setUpBottomNav() {
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            val tab = when (item.itemId) {
+                R.id.navListen -> TAB_LISTEN
+                R.id.navSource -> TAB_SOURCE
+                R.id.navProfile -> TAB_PROFILE
+                R.id.navAdvanced -> TAB_ADVANCED
+                else -> TAB_LISTEN
+            }
+            selectTab(tab)
+            true
+        }
+    }
+
+    private fun selectTab(tab: String) {
+        currentTab = tab
+        binding.tabListenScroll.visibility = if (tab == TAB_LISTEN) View.VISIBLE else View.GONE
+        binding.tabSourceScroll.visibility = if (tab == TAB_SOURCE) View.VISIBLE else View.GONE
+        binding.tabProfileScroll.visibility = if (tab == TAB_PROFILE) View.VISIBLE else View.GONE
+        binding.tabAdvancedScroll.visibility = if (tab == TAB_ADVANCED) View.VISIBLE else View.GONE
+        val navId = when (tab) {
+            TAB_LISTEN -> R.id.navListen
+            TAB_SOURCE -> R.id.navSource
+            TAB_PROFILE -> R.id.navProfile
+            else -> R.id.navAdvanced
+        }
+        if (binding.bottomNav.selectedItemId != navId) binding.bottomNav.selectedItemId = navId
     }
 
     // ---- 入力ハンドラ ------------------------------------------------------
@@ -351,6 +396,15 @@ class MainActivity : AppCompatActivity() {
         binding.crossfadeUp.setOnClickListener { nudgeCrossfade(1) }
         binding.volumeDown.setOnClickListener { nudgeVolume(-1.0f) }
         binding.volumeUp.setOnClickListener { nudgeVolume(1.0f) }
+    }
+
+    /** 「聞く」タブの刻み幅ピル。タップのたびに [Params.STEP_PRESETS] を循環する(v0.7.0)。 */
+    private fun setUpStepPill() {
+        binding.stepPill.setOnClickListener {
+            val currentIndex = Params.STEP_PRESETS.indexOf(params.stepCents).let { if (it < 0) 0 else it }
+            val nextIndex = (currentIndex + 1) % Params.STEP_PRESETS.size
+            updateParams(params.copy(stepCents = Params.STEP_PRESETS[nextIndex]))
+        }
     }
 
     private fun nudgeLeft(sign: Int) = updateParams(
@@ -789,13 +843,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val steps = listOf(binding.step0, binding.step1, binding.step2, binding.step3)
-        steps.forEachIndexed { index, view ->
-            view.setOnClickListener {
-                updateParams(params.copy(stepCents = Params.STEP_PRESETS[index]))
-            }
-        }
-
         val themeViews = listOf(
             Params.THEME_SYSTEM to binding.themeSystem,
             Params.THEME_LIGHT to binding.themeLight,
@@ -863,16 +910,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setUpAdvancedToggle() {
-        binding.advToggle.setOnClickListener {
-            val opening = binding.advBody.visibility != View.VISIBLE
-            binding.advBody.visibility = if (opening) View.VISIBLE else View.GONE
-            binding.advChevron.setImageResource(
-                if (opening) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down
-            )
-        }
-    }
-
     private fun setUpDock() {
         binding.toggleButton.setOnClickListener {
             if (service?.isRunning() == true) stopProcessing() else requestStart()
@@ -880,9 +917,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setUpInfoButtons() {
-        infoButton(binding.presetInfoButton, R.string.info_presets_title, R.string.info_presets_body)
         infoButton(binding.shiftInfoButton, R.string.info_shift_title, R.string.info_shift_body)
-        infoButton(binding.stepInfoButton, R.string.info_step_title, R.string.info_step_body)
         infoButton(binding.splitInfoButton, R.string.info_split_title, R.string.info_split_body)
         infoButton(binding.volumeInfoButton, R.string.info_volume_title, R.string.info_volume_body)
         infoButton(binding.dryWetInfoButton, R.string.info_drywet_title, R.string.info_drywet_body)
@@ -917,6 +952,7 @@ class MainActivity : AppCompatActivity() {
             binding.captureMethodInfoButton, R.string.info_capture_method_title,
             R.string.info_capture_method_body
         )
+        infoButton(binding.profileInfoButton, R.string.info_profile_title, R.string.info_profile_body)
     }
 
     private fun infoButton(view: ImageView, titleRes: Int, bodyRes: Int) {
@@ -1015,6 +1051,346 @@ class MainActivity : AppCompatActivity() {
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
+    // ---- プロファイル(v0.7.0) ------------------------------------------------
+
+    /** 出力デバイス種別(spec.md §5 の優先順: USB → 有線 → Bluetooth → 本体スピーカー)。 */
+    private fun classifyDeviceType(type: Int): Int = when (type) {
+        AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_ACCESSORY ->
+            DeviceType.USB
+        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> DeviceType.WIRED
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        -> DeviceType.BLUETOOTH
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> DeviceType.SPEAKER
+        else -> DeviceType.UNSPECIFIED
+    }
+
+    private fun deviceTypeShortLabel(type: Int): String = when (type) {
+        DeviceType.USB -> getString(R.string.device_type_usb_short)
+        DeviceType.WIRED -> getString(R.string.device_type_wired_short)
+        DeviceType.BLUETOOTH -> getString(R.string.device_type_bluetooth)
+        DeviceType.SPEAKER -> getString(R.string.device_type_speaker)
+        else -> getString(R.string.device_type_unspecified)
+    }
+
+    /** いま接続中の出力デバイスの種別。優先順で 1 つに決める(保存ダイアログの既定選択に使う)。 */
+    private fun currentOutputDeviceType(): Int {
+        val connected = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .map { classifyDeviceType(it.type) }
+            .toSet()
+        return DeviceType.AUTO_SWITCH_PRIORITY.firstOrNull { it in connected } ?: DeviceType.UNSPECIFIED
+    }
+
+    private fun outputDeviceLabelFor(id: Int): String =
+        if (id == NativeEngine.DEVICE_AUTO) {
+            getString(R.string.device_auto)
+        } else {
+            outputDevices.firstOrNull { it.id == id }?.label ?: getString(R.string.device_auto)
+        }
+
+    private fun setUpProfileTab() {
+        binding.autoSwitchSwitch.setOnCheckedChangeListener { _, checked ->
+            if (suppressProfileListeners) return@setOnCheckedChangeListener
+            profileState = profileState.copy(autoSwitch = checked)
+            ProfileStore.save(this, profileState)
+        }
+        binding.saveProfileButton.setOnClickListener { showSaveProfileDialog() }
+        binding.profileAbbrevPill.setOnClickListener { selectTab(TAB_PROFILE) }
+    }
+
+    /** プロファイル一覧を作り直して [binding.profileList] へ反映する。 */
+    private fun renderProfileTab() {
+        suppressProfileListeners = true
+        binding.autoSwitchSwitch.isChecked = profileState.autoSwitch
+        suppressProfileListeners = false
+
+        binding.profileList.removeAllViews()
+        val profiles = profileState.profiles
+        binding.profileEmptyText.visibility = if (profiles.isEmpty()) View.VISIBLE else View.GONE
+
+        profiles.forEach { profile ->
+            val item = layoutInflater.inflate(R.layout.item_profile_card, binding.profileList, false)
+            item.findViewById<TextView>(R.id.profileAbbrevBadge).text = profile.abbrev
+            item.findViewById<TextView>(R.id.profileName).text = profile.name
+            item.findViewById<TextView>(R.id.profileDeviceLabel).text = getString(
+                R.string.profile_device_target_format, deviceTypeShortLabel(profile.deviceType)
+            )
+            item.findViewById<TextView>(R.id.profileSummary).text = profileSummaryText(profile)
+
+            val isActive = profile.id == profileState.activeProfileId
+            item.findViewById<TextView>(R.id.profileActiveBadge).visibility =
+                if (isActive) View.VISIBLE else View.GONE
+
+            val applyButton = item.findViewById<MaterialButton>(R.id.profileApplyButton)
+            applyButton.text = getString(if (isActive) R.string.profile_applied else R.string.profile_apply)
+            applyButton.isEnabled = !isActive
+            applyButton.setOnClickListener { applyProfile(profile) }
+
+            item.setOnLongClickListener { showProfileMenu(profile); true }
+
+            binding.profileList.addView(item)
+        }
+    }
+
+    private fun renderProfilePill() {
+        val active = profileState.profiles.firstOrNull { it.id == profileState.activeProfileId }
+        binding.profileAbbrevPill.text = active?.abbrev ?: getString(R.string.profile_pill_none)
+    }
+
+    private fun profileSummaryText(profile: Profile): String {
+        val s = profile.snapshot
+        val shiftPart = if (s.splitChannels && s.shiftCentsL != s.shiftCentsR) {
+            getString(R.string.profile_summary_shift_split, formatCents(s.shiftCentsL), formatCents(s.shiftCentsR))
+        } else {
+            getString(R.string.profile_summary_shift, formatCents(s.shiftCentsL))
+        }
+        val micPart = getString(R.string.profile_summary_mic, micGainLabel(s.micGainDb))
+        val capturePart = getString(
+            if (s.captureEnabled) R.string.profile_summary_capture_on else R.string.profile_summary_capture_off
+        )
+        val outputPart = getString(R.string.profile_summary_output, outputDeviceLabelFor(s.outputDeviceId))
+        return listOf(shiftPart, micPart, capturePart, outputPart).joinToString(" ・ ")
+    }
+
+    /**
+     * 適用: スナップショットを現在の Params に被せ、既存の [updateParams] 経路へ流す。
+     *
+     * 「他アプリの音を拾う」だけは [updateParams] で値を変えても捕獲の実体
+     * (CaptureController / 同意ダイアログ)が追従しないため、動作中に ON/OFF が
+     * 変わるときはスイッチ操作と同じ経路([disableCapture] 相当の stopCapture /
+     * [launchProjectionConsent])を明示的に通す。
+     * - ON → OFF: 先に捕獲を畳んでから Params を流す
+     * - OFF → ON: Params を流したあと同意ダイアログを出す。ただし再起動を伴う場合は
+     *   [restartForSettings] が同意まで面倒を見るので、ここでは出さない
+     * 同意が拒否されると [revertCaptureSwitch] が captureEnabled を下ろし、
+     * [syncActiveProfileId] が「使用中」を外す。
+     */
+    private fun applyProfile(profile: Profile) {
+        profileState = profileState.copy(activeProfileId = profile.id)
+        ProfileStore.save(this, profileState)
+        val prev = params
+        val next = profile.snapshot.applyTo(prev)
+        val running = service?.isRunning() == true
+        val captureTurnsOff = running && prev.captureEnabled && !next.captureEnabled
+        val captureTurnsOn = running && !prev.captureEnabled && next.captureEnabled
+        if (captureTurnsOff) service?.stopCapture()
+        updateParams(next)
+        if (captureTurnsOn && !prev.requiresRestart(next)) {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                launchProjectionConsent()
+            } else {
+                // 自動切替が背面で走った場合: 同意画面は出せないので通知で案内する
+                // ([restartForSettings] と同じ扱い)。
+                service?.notifyReopenToResumeCapture()
+            }
+        }
+        renderProfileTab()
+        renderProfilePill()
+    }
+
+    /**
+     * パラメータが変わるたびに [updateParams] から呼ぶ。active プロファイルの
+     * スナップショットと現在の Params が一致しなくなっていたら activeProfileId を外す。
+     */
+    private fun syncActiveProfileId() {
+        val activeId = profileState.activeProfileId ?: return
+        val active = profileState.profiles.firstOrNull { it.id == activeId }
+        val stillMatches = active != null && active.snapshot.matches(params)
+        if (!stillMatches) {
+            profileState = profileState.copy(activeProfileId = null)
+            ProfileStore.save(this, profileState)
+            renderProfileTab()
+            renderProfilePill()
+        }
+    }
+
+    /** 出力デバイスが追加されたとき、自動切替 ON なら対象デバイス種別が一致するプロファイルを適用する。 */
+    private fun maybeAutoSwitchProfile(addedDevices: Array<out AudioDeviceInfo>) {
+        if (!profileState.autoSwitch) return
+        val addedTypes = addedDevices.filter { it.isSink }.map { classifyDeviceType(it.type) }.toSet()
+        if (addedTypes.isEmpty()) return
+        val matchedType = DeviceType.AUTO_SWITCH_PRIORITY.firstOrNull { it in addedTypes } ?: return
+        val profile = profileState.profiles.firstOrNull { it.deviceType == matchedType } ?: return
+        if (profile.id == profileState.activeProfileId) return
+        applyProfile(profile)
+        Toast.makeText(this, getString(R.string.profile_applied_toast_format, profile.name), Toast.LENGTH_SHORT)
+            .show()
+    }
+
+    private fun createProfile(name: String, abbrev: String, deviceType: Int) {
+        val profile = Profile(
+            id = ProfileStore.newId(),
+            name = name,
+            abbrev = abbrev,
+            deviceType = deviceType,
+            snapshot = ProfileSnapshot.fromParams(params),
+        )
+        profileState = profileState.copy(
+            profiles = profileState.profiles + profile,
+            activeProfileId = profile.id,
+        )
+        ProfileStore.save(this, profileState)
+        renderProfileTab()
+        renderProfilePill()
+    }
+
+    private fun overwriteProfile(profile: Profile) {
+        val updated = profile.copy(snapshot = ProfileSnapshot.fromParams(params))
+        profileState = profileState.copy(
+            profiles = profileState.profiles.map { if (it.id == profile.id) updated else it },
+            activeProfileId = profile.id,
+        )
+        ProfileStore.save(this, profileState)
+        renderProfileTab()
+        renderProfilePill()
+        Snackbar.make(binding.root, getString(R.string.profile_overwritten_hint, profile.name), Snackbar.LENGTH_SHORT)
+            .show()
+    }
+
+    private fun renameProfile(profile: Profile, newName: String, newAbbrev: String) {
+        profileState = profileState.copy(
+            profiles = profileState.profiles.map {
+                if (it.id == profile.id) it.copy(name = newName, abbrev = newAbbrev) else it
+            },
+        )
+        ProfileStore.save(this, profileState)
+        renderProfileTab()
+        renderProfilePill()
+    }
+
+    private fun deleteProfile(profile: Profile) {
+        profileState = profileState.copy(
+            profiles = profileState.profiles.filterNot { it.id == profile.id },
+            activeProfileId = profileState.activeProfileId.takeUnless { it == profile.id },
+        )
+        ProfileStore.save(this, profileState)
+        renderProfileTab()
+        renderProfilePill()
+    }
+
+    private fun showProfileMenu(profile: Profile) {
+        val items = arrayOf(
+            getString(R.string.profile_menu_rename),
+            getString(R.string.profile_menu_overwrite),
+            getString(R.string.profile_menu_delete),
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(profile.name)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showRenameDialog(profile)
+                    1 -> overwriteProfile(profile)
+                    2 -> confirmDeleteProfile(profile)
+                }
+            }
+            .show()
+    }
+
+    private fun confirmDeleteProfile(profile: Profile) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.profile_delete_confirm_title)
+            .setMessage(getString(R.string.profile_delete_confirm_message, profile.name))
+            .setPositiveButton(R.string.profile_menu_delete) { _, _ -> deleteProfile(profile) }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun labeledField(labelRes: Int, field: View): LinearLayout {
+        val density = resources.displayMetrics.density
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (12 * density).roundToInt() }
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = getString(labelRes)
+                    setTextColor(ContextCompat.getColor(context, R.color.muted))
+                    textSize = 12f
+                }
+            )
+            addView(field)
+        }
+    }
+
+    private fun showRenameDialog(profile: Profile) {
+        val density = resources.displayMetrics.density
+        val horizontalPad = (20 * density).roundToInt()
+        val nameInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            setText(profile.name)
+            setSelection(text.length)
+        }
+        val abbrevInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            filters = arrayOf(InputFilter.LengthFilter(2))
+            setText(profile.abbrev)
+            setSelection(text.length)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(horizontalPad, (8 * density).roundToInt(), horizontalPad, 0)
+            addView(labeledField(R.string.profile_name_label, nameInput).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = 0 })
+            addView(labeledField(R.string.profile_abbrev_label, abbrevInput))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.profile_menu_rename)
+            .setView(container)
+            .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                val name = nameInput.text.toString().trim().ifEmpty { profile.name }
+                val abbrev = abbrevInput.text.toString().trim().take(2).ifEmpty { profile.abbrev }
+                renameProfile(profile, name, abbrev)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun showSaveProfileDialog() {
+        val density = resources.displayMetrics.density
+        val horizontalPad = (20 * density).roundToInt()
+
+        val nameInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            hint = getString(R.string.profile_name_hint)
+        }
+        val abbrevInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            filters = arrayOf(InputFilter.LengthFilter(2))
+            hint = getString(R.string.profile_abbrev_hint)
+        }
+        val deviceTypes = listOf(
+            DeviceType.UNSPECIFIED, DeviceType.USB, DeviceType.WIRED, DeviceType.BLUETOOTH, DeviceType.SPEAKER
+        )
+        val deviceLabels = deviceTypes.map { deviceTypeShortLabel(it) }
+        val deviceSpinner = Spinner(this).apply {
+            adapter = spinnerAdapter(deviceLabels)
+            setSelection(deviceTypes.indexOf(currentOutputDeviceType()).coerceAtLeast(0))
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(horizontalPad, (8 * density).roundToInt(), horizontalPad, 0)
+            addView(labeledField(R.string.profile_name_label, nameInput).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = 0 })
+            addView(labeledField(R.string.profile_abbrev_label, abbrevInput))
+            addView(labeledField(R.string.profile_device_label, deviceSpinner))
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.profile_save_title)
+            .setView(container)
+            .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                val name = nameInput.text.toString().trim().ifEmpty { getString(R.string.profile_default_name) }
+                val abbrev = abbrevInput.text.toString().trim().take(2).ifEmpty { name.take(2) }
+                val deviceType = deviceTypes.getOrElse(deviceSpinner.selectedItemPosition) { DeviceType.UNSPECIFIED }
+                createProfile(name, abbrev, deviceType)
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
     // ---- 表示 --------------------------------------------------------------
 
     private fun updateParams(next: Params) {
@@ -1029,6 +1405,8 @@ class MainActivity : AppCompatActivity() {
         if (prev.outputUsage != next.outputUsage) {
             applyVolumeControlStream(next.outputUsage)
         }
+
+        syncActiveProfileId()
 
         // デバイス指定 / 出力用途 / 走査幅は次の start() からしか効かないため、動作中に
         // 変えた場合はここで stop → start する(捕獲 ON なら同意画面が再び出る)。
@@ -1045,9 +1423,7 @@ class MainActivity : AppCompatActivity() {
         binding.shiftRSlider.value = params.effectiveRight.toFloat()
         binding.shiftRValue.text = formatCents(params.effectiveRight)
 
-        val hint = stepHintText(params.stepCents)
-        binding.shiftStepHintL.text = hint
-        binding.shiftStepHintR.text = hint
+        binding.stepPill.text = stepPillText(params.stepCents)
 
         binding.splitSwitch.isChecked = params.splitChannels
         binding.chanR.visibility = if (params.splitChannels) View.VISIBLE else View.GONE
@@ -1069,10 +1445,6 @@ class MainActivity : AppCompatActivity() {
         selectSegment(
             listOf(binding.preset0, binding.preset1, binding.preset2, binding.preset3),
             Params.CROSSFADE_PRESETS.indexOf(params.crossfadeMs),
-        )
-        selectSegment(
-            listOf(binding.step0, binding.step1, binding.step2, binding.step3),
-            Params.STEP_PRESETS.indexOf(params.stepCents),
         )
         selectSegment(
             listOf(binding.themeSystem, binding.themeLight, binding.themeDark),
@@ -1158,13 +1530,8 @@ class MainActivity : AppCompatActivity() {
         else -> getString(R.string.step_name_eighth_tone)
     }
 
-    /** 「半音 下げる / 上げる」のように、現在の刻み幅を −/+ ボタン付近に表示する文言。 */
-    private fun stepHintText(stepCents: Int): String {
-        val name = stepName(stepCents)
-        val down = getString(R.string.step_hint_down_format, name)
-        val up = getString(R.string.step_hint_up_format, name)
-        return "$down / $up"
-    }
+    /** 刻み幅ピルの文言(例: 「1/8 音\n25」)。web/mock の STEP_CYCLE 表示と同じ規約。 */
+    private fun stepPillText(stepCents: Int): String = "${stepName(stepCents)}\n$stepCents"
 
     /**
      * 符号つきで書式化する。プラス側も設定できるようになったため、上げているのか
@@ -1321,5 +1688,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideError() {
         binding.errorBox.visibility = View.GONE
+    }
+
+    companion object {
+        private const val TAB_LISTEN = "listen"
+        private const val TAB_SOURCE = "source"
+        private const val TAB_PROFILE = "profile"
+        private const val TAB_ADVANCED = "advanced"
+        private const val KEY_CURRENT_TAB = "current_tab"
     }
 }

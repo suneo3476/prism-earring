@@ -281,4 +281,63 @@
     <string name="notif_title">カツオ 動作中</string>
     <string name="notif_text">マイク入力をピッチシフトして再生しています。</string>
     <string name="notif_action_stop">停止</string>
+
+    <!-- ============ v0.7.0: 4 タブ構成 + プロファイル ============ -->
+
+    <!-- 下部タブバー -->
+    <string name="nav_listen">聞く</string>
+    <string name="nav_source">音源</string>
+    <string name="nav_profile">プロファイル</string>
+    <string name="nav_advanced">詳細</string>
+
+    <!-- Service 再起動が要る項目に付ける小バッジ -->
+    <string name="badge_restart">再起動</string>
+
+    <!-- 音源タブのカード見出し -->
+    <string name="source_mic_title">マイク</string>
+    <string name="source_capture_title">他アプリの音</string>
+    <string name="source_output_title">出力先</string>
+    <string name="mic_method_recommend_hint">既定のまま(低遅延)を推奨します。会話や周囲の音向きで、生の音とほぼずれずに聞こえます。</string>
+
+    <!-- 詳細タブ: なめらかさカードの見出し(プリセット 4 段 + スライダを統合) -->
+    <string name="crossfade_card_title">なめらかさ(窓長)</string>
+
+    <!-- 上部バー: プロファイル略称ピル -->
+    <string name="profile_pill_none">—</string>
+    <string name="profile_pill_desc">適用中のプロファイル。タップでプロファイルタブへ移動します。</string>
+
+    <!-- プロファイルタブ -->
+    <string name="profile_tab_title">プロファイル</string>
+    <string name="info_profile_title">プロファイル</string>
+    <string name="info_profile_body">環境(USB 有線 / Bluetooth / 実験用など)ごとに、シフト量・音源設定・出力先をまとめて登録し、切り替えられる機能です。テーマとユーザープリセット(P1〜P3)はプロファイルに含みません(端末全体で共通)。\n\n「出力先が変わったら自動で切り替える」を ON にすると、対象デバイスが一致するプロファイルを出力先の抜き差し時に自動で適用します。取り外したときは何もしません。\n\nカードを長押しすると、名前・略称の変更、いまの設定での上書き、削除ができます。</string>
+    <string name="profile_auto_switch_label">出力先が変わったら自動で切り替える</string>
+    <string name="profile_empty_hint">プロファイルがありません。いまの設定を気に入ったら、下の「保存」でここに登録できます。</string>
+    <string name="profile_save_button">＋ 現在の設定をプロファイルとして保存</string>
+    <string name="profile_apply">適用</string>
+    <string name="profile_applied">適用中</string>
+    <string name="profile_active_badge">使用中</string>
+    <string name="profile_device_target_format">対象デバイス: %1$s</string>
+    <string name="profile_summary_shift">シフト %1$s</string>
+    <string name="profile_summary_shift_split">シフト L%1$s / R%2$s</string>
+    <string name="profile_summary_mic">マイク %1$s</string>
+    <string name="profile_summary_capture_on">他アプリの音 ON</string>
+    <string name="profile_summary_capture_off">他アプリの音 OFF</string>
+    <string name="profile_summary_output">出力先 %1$s</string>
+    <string name="device_type_usb_short">USB</string>
+    <string name="device_type_wired_short">有線</string>
+    <string name="device_type_unspecified">指定なし</string>
+    <string name="profile_name_label">名前</string>
+    <string name="profile_name_hint">例: USB 有線・会話</string>
+    <string name="profile_abbrev_label">略称(1〜2文字)</string>
+    <string name="profile_abbrev_hint">例: U会</string>
+    <string name="profile_device_label">対象デバイス</string>
+    <string name="profile_save_title">プロファイルを保存</string>
+    <string name="profile_default_name">名称未設定</string>
+    <string name="profile_menu_rename">名前・略称を変更</string>
+    <string name="profile_menu_overwrite">いまの設定で上書き</string>
+    <string name="profile_menu_delete">削除</string>
+    <string name="profile_delete_confirm_title">プロファイルを削除しますか</string>
+    <string name="profile_delete_confirm_message">「%1$s」を削除します。元に戻せません。</string>
+    <string name="profile_overwritten_hint">プロファイル「%1$s」を上書きしました</string>
+    <string name="profile_applied_toast_format">プロファイル「%1$s」を適用しました</string>
 </resources>

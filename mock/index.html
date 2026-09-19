@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>カツオ UI 整理案モック</title>
+<style>
+  :root {
+    --bg: #F6F7F9;
+    --card: #FFFFFF;
+    --card2: #EEF0F3;
+    --fg: #111827;
+    --muted: #4B5563;
+    --line: #D9DCE1;
+    --primary: #2563EB;
+    --primary-fg: #FFFFFF;
+    --track: #E2E4E9;
+    --ok: #DCFCE7;
+    --ok-fg: #15803D;
+    --idle: #E5E7EB;
+    --idle-fg: #111827;
+    --stop: #DC2626;
+    --stop-fg: #FFFFFF;
+    --danger-bg: #FEF2F2;
+    --danger-fg: #B91C1C;
+    --danger-line: #FCA5A5;
+    --warn-fg: #B45309;
+
+    --shell-bg: #E5E7EB;
+    --shell-fg: #111827;
+    --shell-muted: #6B7280;
+    --shell-card: #FFFFFF;
+    --shell-line: #D1D5DB;
+  }
+  html[data-theme="dark"] {
+    --bg: #0B0F14;
+    --card: #161C24;
+    --card2: #1E2732;
+    --fg: #F3F4F6;
+    --muted: #9AA4B2;
+    --line: #2B3441;
+    --primary: #3B82F6;
+    --primary-fg: #FFFFFF;
+    --track: #2F3743;
+    --ok: #22C55E;
+    --ok-fg: #0B0F14;
+    --idle: #2A323D;
+    --idle-fg: #F3F4F6;
+    --stop: #EF4444;
+    --stop-fg: #FFFFFF;
+    --danger-bg: #2A1414;
+    --danger-fg: #FFB4B4;
+    --danger-line: #7F3535;
+    --warn-fg: #FFD98A;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--shell-bg);
+    color: var(--shell-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+  }
+
+  /* ---------- review toolbar ---------- */
+  .toolbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px;
+    padding: 10px 16px;
+    background: var(--shell-card);
+    border-bottom: 1px solid var(--shell-line);
+  }
+  .toolbar h1 {
+    font-size: 14px; font-weight: 700; margin: 6px 12px 0 0;
+    color: var(--shell-fg); white-space: nowrap;
+  }
+  .toolbar .spacer { flex: 1 1 auto; }
+  .tbtn-group {
+    display: inline-flex; border: 1px solid var(--shell-line);
+    border-radius: 10px; overflow: hidden; height: 36px;
+  }
+  .tbtn {
+    appearance: none; border: none; background: var(--shell-card);
+    color: var(--shell-fg); font-size: 12px; font-weight: 600;
+    padding: 8px 12px; cursor: pointer; min-height: 36px;
+    border-right: 1px solid var(--shell-line);
+    font-family: inherit;
+  }
+  .tbtn:last-child { border-right: none; }
+  .tbtn.active { background: #2563EB; color: #fff; }
+  .toolbar-note {
+    font-size: 11px; color: var(--shell-muted); width: 100%;
+    padding-top: 2px;
+  }
+  .toolbar-row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; align-items: flex-start; }
+  .toolbar-divider { width: 100%; height: 1px; background: var(--shell-line); margin: 2px 0; }
+
+  .decision-seg-group { display: flex; flex-direction: column; gap: 3px; }
+  .decision-seg-group .dtitle { font-size: 10px; font-weight: 700; color: var(--shell-muted); }
+  .decision-btns { display: inline-flex; border: 1px solid var(--shell-line); border-radius: 10px; overflow: hidden; }
+  .dbtn {
+    appearance: none; border: none; background: var(--shell-card); color: var(--shell-fg);
+    font-size: 10.5px; font-weight: 600; padding: 6px 9px; cursor: pointer;
+    border-right: 1px solid var(--shell-line); font-family: inherit; line-height: 1.35;
+    text-align: left; max-width: 130px;
+  }
+  .dbtn:last-child { border-right: none; }
+  .dbtn.active { background: #2563EB; color: #fff; }
+  .dbtn b { display: block; font-size: 11px; }
+
+  .compare-btns { display: inline-flex; border: 1px solid var(--shell-line); border-radius: 10px; overflow: hidden; }
+  .cbtn {
+    appearance: none; border: none; background: var(--shell-card); color: var(--shell-fg);
+    font-size: 11px; font-weight: 700; padding: 8px 11px; cursor: pointer;
+    border-right: 1px solid var(--shell-line); font-family: inherit;
+  }
+  .cbtn:last-child { border-right: none; }
+  .cbtn:hover { background: #EEF2FF; }
+
+  /* ---------- stage layout ---------- */
+  .stage {
+    display: flex; align-items: flex-start; justify-content: center;
+    gap: 24px; padding: 28px 16px 60px; flex-wrap: wrap;
+  }
+
+  /* ---------- phone frame ---------- */
+  .phone-wrap { flex: 0 0 auto; }
+  .phone {
+    width: 390px; height: 844px;
+    background: var(--bg);
+    border-radius: 44px;
+    border: 10px solid #1a1a1a;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    overflow: hidden;
+    position: relative;
+    display: flex; flex-direction: column;
+    color: var(--fg);
+  }
+  .statusbar {
+    height: 44px; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; font-size: 13px; font-weight: 600;
+    color: var(--fg);
+  }
+  .statusbar .notch {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 22px; background: #1a1a1a; border-radius: 12px;
+  }
+
+  .appbar {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .appbar .brand { font-size: 17px; font-weight: 800; letter-spacing: 0.02em; }
+  .status-pill {
+    font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px;
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .status-pill.running { background: var(--ok); color: var(--ok-fg); }
+  .status-pill.stopped { background: var(--idle); color: var(--idle-fg); }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .latency-text { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .appbar .spacer { flex: 1 1 auto; }
+  .startstop-btn {
+    appearance: none; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 700; padding: 8px 16px;
+    min-height: 44px; cursor: pointer; font-family: inherit;
+  }
+  .startstop-btn.start { background: var(--primary); color: var(--primary-fg); }
+  .startstop-btn.stop { background: var(--stop); color: var(--stop-fg); }
+
+  .fixedstartbar { display: none; flex: 0 0 auto; }
+  .fixedstartbar button {
+    width: 100%; height: 56px; border: none; font-size: 15px; font-weight: 800;
+    cursor: pointer; font-family: inherit;
+  }
+  .fixedstartbar button.start { background: var(--primary); color: var(--primary-fg); }
+  .fixedstartbar button.stop { background: var(--stop); color: var(--stop-fg); }
+
+  .content {
+    flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+    padding: 14px 16px 24px;
+    background: var(--bg);
+  }
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+
+  .tabbar {
+    flex: 0 0 auto;
+    display: flex; border-top: 1px solid var(--line);
+    background: var(--card); padding-bottom: 18px;
+  }
+  .tabbtn {
+    flex: 1 1 0; appearance: none; border: none; background: transparent;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 4px 4px; cursor: pointer; font-family: inherit;
+    color: var(--muted); font-size: 11px; font-weight: 600;
+    min-height: 44px;
+  }
+  .tabbtn.active { color: var(--primary); }
+  .tabbtn .ico {
+    width: 20px; height: 20px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+
+  /* ---------- cards & sections ---------- */
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  }
+  .card2 { background: var(--card2); }
+  .section-head {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+  }
+  .section-title { font-size: 13px; font-weight: 700; color: var(--fg); }
+  .section-sub { font-size: 11px; color: var(--muted); margin-top: -6px; margin-bottom: 10px; }
+  .info-btn {
+    appearance: none; border: 1px solid var(--line); background: var(--card2);
+    color: var(--muted); border-radius: 50%; width: 20px; height: 20px;
+    font-size: 11px; line-height: 1; cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; flex: 0 0 auto;
+  }
+  .info-body {
+    display: none; font-size: 12px; color: var(--muted); line-height: 1.6;
+    background: var(--card2); border-radius: 10px; padding: 10px 12px; margin: 8px 0 10px;
+    white-space: pre-line;
+  }
+  .info-body.open { display: block; }
+  .badge-restart {
+    font-size: 10px; font-weight: 700; color: var(--warn-fg);
+    background: var(--card2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 7px; margin-left: 6px; white-space: nowrap;
+  }
+  .badge-current {
+    font-size: 10px; font-weight: 700; color: var(--ok-fg);
+    background: var(--ok); border-radius: 999px; padding: 2px 8px; margin-left: 6px; white-space: nowrap;
+  }
+  .divider { height: 1px; background: var(--line); margin: 12px 0; border: none; }
+
+  /* ---------- usage banner ---------- */
+  .usage-box {
+    font-size: 12px; color: var(--muted); background: var(--card2);
+    border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.7;
+  }
+
+  /* ---------- profile chips (D1-B) ---------- */
+  .chip-row {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px;
+  }
+  .chip {
+    flex: 0 0 auto; background: var(--card2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--fg); cursor: pointer;
+    font-family: inherit; white-space: nowrap; min-height: 36px;
+  }
+  .chip.selected { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+  .chip.add { border-style: dashed; color: var(--muted); }
+
+  /* ---------- shift number ---------- */
+  .shift-row { display: flex; gap: 10px; }
+  .shift-col { flex: 1 1 0; text-align: center; }
+  .shift-tag { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 2px; }
+  .shift-number {
+    font-size: 40px; font-weight: 800; letter-spacing: -0.01em;
+    background: none; border: none; color: var(--fg); font-family: inherit;
+    cursor: pointer; padding: 2px 4px; border-radius: 8px;
+  }
+  .shift-unit { font-size: 12px; color: var(--muted); margin-top: -4px; }
+  .stepper-row {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    margin: 10px 0 4px;
+  }
+  .step-btn {
+    width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card2); color: var(--fg); font-size: 20px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .step-pill {
+    font-size: 11px; font-weight: 700; color: var(--primary);
+    background: var(--card2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 10px; cursor: pointer; min-width: 64px; text-align: center; font-family: inherit;
+    white-space: pre-line; line-height: 1.2;
+  }
+  .split-toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 8px; font-size: 12px; color: var(--fg); font-weight: 600;
+  }
+
+  .lr-block { margin-bottom: 16px; text-align: center; }
+  .lr-block .lr-block-tag { font-size: 11px; font-weight: 700; color: var(--muted); text-align: left; margin-bottom: 2px; }
+  .lr-block .stepper-row { margin: 8px 0; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 34px;
+    background: transparent; margin: 6px 0;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 10px; border-radius: 999px; background: var(--track);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--primary);
+    border: 3px solid var(--card); margin-top: -8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  input[type=range]::-moz-range-track { height: 10px; border-radius: 999px; background: var(--track); }
+  input[type=range]::-moz-range-thumb {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--primary); border: 3px solid var(--card);
+  }
+  .slider-sublabels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+
+  .jump-row { display: flex; gap: 8px; margin-top: 10px; }
+  .jump-btn {
+    flex: 1 1 0; background: var(--card2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 4px; font-size: 11px; font-weight: 700; color: var(--fg); text-align: center;
+    cursor: pointer; font-family: inherit; white-space: pre-line; line-height: 1.3; min-height: 44px;
+  }
+
+  .preset-row { display: flex; gap: 8px; margin-top: 10px; }
+  .preset-btn {
+    flex: 1 1 0; background: var(--card2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 4px; font-size: 12px; font-weight: 700; color: var(--fg); text-align: center;
+    cursor: pointer; font-family: inherit; min-height: 44px;
+  }
+  .preset-btn .slot-name { display: block; font-size: 10px; color: var(--muted); font-weight: 600; }
+  .preset-btn .slot-val { display: block; margin-top: 2px; }
+
+  /* ---------- generic rows ---------- */
+  .field-row { margin-bottom: 14px; }
+  .field-row:last-child { margin-bottom: 0; }
+  .field-row.dim { opacity: 0.4; }
+  .field-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .field-label { font-size: 12.5px; font-weight: 700; color: var(--fg); display: flex; align-items: center; }
+  .field-value { font-size: 12.5px; font-weight: 700; color: var(--primary); }
+
+  /* toggle switch */
+  .switch { position: relative; display: inline-block; width: 44px; height: 26px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-track {
+    position: absolute; inset: 0; background: var(--track); border-radius: 999px; cursor: pointer;
+    transition: background .15s;
+  }
+  .switch-track::before {
+    content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .switch input:checked + .switch-track { background: var(--primary); }
+  .switch input:checked + .switch-track::before { transform: translateX(18px); }
+
+  /* segmented control */
+  .segmented { display: flex; background: var(--card2); border-radius: 10px; padding: 3px; gap: 3px; }
+  .segmented.wrap { flex-wrap: wrap; }
+  .seg-btn {
+    flex: 1 1 0; border: none; background: transparent; border-radius: 8px;
+    font-size: 11.5px; font-weight: 700; color: var(--muted); padding: 8px 4px;
+    cursor: pointer; font-family: inherit; white-space: pre-line; line-height: 1.25; min-height: 40px;
+  }
+  .seg-btn.active { background: var(--primary); color: var(--primary-fg); }
+
+  /* select-like row */
+  .select-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--card2); border-radius: 10px; padding: 10px 12px; min-height: 44px;
+  }
+  .select-row select {
+    border: none; background: transparent; color: var(--fg); font-size: 12.5px; font-weight: 700;
+    font-family: inherit; text-align: right;
+  }
+
+  /* radio list */
+  .radio-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .radio-item:last-of-type { border-bottom: none; }
+  .radio-item input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--primary); }
+  .radio-text { font-size: 12.5px; color: var(--fg); line-height: 1.5; }
+  .radio-text .sub { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .status-row {
+    font-size: 11.5px; color: var(--muted); background: var(--card2);
+    border-radius: 8px; padding: 7px 10px; margin-bottom: 10px;
+  }
+
+  .capture-detail { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .capture-detail.open { display: block; }
+  .duck-block { display: none; margin-top: 12px; }
+  .duck-block.open { display: block; }
+
+  details.collapsible {
+    background: var(--card2); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  details.collapsible summary {
+    font-size: 12.5px; font-weight: 700; color: var(--fg); cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  details.collapsible summary::-webkit-details-marker { display: none; }
+  details.collapsible summary::after { content: "▾"; color: var(--muted); font-size: 11px; }
+  details.collapsible[open] summary::after { content: "▴"; }
+  details.collapsible .body { font-size: 12px; color: var(--muted); line-height: 1.7; margin-top: 8px; white-space: pre-line; }
+
+  .note-note {
+    font-size: 11px; color: var(--warn-fg); background: var(--card2); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 12px;
+  }
+  .d5-note {
+    font-size: 11px; color: var(--muted); background: var(--card2); border: 1px dashed var(--line);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; line-height: 1.6;
+  }
+
+  .profile-card { position: relative; }
+  .profile-card .pname { font-size: 13.5px; font-weight: 800; margin-bottom: 4px; }
+  .profile-card .pdevice { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .profile-card .psummary { font-size: 12px; color: var(--fg); line-height: 1.6; margin-bottom: 10px; }
+  .apply-btn {
+    background: var(--primary); color: var(--primary-fg); border: none; border-radius: 8px;
+    font-size: 12px; font-weight: 700; padding: 8px 14px; cursor: pointer; font-family: inherit; min-height: 36px;
+  }
+  .apply-btn.applied { background: var(--idle); color: var(--idle-fg); }
+
+  .save-btn {
+    width: 100%; background: var(--card2); border: 1px dashed var(--line); border-radius: 10px;
+    color: var(--fg); font-size: 12.5px; font-weight: 700; padding: 12px; cursor: pointer;
+    font-family: inherit; min-height: 44px;
+  }
+
+  .diag-box {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px; line-height: 1.7; color: var(--muted); background: var(--card2);
+    border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
+  }
+  .record-btn {
+    width: 100%; margin-top: 10px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; color: var(--fg); font-size: 12.5px; font-weight: 700; padding: 12px;
+    cursor: pointer; font-family: inherit; min-height: 44px;
+  }
+
+  /* ---------- confirm modal (D5-B) ---------- */
+  .modal-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.45);
+    display: none; align-items: center; justify-content: center; z-index: 40; padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-card {
+    background: var(--card); border-radius: 16px; padding: 18px; width: 100%; max-width: 300px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+  .modal-card p { font-size: 13px; color: var(--fg); line-height: 1.6; margin: 0 0 16px; }
+  .modal-card .modal-btns { display: flex; gap: 8px; }
+  .modal-card button {
+    flex: 1 1 0; border: none; border-radius: 10px; padding: 10px; font-size: 12.5px; font-weight: 700;
+    cursor: pointer; font-family: inherit; min-height: 44px;
+  }
+  .modal-card .btn-primary { background: var(--primary); color: var(--primary-fg); }
+  .modal-card .btn-secondary { background: var(--card2); color: var(--fg); }
+
+  /* ---------- annotation panel ---------- */
+  .annotations {
+    width: 360px; flex: 0 0 auto;
+    background: var(--shell-card); border: 1px solid var(--shell-line); border-radius: 14px;
+    padding: 16px; color: var(--shell-fg); align-self: flex-start;
+    max-height: 844px; overflow-y: auto;
+  }
+  .annotations h2 { font-size: 14px; margin: 0 0 2px; }
+  .annotations .cur-tab { font-size: 12px; color: var(--shell-muted); margin-bottom: 12px; }
+  .anno-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 18px; }
+  .anno-table th, .anno-table td {
+    text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--shell-line); vertical-align: top;
+  }
+  .anno-table th { color: var(--shell-muted); font-weight: 700; font-size: 10.5px; }
+  .anno-table td.pos { color: var(--shell-muted); white-space: nowrap; }
+  .anno-table td.timing { white-space: nowrap; }
+  .timing-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px; }
+  .timing-tag.immediate { background: #DCFCE7; color: #15803D; }
+  .timing-tag.restart { background: #FEF3C7; color: #92400E; }
+  .timing-tag.na { background: #E5E7EB; color: #374151; }
+  .anno-empty { font-size: 11.5px; color: var(--shell-muted); padding: 8px 0 16px; }
+
+  .anno-decide h3 { font-size: 12.5px; margin: 0 0 10px; }
+  .anno-d-block { border: 1px solid var(--shell-line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .anno-d-block .dhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 8px; }
+  .anno-d-block .dhead h4 { margin: 0; font-size: 12px; line-height: 1.4; }
+  .anno-d-block .dbadge {
+    font-size: 10px; font-weight: 800; background: var(--primary); color: #fff; border-radius: 999px;
+    padding: 2px 9px; flex: 0 0 auto; white-space: nowrap;
+  }
+  .anno-d-block .dline { font-size: 11px; line-height: 1.6; color: var(--shell-fg); margin: 2px 0; }
+  .anno-d-block .dline b { color: var(--shell-muted); font-weight: 700; }
+
+  /* ---------- embed mode ---------- */
+  body.embed .toolbar, body.embed .annotations { display: none !important; }
+  body.embed .stage { padding: 0; gap: 0; min-height: 100vh; align-items: stretch; justify-content: stretch; }
+  body.embed .phone-wrap { width: 100%; }
+  body.embed .phone { width: 100%; height: 100vh; border-radius: 0; border: none; box-shadow: none; }
+
+  /* ---------- compare view ---------- */
+  #compareView { display: none; }
+  .compare-header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: var(--shell-card); border-bottom: 1px solid var(--shell-line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .compare-header h2 { font-size: 14px; margin: 0; }
+  .back-btn {
+    background: var(--shell-card); border: 1px solid var(--shell-line); border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .compare-cols { display: flex; gap: 20px; padding: 24px; flex-wrap: wrap; justify-content: center; }
+  .compare-col { width: 390px; }
+  .compare-col .clabel { font-size: 13px; font-weight: 800; margin-bottom: 6px; }
+  .compare-col .cline { font-size: 11.5px; color: var(--shell-muted); line-height: 1.6; margin-bottom: 2px; }
+  .compare-col iframe {
+    width: 390px; height: 844px; border: 10px solid #1a1a1a; border-radius: 44px;
+    margin-top: 10px; box-shadow: 0 20px 50px rgba(0,0,0,0.25); background: #fff;
+  }
+
+  @media (max-width: 800px) {
+    .stage { flex-direction: column; align-items: center; }
+    .annotations { width: 390px; max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toolbar" id="toolbar">
+    <h1>カツオ UI モック — レビュー用</h1>
+
+    <div class="toolbar-row">
+      <div class="tbtn-group" id="themeGroup">
+        <button class="tbtn active" data-theme-btn="light">ライト</button>
+        <button class="tbtn" data-theme-btn="dark">ダーク</button>
+      </div>
+      <div class="tbtn-group" id="runGroup">
+        <button class="tbtn" data-run-btn="running">動作中</button>
+        <button class="tbtn active" data-run-btn="stopped">停止中</button>
+      </div>
+      <div class="tbtn-group" id="splitGroup">
+        <button class="tbtn active" data-split-btn="off">左右別々 OFF</button>
+        <button class="tbtn" data-split-btn="on">左右別々 ON</button>
+      </div>
+      <div class="tbtn-group" id="captureGroup">
+        <button class="tbtn active" data-capture-btn="off">他アプリの音 OFF</button>
+        <button class="tbtn" data-capture-btn="on">他アプリの音 ON</button>
+      </div>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-row">
+      <div class="decision-seg-group">
+        <span class="dtitle">D1 タブの数</span>
+        <div class="decision-btns">
+          <button class="dbtn active" data-dkey="d1" data-dval="A"><b>A</b>4タブ</button>
+          <button class="dbtn" data-dkey="d1" data-dval="B"><b>B</b>3タブ+チップ</button>
+        </div>
+      </div>
+      <div class="decision-seg-group">
+        <span class="dtitle">D2 開始/停止の位置</span>
+        <div class="decision-btns">
+          <button class="dbtn active" data-dkey="d2" data-dval="A"><b>A</b>上部バー右</button>
+          <button class="dbtn" data-dkey="d2" data-dval="B"><b>B</b>下部固定ボタン</button>
+        </div>
+      </div>
+      <div class="decision-seg-group">
+        <span class="dtitle">D3 左右別々の並び</span>
+        <div class="decision-btns">
+          <button class="dbtn active" data-dkey="d3" data-dval="A"><b>A</b>横2つ</button>
+          <button class="dbtn" data-dkey="d3" data-dval="B"><b>B</b>縦2段</button>
+        </div>
+      </div>
+      <div class="decision-seg-group">
+        <span class="dtitle">D4 原音を消す方法</span>
+        <div class="decision-btns">
+          <button class="dbtn active" data-dkey="d4" data-dval="A"><b>A</b>3択ラジオ</button>
+          <button class="dbtn" data-dkey="d4" data-dval="B"><b>B</b>トグル+スライダ</button>
+        </div>
+      </div>
+      <div class="decision-seg-group">
+        <span class="dtitle">D5 プロファイル自動切替</span>
+        <div class="decision-btns">
+          <button class="dbtn active" data-dkey="d5" data-dval="A"><b>A</b>自動切替</button>
+          <button class="dbtn" data-dkey="d5" data-dval="B"><b>B</b>開始時に確認</button>
+        </div>
+      </div>
+      <div class="decision-seg-group">
+        <span class="dtitle">比較(A/B を並べる)</span>
+        <div class="compare-btns">
+          <button class="cbtn" data-compare-btn="d1">D1</button>
+          <button class="cbtn" data-compare-btn="d2">D2</button>
+          <button class="cbtn" data-compare-btn="d3">D3</button>
+          <button class="cbtn" data-compare-btn="d4">D4</button>
+          <button class="cbtn" data-compare-btn="d5">D5</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar-note">上段 4 つは実行状態のショートカット、下段 D1〜D5 は spec.md §4 の A/B 案切替です。「比較」を押すと A 案 / B 案を左右に並べて表示します。状態は URL パラメータに保存され、リロードしても残ります。</div>
+  </div>
+
+  <div class="stage">
+    <div class="phone-wrap">
+      <div class="phone" id="phone">
+        <div class="statusbar">
+          <span>9:41</span>
+          <div class="notch"></div>
+          <span>◍ Wi-Fi 100%</span>
+        </div>
+
+        <div class="appbar">
+          <span class="brand">カツオ</span>
+          <span class="status-pill stopped" id="statusPill"><span class="dot"></span><span id="statusPillText">停止中</span></span>
+          <span class="latency-text" id="latencyText" style="display:none;">往復 6.2 ms</span>
+          <span class="spacer"></span>
+          <button class="startstop-btn start" id="startStopBtn">開始</button>
+        </div>
+
+        <div class="content">
+
+          <!-- ============ TAB: 聞く ============ -->
+          <section class="tabpanel active" data-tab="listen">
+
+            <div class="chip-row" id="chipRow" style="display:none;">
+              <button class="chip selected" data-chip="usb">USB 有線・会話 ✓</button>
+              <button class="chip" data-chip="btusb">BT + USB・音楽</button>
+              <button class="chip" data-chip="acc">実験: ユーザー補助</button>
+              <button class="chip add" data-chip="add">＋ 保存</button>
+            </div>
+
+            <div class="usage-box" id="usageBox">1. 有線イヤホンをつなぐ<br>2. 開始を押す<br>3. 音の高さを合わせる</div>
+
+            <div class="card">
+              <div class="section-head">
+                <span class="section-title">音の高さ</span>
+                <button class="info-btn" data-info-target="info-shift">ⓘ</button>
+              </div>
+              <div class="info-body" id="info-shift">入ってきた音を、どれだけ高く / 低くして聞くかです。100 で半音、200 で全音、1200 で 1 オクターブ変わります。マイナスにすると低く聞こえます。作者本人の既定値は −89(半音よりわずかに狭い)です。</div>
+
+              <!-- D3-A: 横2つ -->
+              <div id="d3A">
+                <div class="shift-row" id="shiftRow">
+                  <div class="shift-col" data-ch="L">
+                    <div class="shift-tag">L</div>
+                    <button class="shift-number" data-tap="L">−89</button>
+                    <div class="shift-unit">セント</div>
+                  </div>
+                  <div class="shift-col" data-ch="R" style="display:none;">
+                    <div class="shift-tag">R</div>
+                    <button class="shift-number" data-tap="R">−89</button>
+                    <div class="shift-unit">セント</div>
+                  </div>
+                </div>
+
+                <div class="stepper-row">
+                  <button class="step-btn" data-step-dir="-1">−</button>
+                  <button class="step-pill" id="stepPill">1/8 音<br>25</button>
+                  <button class="step-btn" data-step-dir="1">+</button>
+                </div>
+
+                <input type="range" min="-1200" max="1200" value="-89" id="shiftSliderL" class="shift-slider-L">
+                <div class="slider-sublabels"><span>低く</span><span>高く</span></div>
+                <input type="range" min="-1200" max="1200" value="-89" id="shiftSliderR" class="shift-slider-R" style="display:none;">
+              </div>
+
+              <!-- D3-B: 縦2段 -->
+              <div id="d3B" style="display:none;">
+                <div class="stepper-row" style="justify-content:center;">
+                  <button class="step-pill" id="stepPillB">1/8 音<br>25</button>
+                </div>
+
+                <div class="lr-block">
+                  <div class="lr-block-tag">L</div>
+                  <button class="shift-number" data-tap="L">−89</button>
+                  <div class="shift-unit">セント</div>
+                  <div class="stepper-row">
+                    <button class="step-btn" data-step-dir-b="-1" data-ch="L">−</button>
+                    <button class="step-btn" data-step-dir-b="1" data-ch="L">+</button>
+                  </div>
+                  <input type="range" min="-1200" max="1200" value="-89" class="shift-slider-L">
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="lr-block">
+                  <div class="lr-block-tag">R</div>
+                  <button class="shift-number" data-tap="R">−89</button>
+                  <div class="shift-unit">セント</div>
+                  <div class="stepper-row">
+                    <button class="step-btn" data-step-dir-b="-1" data-ch="R">−</button>
+                    <button class="step-btn" data-step-dir-b="1" data-ch="R">+</button>
+                  </div>
+                  <input type="range" min="-1200" max="1200" value="-89" class="shift-slider-R">
+                </div>
+              </div>
+
+              <div class="jump-row">
+                <button class="jump-btn" data-jump="-1200">最小<br>−1200</button>
+                <button class="jump-btn" data-jump="0">0</button>
+                <button class="jump-btn" data-jump="-89">既定<br>−89</button>
+                <button class="jump-btn" data-jump="1200">最大<br>+1200</button>
+              </div>
+
+              <div class="preset-row">
+                <button class="preset-btn" data-preset="1"><span class="slot-name">P1</span><span class="slot-val">−89</span></button>
+                <button class="preset-btn" data-preset="2"><span class="slot-name">P2</span><span class="slot-val">—</span></button>
+                <button class="preset-btn" data-preset="3"><span class="slot-name">P3</span><span class="slot-val">—</span></button>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="split-toggle-row">
+                <span>左右を別々に設定</span>
+                <label class="switch">
+                  <input type="checkbox" id="splitSwitch">
+                  <span class="switch-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="section-head">
+                <span class="section-title">音量</span>
+              </div>
+              <div class="field-label-row">
+                <span class="field-label">出力音量</span>
+                <span class="field-value" id="volumeValue">+0 dB</span>
+              </div>
+              <input type="range" min="-6" max="12" value="0" id="volumeSlider">
+              <div class="slider-sublabels"><span>小さく</span><span>大きく</span></div>
+            </div>
+          </section>
+
+          <!-- ============ TAB: 音源 ============ -->
+          <section class="tabpanel" data-tab="source">
+
+            <div class="card">
+              <div class="section-head">
+                <span class="section-title">マイク</span>
+              </div>
+              <div class="field-row">
+                <div class="field-label-row">
+                  <span class="field-label">マイク<button class="info-btn" data-info-target="info-mic" style="margin-left:6px;">ⓘ</button></span>
+                  <span class="field-value" id="micGainValue">+0 dB</span>
+                </div>
+                <div class="info-body" id="info-mic">この端末のマイクが拾う音の大きさです。スライダを一番左まで下げると「OFF」になり、マイクの音が完全に無音になります(捕獲音だけを聴きたいときに使います)。</div>
+                <input type="range" min="-30" max="12" value="0" id="micGainSlider">
+                <div class="slider-sublabels"><span>OFF</span><span>大きく</span></div>
+              </div>
+
+              <div class="field-row">
+                <div class="field-label-row">
+                  <span class="field-label">マイクの前処理<span class="badge-restart">再起動</span></span>
+                </div>
+                <div class="segmented">
+                  <button class="seg-btn" data-seg="preproc" data-val="raw">生<br>(加工なし)</button>
+                  <button class="seg-btn active" data-seg="preproc" data-val="ns">ノイズ<br>抑制</button>
+                  <button class="seg-btn" data-seg="preproc" data-val="voice">通話向け</button>
+                </div>
+              </div>
+
+              <div class="field-row">
+                <div class="field-label-row">
+                  <span class="field-label">入力元<span class="badge-restart">再起動</span></span>
+                </div>
+                <div class="select-row">
+                  <span>入力元デバイス</span>
+                  <select>
+                    <option>自動</option>
+                    <option>本体マイク</option>
+                    <option>USB ヘッドセット</option>
+                    <option>有線ヘッドセット</option>
+                  </select>
+                </div>
+              </div>
+
+              <details class="collapsible">
+                <summary>処理方式(マイク)</summary>
+                <div class="body">既定のまま(低遅延)を推奨します。会話や周囲の音向きで、生の音とほぼずれずに聞こえます。</div>
+                <div class="segmented" style="margin-top:8px;">
+                  <button class="seg-btn active" data-seg="micmethod">低遅延<br>5 ms</button>
+                  <button class="seg-btn" data-seg="micmethod">PV<br>55 ms</button>
+                  <button class="seg-btn" data-seg="micmethod">PV<br>110 ms</button>
+                </div>
+              </details>
+            </div>
+
+            <div class="card">
+              <div class="field-label-row" style="margin-bottom:2px;">
+                <span class="field-label">他アプリの音を拾う<button class="info-btn" data-info-target="info-capture" style="margin-left:6px;">ⓘ</button></span>
+                <label class="switch">
+                  <input type="checkbox" id="captureSwitch">
+                  <span class="switch-track"></span>
+                </label>
+              </div>
+              <div class="info-body" id="info-capture">ON にすると、他のアプリが再生している音(YouTube や音楽アプリなど)も、マイクの音と同じようにピッチシフトして混ぜます。ON にした状態で開始すると、画面の共有を許可する確認画面が出ます(録画はされません)。
+
+原音がそのまま二重に聞こえないようにする使い方: 原音を「ダミーの Bluetooth イヤホン」に流し、このアプリの出力先には有線(USB)イヤホンを選んでください。
+
+DRM 付きの音声や、キャプチャを拒否するアプリの音は拾えません。</div>
+
+              <div id="captureDetail" class="capture-detail">
+                <div class="field-row">
+                  <div class="field-label-row">
+                    <span class="field-label">他アプリの音の音量</span>
+                    <span class="field-value">+0 dB</span>
+                  </div>
+                  <input type="range" min="-12" max="12" value="0">
+                </div>
+
+                <div class="status-row">状態: 捕獲中</div>
+
+                <div class="field-row">
+                  <div class="field-label-row"><span class="field-label">処理方式(捕獲)</span></div>
+                  <div class="segmented">
+                    <button class="seg-btn" data-seg="capmethod">低遅延<br>5 ms</button>
+                    <button class="seg-btn" data-seg="capmethod">PV<br>55 ms</button>
+                    <button class="seg-btn active" data-seg="capmethod">PV<br>110 ms</button>
+                  </div>
+                </div>
+
+                <!-- D4-A: 3択ラジオ -->
+                <div id="d4A">
+                  <div class="field-row">
+                    <div class="field-label-row"><span class="field-label">原音を消す方法</span></div>
+                    <div class="card2" style="border-radius:10px; padding:2px 10px;">
+                      <label class="radio-item">
+                        <input type="radio" name="duckMethod" value="none">
+                        <span class="radio-text">何もしない<span class="sub">二重に聞こえる</span></span>
+                      </label>
+                      <label class="radio-item">
+                        <input type="radio" name="duckMethod" value="btdummy" checked>
+                        <span class="radio-text">ダミー Bluetooth に原音を逃がす<span class="sub">手順を見る →</span></span>
+                      </label>
+                      <label class="radio-item">
+                        <input type="radio" name="duckMethod" value="accessibility">
+                        <span class="radio-text">ユーザー補助系統に載せてメディア音量を絞る<span class="sub">実験・再起動が必要</span></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div id="duckBlock" class="duck-block">
+                    <div class="field-row">
+                      <div class="field-label-row">
+                        <span class="field-label">原音の抑え込み<button class="info-btn" data-info-target="info-duck" style="margin-left:6px;">ⓘ</button></span>
+                        <span class="field-value">100%</span>
+                      </div>
+                      <div class="info-body" id="info-duck">動作中・他アプリの音を拾う ON・出力をユーザー補助の音量系統に載せる ON、の 3 つがそろっているときだけ効きます。端末のメディア音量そのものを直接下げることで原音を聞こえにくくします。100% でメディア音量が 0、0% で抑え込みを始める前の音量のままです。</div>
+                      <input type="range" min="0" max="100" value="100">
+                    </div>
+                    <div class="field-row">
+                      <div class="field-label-row">
+                        <span class="field-label">ユーザー補助系統の音量</span>
+                        <span class="field-value">15 / 15</span>
+                      </div>
+                      <input type="range" min="0" max="15" value="15">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- D4-B: トグル + スライダ2つ(現状踏襲) -->
+                <div id="d4B" style="display:none;">
+                  <div class="field-row">
+                    <div class="field-label-row">
+                      <span class="field-label">出力をユーザー補助の音量系統に載せる(実験)<span class="badge-restart">再起動</span></span>
+                      <label class="switch">
+                        <input type="checkbox" id="accToggleB">
+                        <span class="switch-track"></span>
+                      </label>
+                    </div>
+                    <div class="section-sub" style="margin:0;">端末の音量キーがこの用途の音量に切り替わります</div>
+                  </div>
+                  <div class="field-row" id="duckRowB">
+                    <div class="field-label-row">
+                      <span class="field-label">原音の抑え込み</span>
+                      <span class="field-value" id="duckValueB">100%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="100" id="duckSliderB">
+                    <div class="section-sub" id="duckHintB" style="margin-top:4px;">ユーザー補助の音量系統を ON にすると使えます</div>
+                  </div>
+                  <div class="field-row" id="accVolRowB">
+                    <div class="field-label-row">
+                      <span class="field-label">ユーザー補助系統の音量</span>
+                      <span class="field-value">15 / 15</span>
+                    </div>
+                    <input type="range" min="0" max="15" value="15">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="section-head"><span class="section-title">出力先</span></div>
+              <div class="select-row">
+                <span>出力先デバイス<span class="badge-restart">再起動</span></span>
+                <select>
+                  <option>自動</option>
+                  <option>USB ヘッドセット</option>
+                  <option>有線イヤホン</option>
+                  <option>Bluetooth</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <!-- ============ TAB: プロファイル ============ -->
+          <section class="tabpanel" data-tab="profile">
+            <div class="note-note">未実装。形を決めてから作る。</div>
+
+            <div class="d5-note" id="d5BNote" style="display:none;">開始時に「いまの出力先は USB ヘッドセット。プロファイル「USB 有線・会話」を適用しますか?」と確認します</div>
+
+            <div class="card profile-card">
+              <span class="badge-current" style="position:absolute; top:14px; right:14px;">使用中</span>
+              <div class="pname">USB 有線・会話</div>
+              <div class="pdevice">対象デバイス: USB ヘッドセット</div>
+              <div class="psummary">シフト −89 ・ マイクのみ ・ 出力先 USB ヘッドセット</div>
+              <button class="apply-btn applied">適用中</button>
+            </div>
+
+            <div class="card profile-card">
+              <div class="pname">BT + USB・音楽(捕獲)</div>
+              <div class="pdevice">対象デバイス: Bluetooth(ダミー)+ USB</div>
+              <div class="psummary">シフト −89 ・ 他アプリの音 ON(PV 110ms)・ 出力先 USB</div>
+              <button class="apply-btn">適用</button>
+            </div>
+
+            <div class="card profile-card">
+              <div class="pname">実験: ユーザー補助</div>
+              <div class="pdevice">対象デバイス: 本体スピーカー / イヤホン</div>
+              <div class="psummary">他アプリの音 ON ・ ユーザー補助系統に出力 ・ 原音抑え込み 100%</div>
+              <button class="apply-btn">適用</button>
+            </div>
+
+            <div class="card" id="d5AExtra">
+              <div class="field-label-row">
+                <span class="field-label">出力先が変わったら自動で切り替える</span>
+                <label class="switch">
+                  <input type="checkbox">
+                  <span class="switch-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <button class="save-btn">＋ 現在の設定をプロファイルとして保存</button>
+          </section>
+
+          <!-- ============ TAB: 詳細 ============ -->
+          <section class="tabpanel" data-tab="advanced">
+
+            <div class="card">
+              <div class="section-head"><span class="section-title">なめらかさ(窓長)</span></div>
+              <div class="segmented" style="margin-bottom:10px;">
+                <button class="seg-btn" data-seg="crossfade">20 ms</button>
+                <button class="seg-btn active" data-seg="crossfade">50 ms</button>
+                <button class="seg-btn" data-seg="crossfade">100 ms</button>
+                <button class="seg-btn" data-seg="crossfade">200 ms</button>
+              </div>
+              <input type="range" min="10" max="200" value="50" id="crossfadeSlider">
+              <div class="slider-sublabels"><span>速い反応</span><span>なめらか</span></div>
+            </div>
+
+            <div class="card">
+              <div class="field-label-row">
+                <span class="field-label">原音まぜ(Dry/Wet)</span>
+                <span class="field-value" id="drywetValue">1.00</span>
+              </div>
+              <input type="range" min="0" max="100" value="100" id="drywetSlider">
+            </div>
+
+            <div class="card">
+              <div class="field-label-row">
+                <span class="field-label">走査幅(マイク経路)<span class="badge-restart">再起動</span></span>
+              </div>
+              <div class="segmented wrap">
+                <button class="seg-btn" data-seg="sweep">5</button>
+                <button class="seg-btn active" data-seg="sweep">9.5</button>
+                <button class="seg-btn" data-seg="sweep">15</button>
+                <button class="seg-btn" data-seg="sweep">20</button>
+                <button class="seg-btn" data-seg="sweep">30</button>
+                <button class="seg-btn" data-seg="sweep">40</button>
+                <button class="seg-btn" data-seg="sweep">60</button>
+              </div>
+              <div class="section-sub" style="margin-top:8px;">短い ← → 長い(聴感ヒアリング用)</div>
+            </div>
+
+            <div class="card">
+              <div class="section-head"><span class="section-title">テーマ</span></div>
+              <div class="segmented" id="themeSeg">
+                <button class="seg-btn" data-theme-seg="system">システム</button>
+                <button class="seg-btn active" data-theme-seg="light">ライト</button>
+                <button class="seg-btn" data-theme-seg="dark">ダーク</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="section-head"><span class="section-title">診断</span></div>
+              <div class="diag-box">AAudio / 低遅延 / MMAP / 排他
+容量 1920 フレーム
+出力 xrun 3 回 / 入力 xrun 0 回
+コールバック処理時間: 最大 1.2 ms / 平均 0.8 ms</div>
+              <button class="record-btn">10 秒録音</button>
+            </div>
+
+            <details class="collapsible">
+              <summary>遅延表示について</summary>
+              <div class="body">マイクからイヤホンまでの往復時間です。20 ミリ秒以下なら生音とほぼ重なって聞こえます。Bluetooth イヤホンは 100 ミリ秒以上遅れるため、この用途では有線イヤホンを使ってください。</div>
+            </details>
+
+            <details class="collapsible">
+              <summary>注意事項</summary>
+              <div class="body">・イヤホンを使ってください。スピーカーではハウリングします。
+・有線イヤホンを推奨します。Bluetooth は 100ms 以上遅れるため、この用途では実用になりません。
+・音声はこの端末の外へ出ません(外部送信なし)。マイクは開始を押している間だけ開きます。診断区画の「10 秒録音」を押したときだけ、その場に限りローカルの Downloads/katsuo/ へ音声を保存します。
+・エコーキャンセラとノイズ抑制は意図的に無効にしています(音程を正しく通すため)。
+・開発コードネーム: prism earring(名前空間 prism / パッケージ ID は変えていません)。</div>
+            </details>
+
+            <details class="collapsible">
+              <summary>バージョン</summary>
+              <div class="body">v0.7.0-mock ・ コードネーム prism earring</div>
+            </details>
+          </section>
+
+        </div>
+
+        <div class="fixedstartbar" id="fixedStartBar">
+          <button class="start" id="fixedStartBtn">開始</button>
+        </div>
+
+        <div class="tabbar">
+          <button class="tabbtn active" data-tabbtn="listen"><span class="ico">♪</span>聞く</button>
+          <button class="tabbtn" data-tabbtn="source"><span class="ico">◎</span>音源</button>
+          <button class="tabbtn" id="tabbtnProfile" data-tabbtn="profile"><span class="ico">▤</span>プロファイル</button>
+          <button class="tabbtn" data-tabbtn="advanced"><span class="ico">⚙</span>詳細</button>
+        </div>
+
+        <div class="modal-overlay" id="confirmModal">
+          <div class="modal-card">
+            <p>いまの出力先は USB ヘッドセット。プロファイル「USB 有線・会話」を適用しますか?</p>
+            <div class="modal-btns">
+              <button class="btn-secondary" id="modalDecline">今回は使わない</button>
+              <button class="btn-primary" id="modalApply">適用</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="annotations">
+      <h2>注釈パネル</h2>
+      <div class="cur-tab">いま表示中のタブ: <strong id="annoTabName">聞く</strong></div>
+      <div id="annoTableWrap"></div>
+
+      <div class="anno-decide">
+        <h3>4. 決めたいこと — いま選んでいる案(spec.md §4)</h3>
+        <div id="annoDecisions"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="compareView">
+    <div class="compare-header">
+      <button class="back-btn" id="backBtn">← 1 画面に戻る</button>
+      <h2 id="compareTitle">比較</h2>
+    </div>
+    <div class="compare-cols">
+      <div class="compare-col" id="compareColA">
+        <div class="clabel"></div>
+        <div class="cline pros"></div>
+        <div class="cline cons"></div>
+        <iframe src="about:blank"></iframe>
+      </div>
+      <div class="compare-col" id="compareColB">
+        <div class="clabel"></div>
+        <div class="cline pros"></div>
+        <div class="cline cons"></div>
+        <iframe src="about:blank"></iframe>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- D1〜D5 案データ(spec.md §4) ----------
+  var DECISIONS = {
+    d1: { title: "タブの数",
+      A: { summary: "4 タブ(聞く/音源/プロファイル/詳細)", pros: "プロファイルが一覧で見える。保存・編集の置き場所が明確", cons: "タブが 1 つ増え、「聞く」からプロファイル切替に 2 タップ" },
+      B: { summary: "3 タブ(聞く/音源/詳細)。プロファイルは「聞く」上部の横スクロールチップ列", pros: "切替が 1 タップ。日常操作が「聞く」で完結", cons: "内容の確認・編集が窮屈。チップ長押しが発見されにくい" } },
+    d2: { title: "開始 / 停止の位置",
+      A: { summary: "上部バー右のボタン。状態ピルと同じ行", pros: "状態と操作が同じ場所。画面下がタブバーだけで済む", cons: "親指から遠い。ボタンが小さい" },
+      B: { summary: "下部タブバーの直上に幅いっぱいの固定ボタン(現状踏襲)", pros: "親指に近く大きい。現状と同じ手癖", cons: "下部が 2 段になり中身の領域が減る" } },
+    d3: { title: "左右別々 ON のときの並び",
+      A: { summary: "横 2 つ(L と R の大数字を横並び、下にスライダ 2 本)", pros: "左右の差が一目で見える。縦に短い", cons: "数字が小さくなる。−/+ がどちらの数字に効くか迷う" },
+      B: { summary: "縦 2 段(L ブロック → R ブロック。各ブロックに数字・−/+・スライダ)", pros: "各耳の操作が完結し誤操作しにくい", cons: "縦に長い。ジャンプ行・プリセットが下へ押される" } },
+    d4: { title: "「原音を消す方法」の見せ方",
+      A: { summary: "3 択ラジオ。選んだ方式に必要なスライダだけ展開", pros: "「何をするための設定か」が先に読める。使わない項目が隠れる", cons: "ラジオ 1 つに複数の内部設定が束ねられ、細かく触れない" },
+      B: { summary: "現状踏襲(トグル + スライダ 2 つを並べる。OFF 時はグレーアウト)", pros: "内部設定と 1:1 で対応し実装が薄い", cons: "3 つの関係が読み取れない。ダミー Bluetooth 運用が画面に現れない" } },
+    d5: { title: "プロファイルの中身と自動切替",
+      A: { summary: "フルセット +「出力先が変わったら自動で切り替える」トグル", pros: "環境を替えたときの手作業がゼロになる", cons: "自動切替で意図せず設定が変わる可能性。出力先検出のタイミングが再起動と絡む" },
+      B: { summary: "フルセット、自動切替なし。開始時に確認ダイアログ", pros: "意図せず変わらない。実装が単純", cons: "毎回 1 タップ増える" } }
+  };
+
+  // ---------- URL 状態 ----------
+  function readState() {
+    var p = new URLSearchParams(location.search);
+    function d(key) { return p.get(key) === "B" ? "B" : "A"; }
+    function boolP(key, def) { return p.has(key) ? p.get(key) === "1" : def; }
+    var tab = p.get("tab") || "listen";
+    if (["listen", "source", "profile", "advanced"].indexOf(tab) === -1) tab = "listen";
+    var d1 = d("d1");
+    if (tab === "profile" && d1 === "B") tab = "listen";
+    return {
+      d1: d1, d2: d("d2"), d3: d("d3"), d4: d("d4"), d5: d("d5"),
+      theme: p.get("theme") === "dark" ? "dark" : "light",
+      run: boolP("run", false),
+      split: boolP("split", false),
+      cap: boolP("cap", false),
+      tab: tab,
+      embed: boolP("embed", false),
+      d4x: boolP("d4x", false),
+      compare: p.get("compare") || null
+    };
+  }
+  var S = readState();
+
+  function buildQS(overrides) {
+    var o = {};
+    for (var k in S) o[k] = S[k];
+    if (overrides) for (var k2 in overrides) o[k2] = overrides[k2];
+    var p = new URLSearchParams();
+    p.set("d1", o.d1); p.set("d2", o.d2); p.set("d3", o.d3); p.set("d4", o.d4); p.set("d5", o.d5);
+    p.set("theme", o.theme);
+    p.set("run", o.run ? "1" : "0");
+    p.set("split", o.split ? "1" : "0");
+    p.set("cap", o.cap ? "1" : "0");
+    p.set("tab", o.tab);
+    if (o.embed) p.set("embed", "1");
+    if (o.d4x) p.set("d4x", "1");
+    if (o.compare) p.set("compare", o.compare);
+    return p.toString();
+  }
+  function persist() {
+    if (S.compare) return;
+    history.replaceState(null, "", location.pathname + "?" + buildQS());
+  }
+
+  // ---------- compare mode ----------
+  function computeForced(key) {
+    switch (key) {
+      case "d1": return { tab: "listen" };
+      case "d2": return { tab: "listen" };
+      case "d3": return { tab: "listen", split: true };
+      case "d4": return { tab: "source", cap: true, d4x: true };
+      case "d5": return { tab: (S.d1 === "B" ? "listen" : "profile") };
+      default: return {};
+    }
+  }
+  function iframeSrc(key, variant) {
+    var overrides = { embed: true };
+    var forced = computeForced(key);
+    for (var k in forced) overrides[k] = forced[k];
+    overrides[key] = variant;
+    overrides.compare = null;
+    return location.pathname + "?" + buildQS(overrides);
+  }
+  function renderCompareView() {
+    var key = S.compare;
+    var d = DECISIONS[key];
+    if (!d) { key = "d1"; d = DECISIONS.d1; }
+    document.getElementById("compareTitle").textContent = key.toUpperCase() + ". " + d.title;
+
+    var colA = document.getElementById("compareColA");
+    var colB = document.getElementById("compareColB");
+    colA.querySelector(".clabel").textContent = "A 案: " + d.A.summary;
+    colA.querySelector(".cline.pros").textContent = "利点: " + d.A.pros;
+    colA.querySelector(".cline.cons").textContent = "欠点: " + d.A.cons;
+    colB.querySelector(".clabel").textContent = "B 案: " + d.B.summary;
+    colB.querySelector(".cline.pros").textContent = "利点: " + d.B.pros;
+    colB.querySelector(".cline.cons").textContent = "欠点: " + d.B.cons;
+    colA.querySelector("iframe").src = iframeSrc(key, "A");
+    colB.querySelector("iframe").src = iframeSrc(key, "B");
+
+    document.getElementById("backBtn").addEventListener("click", function () {
+      location.href = location.pathname + "?" + buildQS({ compare: null });
+    });
+  }
+
+  // ---------- annotation: settings-to-tab table (spec.md §2) ----------
+  var ANNO = {
+    listen: [
+      ["シフト量 L / R", "#3", "immediate"],
+      ["刻み幅", "#3", "immediate"],
+      ["左右を別々に設定", "#3", "immediate"],
+      ["ジャンプ(最小/0/既定/最大)", "#3", "immediate"],
+      ["ユーザープリセット P1〜P3", "#3", "immediate"],
+      ["出力音量", "#5", "immediate"]
+    ],
+    source: [
+      ["マイク音量", "#6", "immediate"],
+      ["マイクの前処理", "#7", "restart"],
+      ["入力元デバイス", "#6", "restart"],
+      ["処理方式(マイク)", "#4", "immediate"],
+      ["他アプリの音を拾う", "#6", "immediate"],
+      ["他アプリの音の音量", "#6", "immediate"],
+      ["処理方式(捕獲)", "#6", "immediate"],
+      ["原音の抑え込み", "#6", "immediate"],
+      ["出力用途(実験)", "#7", "restart"],
+      ["ユーザー補助系統の音量", "#7", "immediate"],
+      ["出力先デバイス", "#6", "restart"]
+    ],
+    profile: [],
+    advanced: [
+      ["走査幅(マイク経路)", "#7", "restart"],
+      ["なめらかさ(窓長)", "#2 + #7", "immediate"],
+      ["原音まぜ(Dry/Wet)", "#7", "immediate"],
+      ["テーマ", "#7", "immediate"],
+      ["診断 / 10 秒録音", "#8", "na"],
+      ["注意事項 / 遅延の説明", "#8", "na"]
+    ]
+  };
+  var TAB_NAMES = { listen: "聞く", source: "音源", profile: "プロファイル", advanced: "詳細" };
+  var TIMING_LABEL = { immediate: "即時", restart: "再起動", na: "—" };
+
+  function renderAnnoTable(tab) {
+    document.getElementById("annoTabName").textContent = TAB_NAMES[tab];
+    var wrap = document.getElementById("annoTableWrap");
+    var rows = ANNO[tab] || [];
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div class="anno-empty">このタブは新規機能で、旧画面 (#1〜#9) に対応する設定はありません。</div>';
+      return;
+    }
+    var html = '<table class="anno-table"><thead><tr><th>設定</th><th>旧位置</th><th>反映</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr><td>' + r[0] + '</td><td class="pos">' + r[1] + '</td><td class="timing"><span class="timing-tag ' + r[2] + '">' + TIMING_LABEL[r[2]] + '</span></td></tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  function renderAnnoDecisions() {
+    var wrap = document.getElementById("annoDecisions");
+    var html = "";
+    ["d1", "d2", "d3", "d4", "d5"].forEach(function (key, i) {
+      var d = DECISIONS[key];
+      var cur = S[key];
+      var info = d[cur];
+      html += '<div class="anno-d-block">'
+        + '<div class="dhead"><h4>D' + (i + 1) + '. ' + d.title + '</h4><span class="dbadge">' + cur + ' 案</span></div>'
+        + '<div class="dline">' + info.summary + '</div>'
+        + '<div class="dline"><b>利点:</b> ' + info.pros + '</div>'
+        + '<div class="dline"><b>欠点:</b> ' + info.cons + '</div>'
+        + '</div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  // ================================================================
+  // 通常表示(1 画面モック)
+  // ================================================================
+  function wireNormal() {
+
+    // ---------- D1〜D5 トグル ----------
+    function updateDToolbar() {
+      ["d1", "d2", "d3", "d4", "d5"].forEach(function (key) {
+        document.querySelectorAll('[data-dkey="' + key + '"]').forEach(function (btn) {
+          btn.classList.toggle("active", btn.getAttribute("data-dval") === S[key]);
+        });
+      });
+    }
+    function renderD1() {
+      var b = S.d1 === "B";
+      document.getElementById("tabbtnProfile").style.display = b ? "none" : "";
+      document.getElementById("chipRow").style.display = b ? "flex" : "none";
+    }
+    function renderD2() {
+      var b = S.d2 === "B";
+      document.getElementById("startStopBtn").style.display = b ? "none" : "";
+      document.getElementById("fixedStartBar").style.display = b ? "flex" : "none";
+    }
+    function renderD3Visibility() {
+      var showB = S.split && S.d3 === "B";
+      document.getElementById("d3A").style.display = showB ? "none" : "";
+      document.getElementById("d3B").style.display = showB ? "" : "none";
+    }
+    function renderD4Visibility() {
+      var b = S.d4 === "B";
+      document.getElementById("d4A").style.display = b ? "none" : "";
+      document.getElementById("d4B").style.display = b ? "" : "none";
+    }
+    function renderD5Visibility() {
+      var b = S.d5 === "B";
+      document.getElementById("d5AExtra").style.display = b ? "none" : "";
+      document.getElementById("d5BNote").style.display = b ? "block" : "none";
+    }
+    function setD(key, val) {
+      S[key] = val;
+      updateDToolbar();
+      renderD1(); renderD2(); renderD3Visibility(); renderD4Visibility(); renderD5Visibility();
+      if (key === "d1" && S.tab === "profile" && S.d1 === "B") setTab("listen");
+      renderAnnoDecisions();
+      persist();
+    }
+    document.querySelectorAll("[data-dkey]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setD(btn.getAttribute("data-dkey"), btn.getAttribute("data-dval"));
+      });
+    });
+
+    // ---------- 比較ボタン ----------
+    document.querySelectorAll("[data-compare-btn]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        location.href = location.pathname + "?" + buildQS({ compare: btn.getAttribute("data-compare-btn") });
+      });
+    });
+
+    // ---------- tabs ----------
+    var tabBtns = document.querySelectorAll("[data-tabbtn]");
+    var panels = document.querySelectorAll(".tabpanel");
+    function renderTabDOM() {
+      tabBtns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-tabbtn") === S.tab); });
+      panels.forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-tab") === S.tab); });
+      renderAnnoTable(S.tab);
+      document.querySelector(".content").scrollTop = 0;
+    }
+    function setTab(tab) {
+      if (tab === "profile" && S.d1 === "B") tab = "listen";
+      S.tab = tab;
+      renderTabDOM();
+      persist();
+    }
+    tabBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () { setTab(btn.getAttribute("data-tabbtn")); });
+    });
+
+    // ---------- theme ----------
+    function setTheme(mode) {
+      S.theme = mode === "dark" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", S.theme);
+      document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-theme-btn") === S.theme);
+      });
+      document.querySelectorAll("[data-theme-seg]").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-theme-seg") === S.theme);
+      });
+      persist();
+    }
+    document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+      b.addEventListener("click", function () { setTheme(b.getAttribute("data-theme-btn")); });
+    });
+    document.querySelectorAll("[data-theme-seg]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var v = b.getAttribute("data-theme-seg");
+        if (v === "system") {
+          document.querySelectorAll("[data-theme-seg]").forEach(function (bb) {
+            bb.classList.toggle("active", bb.getAttribute("data-theme-seg") === "system");
+          });
+          return;
+        }
+        setTheme(v);
+      });
+    });
+
+    // ---------- running / stopped ----------
+    function renderRunning() {
+      var pill = document.getElementById("statusPill");
+      var pillText = document.getElementById("statusPillText");
+      var latency = document.getElementById("latencyText");
+      var btn = document.getElementById("startStopBtn");
+      var fixedBtn = document.getElementById("fixedStartBtn");
+      var usage = document.getElementById("usageBox");
+      document.querySelectorAll("[data-run-btn]").forEach(function (b) {
+        b.classList.toggle("active", (b.getAttribute("data-run-btn") === "running") === S.run);
+      });
+      if (S.run) {
+        pill.className = "status-pill running";
+        pillText.textContent = "動作中";
+        latency.style.display = "";
+        btn.className = "startstop-btn stop"; btn.textContent = "停止";
+        fixedBtn.className = "stop"; fixedBtn.textContent = "停止";
+        usage.style.display = "none";
+      } else {
+        pill.className = "status-pill stopped";
+        pillText.textContent = "停止中";
+        latency.style.display = "none";
+        btn.className = "startstop-btn start"; btn.textContent = "開始";
+        fixedBtn.className = "start"; fixedBtn.textContent = "開始";
+        usage.style.display = "block";
+      }
+    }
+    function setRun(v) {
+      var wasStopped = !S.run;
+      S.run = v;
+      renderRunning();
+      if (v && wasStopped && S.d5 === "B") openConfirmModal();
+      persist();
+    }
+    document.querySelectorAll("[data-run-btn]").forEach(function (b) {
+      b.addEventListener("click", function () { setRun(b.getAttribute("data-run-btn") === "running"); });
+    });
+    document.getElementById("startStopBtn").addEventListener("click", function () { setRun(!S.run); });
+    document.getElementById("fixedStartBtn").addEventListener("click", function () { setRun(!S.run); });
+
+    // ---------- D5-B confirm modal ----------
+    function openConfirmModal() { document.getElementById("confirmModal").classList.add("open"); }
+    function closeConfirmModal() { document.getElementById("confirmModal").classList.remove("open"); }
+    document.getElementById("modalApply").addEventListener("click", closeConfirmModal);
+    document.getElementById("modalDecline").addEventListener("click", closeConfirmModal);
+
+    // ---------- split L/R ----------
+    var splitSwitch = document.getElementById("splitSwitch");
+    function renderSplit() {
+      splitSwitch.checked = S.split;
+      document.querySelector('.shift-col[data-ch="R"]').style.display = S.split ? "" : "none";
+      document.getElementById("shiftSliderR").style.display = S.split ? "" : "none";
+      document.querySelectorAll("[data-split-btn]").forEach(function (b) {
+        b.classList.toggle("active", (b.getAttribute("data-split-btn") === "on") === S.split);
+      });
+      renderD3Visibility();
+    }
+    function setSplit(v) { S.split = v; renderSplit(); persist(); }
+    document.querySelectorAll("[data-split-btn]").forEach(function (b) {
+      b.addEventListener("click", function () { setSplit(b.getAttribute("data-split-btn") === "on"); });
+    });
+    splitSwitch.addEventListener("change", function () { setSplit(splitSwitch.checked); });
+
+    // ---------- capture on/off ----------
+    var captureSwitch = document.getElementById("captureSwitch");
+    function renderCapture() {
+      captureSwitch.checked = S.cap;
+      document.getElementById("captureDetail").classList.toggle("open", S.cap);
+      document.querySelectorAll("[data-capture-btn]").forEach(function (b) {
+        b.classList.toggle("active", (b.getAttribute("data-capture-btn") === "on") === S.cap);
+      });
+    }
+    function setCap(v) { S.cap = v; renderCapture(); persist(); }
+    document.querySelectorAll("[data-capture-btn]").forEach(function (b) {
+      b.addEventListener("click", function () { setCap(b.getAttribute("data-capture-btn") === "on"); });
+    });
+    captureSwitch.addEventListener("change", function () { setCap(captureSwitch.checked); });
+
+    // ---------- D4-A: duck method radio ----------
+    var duckBlock = document.getElementById("duckBlock");
+    document.querySelectorAll('input[name="duckMethod"]').forEach(function (r) {
+      r.addEventListener("change", function () {
+        duckBlock.classList.toggle("open", r.value === "accessibility" && r.checked);
+      });
+    });
+    if (S.d4x) {
+      var accRadio = document.querySelector('input[name="duckMethod"][value="accessibility"]');
+      accRadio.checked = true;
+      duckBlock.classList.add("open");
+    }
+
+    // ---------- D4-B: toggle + sliders ----------
+    var accToggleB = document.getElementById("accToggleB");
+    function renderD4BState() {
+      var on = accToggleB.checked;
+      document.getElementById("duckRowB").classList.toggle("dim", !on);
+      document.getElementById("accVolRowB").classList.toggle("dim", !on);
+      document.getElementById("duckHintB").style.display = on ? "none" : "block";
+    }
+    accToggleB.checked = S.d4x;
+    accToggleB.addEventListener("change", renderD4BState);
+
+    // ---------- profile chips (D1-B) ----------
+    document.querySelectorAll(".chip[data-chip]").forEach(function (c) {
+      c.addEventListener("click", function () {
+        if (c.getAttribute("data-chip") === "add") return; // 保存は視覚のみ
+        document.querySelectorAll(".chip[data-chip]").forEach(function (cc) { cc.classList.remove("selected"); });
+        c.classList.add("selected");
+      });
+    });
+
+    // ---------- info toggles ----------
+    document.querySelectorAll("[data-info-target]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var el = document.getElementById(btn.getAttribute("data-info-target"));
+        el.classList.toggle("open");
+      });
+    });
+
+    // ---------- shift number / slider / step ----------
+    var STEP_CYCLE = [
+      { name: "全音", val: 200 },
+      { name: "半音", val: 100 },
+      { name: "1/4 音", val: 50 },
+      { name: "1/8 音", val: 25 }
+    ];
+    var stepIdx = 3; // 既定: 1/8 音
+    var shiftL = -89, shiftR = -89;
+
+    function clamp(v) { return Math.max(-1200, Math.min(1200, v)); }
+    function renderShift() {
+      document.querySelectorAll('[data-tap="L"]').forEach(function (el) { el.textContent = shiftL; });
+      document.querySelectorAll('[data-tap="R"]').forEach(function (el) { el.textContent = shiftR; });
+      document.querySelectorAll(".shift-slider-L").forEach(function (el) { el.value = shiftL; });
+      document.querySelectorAll(".shift-slider-R").forEach(function (el) { el.value = shiftR; });
+    }
+    function renderStepPill() {
+      var s = STEP_CYCLE[stepIdx];
+      var txt = s.name + "\n" + s.val;
+      document.getElementById("stepPill").textContent = txt;
+      var pb = document.getElementById("stepPillB");
+      if (pb) pb.textContent = txt;
+    }
+    renderShift();
+    renderStepPill();
+
+    document.querySelectorAll("[data-step-dir]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var dir = parseInt(btn.getAttribute("data-step-dir"), 10);
+        var amount = STEP_CYCLE[stepIdx].val * dir;
+        shiftL = clamp(shiftL + amount);
+        shiftR = clamp(shiftR + amount);
+        renderShift();
+      });
+    });
+    document.querySelectorAll("[data-step-dir-b]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var dir = parseInt(btn.getAttribute("data-step-dir-b"), 10);
+        var ch = btn.getAttribute("data-ch");
+        var amount = STEP_CYCLE[stepIdx].val * dir;
+        if (ch === "L") shiftL = clamp(shiftL + amount); else shiftR = clamp(shiftR + amount);
+        renderShift();
+      });
+    });
+    document.getElementById("stepPill").addEventListener("click", function () {
+      stepIdx = (stepIdx + 1) % STEP_CYCLE.length;
+      renderStepPill();
+    });
+    document.getElementById("stepPillB").addEventListener("click", function () {
+      stepIdx = (stepIdx + 1) % STEP_CYCLE.length;
+      renderStepPill();
+    });
+    document.querySelectorAll(".shift-slider-L").forEach(function (el) {
+      el.addEventListener("input", function (e) { shiftL = parseInt(e.target.value, 10); renderShift(); });
+    });
+    document.querySelectorAll(".shift-slider-R").forEach(function (el) {
+      el.addEventListener("input", function (e) { shiftR = parseInt(e.target.value, 10); renderShift(); });
+    });
+    document.querySelectorAll("[data-jump]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var v = parseInt(btn.getAttribute("data-jump"), 10);
+        shiftL = v; shiftR = v;
+        renderShift();
+      });
+    });
+    document.querySelectorAll(".shift-number").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var ch = btn.getAttribute("data-tap");
+        var cur = ch === "L" ? shiftL : shiftR;
+        var input = window.prompt("シフト量を入力(" + ch + ") −1200 〜 1200", String(cur));
+        if (input === null) return;
+        var n = parseInt(input, 10);
+        if (isNaN(n)) return;
+        n = clamp(n);
+        if (ch === "L") shiftL = n; else shiftR = n;
+        renderShift();
+      });
+    });
+    document.querySelectorAll('[data-preset]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (btn.getAttribute("data-preset") === "1") { shiftL = -89; shiftR = -89; renderShift(); }
+      });
+    });
+
+    // ---------- volume ----------
+    var volSlider = document.getElementById("volumeSlider");
+    var volValue = document.getElementById("volumeValue");
+    volSlider.addEventListener("input", function () {
+      var v = parseInt(volSlider.value, 10);
+      volValue.textContent = (v >= 0 ? "+" : "") + v + " dB";
+    });
+
+    var micSlider = document.getElementById("micGainSlider");
+    var micValue = document.getElementById("micGainValue");
+    micSlider.addEventListener("input", function () {
+      var v = parseInt(micSlider.value, 10);
+      micValue.textContent = v <= -30 ? "OFF" : (v >= 0 ? "+" : "") + v + " dB";
+    });
+
+    var dwSlider = document.getElementById("drywetSlider");
+    var dwValue = document.getElementById("drywetValue");
+    dwSlider.addEventListener("input", function () {
+      dwValue.textContent = (parseInt(dwSlider.value, 10) / 100).toFixed(2);
+    });
+
+    var duckSliderB = document.getElementById("duckSliderB");
+    var duckValueB = document.getElementById("duckValueB");
+    duckSliderB.addEventListener("input", function () {
+      duckValueB.textContent = duckSliderB.value + "%";
+    });
+
+    // ---------- generic segmented buttons (visual only) ----------
+    document.querySelectorAll(".segmented").forEach(function (group) {
+      if (group.id === "themeSeg") return;
+      var btns = group.querySelectorAll(".seg-btn");
+      btns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          btns.forEach(function (bb) { bb.classList.remove("active"); });
+          b.classList.add("active");
+        });
+      });
+    });
+
+    // ---------- profile apply (visual only) ----------
+    document.querySelectorAll(".apply-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll(".apply-btn").forEach(function (b) {
+          b.textContent = "適用"; b.classList.remove("applied");
+        });
+        btn.textContent = "適用中"; btn.classList.add("applied");
+      });
+    });
+
+    // ---------- 初期状態を DOM に反映 ----------
+    if (S.embed) document.body.classList.add("embed");
+    document.documentElement.setAttribute("data-theme", S.theme);
+    document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-theme-btn") === S.theme);
+    });
+    document.querySelectorAll("[data-theme-seg]").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-theme-seg") === S.theme);
+    });
+    updateDToolbar();
+    renderD1(); renderD2(); renderD3Visibility(); renderD4Visibility(); renderD5Visibility();
+    renderD4BState();
+    renderRunning();
+    renderSplit();
+    renderCapture();
+    renderTabDOM();
+    renderAnnoDecisions();
+  }
+
+  // ================================================================
+  // 起動
+  // ================================================================
+  document.addEventListener("DOMContentLoaded", function () {
+    if (S.compare) {
+      document.getElementById("toolbar").style.display = "none";
+      document.querySelector(".stage").style.display = "none";
+      document.getElementById("compareView").style.display = "block";
+      renderCompareView();
+      return;
+    }
+    wireNormal();
+  });
+})();
+</script>
+</body>
+</html>

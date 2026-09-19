@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 下部タブ「聞く」。簡易ヘッドホン形状(アーチ + 左右のイヤーカップ)。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,3C7.03,3 3,7.03 3,12V17.5C3,18.88 4.12,20 5.5,20H7C7.55,20 8,19.55 8,19V14.5C8,13.95 7.55,13.5 7,13.5H5V12C5,8.13 8.13,5 12,5C15.87,5 19,8.13 19,12V13.5H17C16.45,13.5 16,13.95 16,14.5V19C16,19.55 16.45,20 17,20H18.5C19.88,20 21,18.88 21,17.5V12C21,7.03 16.97,3 12,3Z" />
+</vector>

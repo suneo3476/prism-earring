@@ -15,8 +15,8 @@ android {
         applicationId = "dev.saku.prismearring"
         minSdk = 30
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.1"
+        versionCode = 11
+        versionName = "0.7.0"
 
         // Pixel(64bit ARM)のみを対象にする。APK を小さく保ち、
         // 検証できない ABI のバイナリを配らない。

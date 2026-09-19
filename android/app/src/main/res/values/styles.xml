@@ -111,4 +111,35 @@
         <item name="android:textSize">12sp</item>
         <item name="android:textAlignment">center</item>
     </style>
+
+    <!-- Service 再起動が要る設定のラベル横に付ける小バッジ(v0.7.0)。bg_tag を流用。 -->
+    <style name="RestartBadge">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:background">@drawable/bg_tag</item>
+        <item name="android:paddingHorizontal">7dp</item>
+        <item name="android:paddingVertical">2dp</item>
+        <item name="android:text">@string/badge_restart</item>
+        <item name="android:textColor">@color/warn_fg</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- 「聞く」タブの刻み幅ピル(−/+ の間)。タップで STEP_PRESETS を循環する。 -->
+    <style name="StepPill">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minWidth">64dp</item>
+        <item name="android:background">@drawable/bg_seg</item>
+        <item name="android:paddingHorizontal">10dp</item>
+        <item name="android:paddingVertical">10dp</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:textColor">@color/primary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:lineSpacingExtra">1dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
 </resources>

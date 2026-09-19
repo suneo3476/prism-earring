@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 「使用中」バッジの背景。bg_pill.xml(idle 色)の ok 色版。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/ok" />
+    <corners android:radius="999dp" />
+</shape>

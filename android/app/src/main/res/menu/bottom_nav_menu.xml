@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navListen"
+        android:icon="@drawable/ic_tab_listen"
+        android:title="@string/nav_listen" />
+    <item
+        android:id="@+id/navSource"
+        android:icon="@drawable/ic_tab_source"
+        android:title="@string/nav_source" />
+    <item
+        android:id="@+id/navProfile"
+        android:icon="@drawable/ic_tab_profile"
+        android:title="@string/nav_profile" />
+    <item
+        android:id="@+id/navAdvanced"
+        android:icon="@drawable/ic_tab_advanced"
+        android:title="@string/nav_advanced" />
+</menu>
